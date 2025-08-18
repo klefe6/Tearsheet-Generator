@@ -1,0 +1,224 @@
+:root {
+  --white-bg: #ffffff;       /* Page background */
+  --primary-color: #0D3562;  /* Primary color (blue) */
+  --header-bg: #EBEBEB;      /* Header background (grey) */
+  --spacing-unit: 1rem;      /* Base spacing for scalability */
+  --max-width: 90rem;        /* Max content width for desktop */
+}
+
+/* Apply page background */
+body, #page-container {
+  background-color: var(--white-bg) !important;
+  min-height: 100vh; /* Ensure full viewport height */
+}
+ 
+/* Responsive page container */
+#page-container {
+  width: 90%;
+  max-width: var(--max-width);
+  margin: 0 auto;
+  padding: var(--spacing-unit);
+}
+
+/* Responsive header */
+#page-container > .row:first-child {
+  padding: calc(var(--spacing-unit) / 2) 0;
+  text-align: center;
+}
+#page-container img {
+  max-width: 100%;
+  height: auto;
+  margin: 0 auto;
+  display: block;
+}
+#page-container .col-2, #page-container .col-8, #page-container .col-4 {
+  padding: calc(var(--spacing-unit) / 2);
+}
+
+/* Apply to tables with fixed-cols class */
+.fixed-cols {
+  table-layout: fixed !important;
+  width: 100% !important;
+}
+@media (max-width: 768px) {
+  .fixed-cols th:nth-child(1),
+  .fixed-cols td:nth-child(1) {
+    width: 50% !important;
+  }
+  .fixed-cols th:nth-child(2),
+  .fixed-cols td:nth-child(2),
+  .fixed-cols th:nth-child(3),
+  .fixed-cols td:nth-child(3) {
+    width: 25% !important;
+  }
+}
+@media (min-width: 769px) {
+  .fixed-cols th:nth-child(1),
+  .fixed-cols td:nth-child(1) {
+    width: 40% !important;
+  }
+  .fixed-cols th:nth-child(2),
+  .fixed-cols td:nth-child(2) {
+    width: 30% !important;
+  }
+  .fixed-cols th:nth-child(3),
+  .fixed-cols td:nth-child(3) {
+    width: 30% !important;
+  }
+}
+
+/* Override bg-light for headers */
+.bg-light {
+  background-color: var(--header-bg) !important;
+}
+
+/* Card table headers */
+.card .table thead th {
+  background-color: var(--header-bg) !important;
+}
+
+/* Primary text color */
+.text-primary {
+  color: var(--primary-color) !important;
+}
+
+/* Table body headers */
+.table tbody th {
+  background-color: var(--header-bg) !important;
+}
+
+/* Responsive disclaimer overlay */
+#disclaimer-screen {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background-color: rgba(0, 0, 0, 0.3);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 9999;
+}
+#disclaimer-screen > div {
+  background-color: var(--header-bg);
+  padding: var(--spacing-unit);
+  border-radius: 1rem;
+  width: 90vw;
+  max-width: 40rem;
+  max-height: 80vh;
+  overflow-y: auto;
+  box-shadow: 0 0.25rem 0.75rem rgba(0, 0, 0, 0.1);
+  text-align: center;
+}
+@media (max-width: 480px) {
+  #disclaimer-screen > div {
+    width: 95vw;
+    padding: calc(var(--spacing-unit) / 1.5);
+  }
+  #disclaimer-screen button {
+    padding: 0.5rem 1rem;
+    font-size: 0.9rem;
+  }
+}
+#disclaimer-screen button {
+  background-color: var(--primary-color);
+  border-color: var(--primary-color);
+  padding: 0.75rem 1.5rem;
+  font-size: 1rem;
+  min-width: 10rem;
+}
+#disclaimer-screen p {
+  max-width: 30rem;
+  margin: 0 auto;
+  font-size: 0.9rem;
+}
+@media (max-width: 480px) {
+  #disclaimer-screen p {
+    font-size: 0.8rem;
+  }
+}
+
+/* Responsive graphs */
+#NAV-graph {
+  width: 100% !important;
+  height: auto !important;
+}
+#bench-overlay {
+  width: 100% !important;
+  height: auto !important;
+}
+
+/* Responsive cards and tables */
+.card {
+  margin-bottom: var(--spacing-unit);
+}
+.table-responsive {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch; /* Smooth scrolling on mobile */
+}
+@media (max-width: 768px) {
+  .card-body .table {
+    font-size: 0.9rem;
+  }
+  .col-6 {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+  .col-8, .col-4 {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+  .row {
+    flex-direction: column;
+  }
+}
+
+/* Button group responsiveness */
+.btn-group {
+  width: 100%;
+}
+.btn-group .btn {
+  flex: 1;
+  margin: 0 calc(var(--spacing-unit) / 4);
+}
+@media (max-width: 480px) {
+  .btn-group .btn {
+    font-size: 0.8rem;
+    padding: 0.5rem;
+  }
+}
+
+/* ===========================
+   PRINT STYLES
+   =========================== */
+@media print {
+  /* target the inner SVG of a Dash/Plotly graph */
+  .js-plotly-plot svg {
+    /* force it to never exceed the page width or height */
+    max-width: 100% !important;
+    max-height: calc(100vh - 100px) !important;
+    width: 100% !important;
+    height: auto !important;
+
+    /* if it’s still too big, scale it down */
+    transform: scale(0.85) !important;
+    transform-origin: top left !important;
+
+    /* keep the graph on one page */
+    page-break-inside: avoid !important;
+  }
+}
+
+.chart-container {
+  width: 100%;
+  max-width: 900px;     /* prevents it from getting too wide on desktops */
+  margin: 0 auto;       /* centers on large screens */
+}
+
+/* tweak margins/padding at narrow breakpoints */
+@media (max-width: 600px) {
+  .chart-container {
+    padding: 0 10px;
+  }
+}

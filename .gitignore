@@ -1,0 +1,35 @@
+# Virtual Environment
+.venv310/
+venv/
+env/
+
+# Excel files (typically not committed to git)
+*.xlsx
+*.xls
+
+# CSV files (data files)
+*.csv
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.temp
