@@ -41,14 +41,134 @@ except FileNotFoundError:
     logo_src = ""
 # ─── Brand colors ────────────────────────────────
 WHITE_BG     = "#ffffff"
-GREY_BG      = "#EBEBEB"   # matches ggplot2’s plot_bgcolor
-PRIMARY_COLOR = "#0D3562"  # your “blue,” user‐changeable
+GREY_BG      = "#EBEBEB"   # matches ggplot2's plot_bgcolor
+PRIMARY_COLOR = "#0D3562"  # your "blue," user‐changeable
 SECONDARY_COLOR = "#CCCCCC"
 
 LEFT_TABLE_GAPS = "20px"
 RIGHT_TABLE_GAPS = "30px"
 
 HEADER_ROW_CLASS = "bg-light"
+
+# ==============================================================================
+# HELPER FUNCTIONS & CONSTANTS (Safe additions - won't affect current functionality)
+# ==============================================================================
+
+# Constants for magic numbers used throughout the code
+TRADING_DAYS_PER_YEAR = 252
+BUSINESS_DAYS_PER_YEAR = 365
+BASELINE_AMOUNT = 150000
+NOMINAL_ASSETS = 300000
+ACCOUNT_COUNT = 4
+OPEN_ACCOUNTS = 2
+CLOSED_PROFITABLE = 2
+CLOSED_UNPROFITABLE = 0
+MIN_RETURN = 0.36
+MAX_RETURN = 4.2
+AVERAGE_MARGIN_USAGE = 1.77
+TRANSACTION_FEE_PER_CONTRACT = 0.30
+
+def validate_file_path(file_path):
+    """Validate that file exists and is accessible"""
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f"File not found: {file_path}")
+    if not os.access(file_path, os.R_OK):
+        raise PermissionError(f"Cannot read file: {file_path}")
+    return file_path
+
+def validate_nav_data(df: pd.DataFrame) -> bool:
+    """Validate NAV dataframe structure and content"""
+    if df.empty:
+        return False
+    
+    if df.index.has_duplicates:
+        print("Warning: Duplicate dates found, removing duplicates")
+        df = df[~df.index.duplicated(keep="first")]
+    
+    if df.isnull().any().any():
+        print("Warning: Missing values found in NAV data")
+    
+    return True
+
+def safe_logo_loading(logo_path: str) -> str:
+    """Safely load logo with fallback"""
+    try:
+        with open(logo_path, "rb") as f:
+            logo_b64 = base64.b64encode(f.read()).decode("utf-8")
+        return f"data:image/png;base64,{logo_b64}"
+    except FileNotFoundError:
+        print(f"Error: Logo file not found at {logo_path}")
+        return ""
+    except Exception as e:
+        print(f"Error loading logo: {e}")
+        return ""
+
+def safe_benchmark_download(symbol: str, max_retries: int = 3) -> pd.Series:
+    """Download benchmark data with retry logic"""
+    for attempt in range(max_retries):
+        try:
+            return utils.download_returns(symbol)
+        except Exception as e:
+            if attempt == max_retries - 1:
+                print(f"Failed to download {symbol} after {max_retries} attempts: {e}")
+                return pd.Series(dtype=float)
+            print(f"Attempt {attempt + 1} failed for {symbol}, retrying...")
+            import time
+            time.sleep(1)  # Brief delay before retry
+    return pd.Series(dtype=float)
+
+def create_monthly_calendar(monthly_simple):
+    """Create monthly calendar table from monthly simple returns"""
+    years = sorted(monthly_simple.index.year.unique())
+    months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
+    
+    monthly_data = {"Year": [str(y) for y in years]}
+    
+    for idx, m in enumerate(months, start=1):
+        monthly_data[m] = [
+            f"{monthly_simple.get(pd.Period(f'{y}-{idx:02d}'), 0):.2f}%"
+            if pd.Period(f'{y}-{idx:02d}') in monthly_simple.index
+            else ""
+            for y in years
+        ]
+    
+    # Calculate year totals
+    yearly_simple = monthly_simple.groupby(monthly_simple.index.year).sum()
+    monthly_data["Year Total"] = [
+        f"{yearly_simple.get(y, 0):.2f}%"
+        for y in years
+    ]
+    
+    return pd.DataFrame(monthly_data)
+
+# Safe helper function for monthly calendar (alternative to inline logic)
+def build_monthly_calendar_safe(monthly_simple_series):
+    """Alternative monthly calendar builder with error handling"""
+    try:
+        years = sorted(monthly_simple_series.index.year.unique())
+        months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
+        
+        monthly_data = {"Year": [str(y) for y in years]}
+        
+        for idx, m in enumerate(months, start=1):
+            monthly_data[m] = [
+                f"{monthly_simple_series.get(pd.Period(f'{y}-{idx:02d}'), 0):.2f}%"
+                if pd.Period(f'{y}-{idx:02d}') in monthly_simple_series.index
+                else ""
+                for y in years
+            ]
+        
+        # Calculate year totals
+        yearly_simple = monthly_simple_series.groupby(monthly_simple_series.index.year).sum()
+        monthly_data["Year Total"] = [
+            f"{yearly_simple.get(y, 0):.2f}%"
+            for y in years
+        ]
+        
+        return pd.DataFrame(monthly_data)
+    except Exception as e:
+        print(f"Warning: Error building monthly calendar: {e}")
+        return pd.DataFrame()  # Return empty DataFrame as fallback
 
 # ==============================================================================
 # 3) CONFIGURATION
@@ -73,6 +193,17 @@ xlsx_path = (
 # ==============================================================================
 import sys
 
+# Validate file exists and is accessible before attempting to read
+if not os.path.exists(xlsx_path):
+    print(f"❌ File not found: {xlsx_path}")
+    sys.exit(1)
+
+if not os.access(xlsx_path, os.R_OK):
+    print(f"❌ Permission denied: Cannot read file '{xlsx_path}'")
+    print("   This usually means the file is open in Excel or another program.")
+    print("   Please close the file and try again.")
+    sys.exit(1)
+
 try:
     # Load only columns B and M, parse B as Date
     NAV_df = pd.read_excel(
@@ -83,24 +214,414 @@ try:
         parse_dates=["Date"],       # parse the B‑column into datetime
         engine="openpyxl",
     )
+    
+    # Add safe validation (won't break existing functionality)
+    if NAV_df.empty:
+        print("❌ NAV data is empty")
+        sys.exit(1)
+        
+    if len(NAV_df.columns) < 2:
+        print("❌ NAV data must have at least 2 columns")
+        sys.exit(1)
+        
+except PermissionError as e:
+    print(f"❌ Permission denied: Cannot read file '{xlsx_path}'")
+    print("   This usually means the file is open in Excel or another program.")
+    print("   Please close the file and try again.")
+    sys.exit(1)
 except Exception as e:
     print(f"❌ Failed to load NAV data: {e}")
+    print(f"   File path: {xlsx_path}")
     sys.exit(1)
 
 # Make sure pandas named the second column correctly
 if NAV_df.columns[1] != "nav‑x1" and NAV_df.columns[1] != "nav-x1":
     NAV_df.rename(columns={NAV_df.columns[1]: "nav-x1"}, inplace=True)
 
+# Ensure Date column is datetime - handle cases where parse_dates didn't work
+if NAV_df["Date"].dtype == 'object':
+    # Try to convert string dates to datetime
+    NAV_df["Date"] = pd.to_datetime(NAV_df["Date"], errors='coerce')
+    # Remove rows where date conversion failed
+    invalid_conversions = NAV_df["Date"].isna()
+    if invalid_conversions.any():
+        print(f"⚠️  Warning: {invalid_conversions.sum()} row(s) had unparseable dates and were removed")
+        NAV_df = NAV_df[~invalid_conversions]
+        if NAV_df.empty:
+            print("❌ No valid dates remaining after date parsing")
+            sys.exit(1)
+
 # Set Date as the index
 NAV_df.set_index("Date", inplace=True)
+
+# Validate and filter out invalid dates (pandas datetime64[ns] can only handle ~1677-2262)
+# This prevents overflow errors from dates like 2505-11-04
+MIN_VALID_DATE = pd.Timestamp('1900-01-01')
+MAX_VALID_DATE = pd.Timestamp('2260-01-01')  # Well before pandas limit
+
+# Ensure index is datetime before comparison
+if not pd.api.types.is_datetime64_any_dtype(NAV_df.index):
+    print("⚠️  Warning: Index is not datetime, attempting conversion...")
+    NAV_df.index = pd.to_datetime(NAV_df.index, errors='coerce')
+    # Remove rows where conversion failed
+    invalid_conversions = NAV_df.index.isna()
+    if invalid_conversions.any():
+        print(f"⚠️  Warning: {invalid_conversions.sum()} row(s) had unparseable dates and were removed")
+        NAV_df = NAV_df[~invalid_conversions]
+        if NAV_df.empty:
+            print("❌ No valid dates remaining after date conversion")
+            sys.exit(1)
+
+# Now safe to compare dates
+invalid_dates = (NAV_df.index < MIN_VALID_DATE) | (NAV_df.index > MAX_VALID_DATE)
+if invalid_dates.any():
+    invalid_count = invalid_dates.sum()
+    print(f"⚠️  Warning: Found {invalid_count} invalid date(s) outside valid range (1900-2260)")
+    print(f"   Invalid dates: {NAV_df.index[invalid_dates].tolist()}")
+    print(f"   Removing invalid dates...")
+    NAV_df = NAV_df[~invalid_dates]
+    
+    if NAV_df.empty:
+        print("❌ No valid dates remaining after filtering")
+        sys.exit(1)
 
 # Drop exact duplicates so .asfreq() works
 if NAV_df.index.has_duplicates:
     NAV_df = NAV_df[~NAV_df.index.duplicated(keep="first")]
 
-# Reindex to your custom business‑day calendar
+# Reindex to your custom business‑day calendar (fills missing dates with NaN)
+# Now safe because all dates are validated
+nav_col_name = NAV_df.columns[0]  # Get the NAV column name (usually "nav-x1")
+print(f"📊 Before asfreq: {len(NAV_df)} rows, date range: {NAV_df.index.min().date()} to {NAV_df.index.max().date()}")
+print(f"   Last NAV value before asfreq: ${NAV_df[nav_col_name].iloc[-1]:,.2f}")
+
 NAV_df = NAV_df.asfreq(us_bd)
 
+print(f"📊 After asfreq: {len(NAV_df)} rows, date range: {NAV_df.index.min().date()} to {NAV_df.index.max().date()}")
+print(f"   Last NAV value after asfreq: ${NAV_df[nav_col_name].iloc[-1]:,.2f}")
+
+# Forward fill NaN values to prevent gaps in the chart
+# This ensures smooth continuation between dates
+NAV_df = NAV_df.ffill()
+
+print(f"📊 After ffill: {len(NAV_df)} rows")
+print(f"   Last 5 NAV values: {NAV_df[nav_col_name].tail(5).tolist()}")
+print(f"   Last 5 dates: {NAV_df.index[-5:].tolist()}")
+
+# ─────────────────────────────────────────────────────────────
+# ADJUST FOR CASH TRANSFER (remove non-performance effect)
+# ─────────────────────────────────────────────────────────────
+# Configuration: Set to False to disable auto-detection and show raw NAV
+AUTO_DETECT_CASH_TRANSFERS = True  # Set to True to enable auto-detection of deposits/withdrawals
+
+# Manual specification (only used if AUTO_DETECT is False and values are provided)
+CASH_TRANSFER_DATE = None     # e.g., "2024-01-16" or pd.Timestamp("2024-01-16"); use None to disable
+CASH_TRANSFER_ROW = None       # Excel row number (1-indexed, header is row 1); use None to disable
+TRANSFER_AMOUNT = None      # Positive to add back a withdrawal; negative to remove a deposit; None to skip
+
+def _resolve_transfer_date_from_row(xlsx_path: str, excel_row: int) -> pd.Timestamp:
+    if excel_row is None:
+        raise ValueError("excel_row is None")
+    if excel_row < 2:
+        raise ValueError("Excel row number must be >= 2 (row 1 is header)")
+    if not os.access(xlsx_path, os.R_OK):
+        raise PermissionError(f"Cannot read file '{xlsx_path}' - file may be open in Excel")
+    temp_df = pd.read_excel(
+        xlsx_path,
+        sheet_name="Sheet1",
+        usecols="B",
+        header=0,
+        engine="openpyxl",
+    )
+    df_index = excel_row - 2  # Excel row 2 -> DataFrame index 0
+    if df_index < 0 or df_index >= len(temp_df):
+        raise IndexError(
+            f"Excel row {excel_row} is out of range (valid: 2 to {len(temp_df) + 1})"
+        )
+    return pd.to_datetime(temp_df.iloc[df_index, 0])
+
+def _read_excel_dates(xlsx_path: str) -> pd.DatetimeIndex:
+    """Return a normalized DatetimeIndex of actual Excel dates (no forward-filled days)."""
+    dates = pd.read_excel(
+        xlsx_path, sheet_name="Sheet1", usecols="B", header=0, engine="openpyxl"
+    )["Date"].dropna()
+    dates = pd.to_datetime(dates).dt.normalize()
+    return pd.DatetimeIndex(sorted(dates.unique()))
+
+def _next_real_excel_date(xlsx_path: str, candidate: pd.Timestamp) -> pd.Timestamp:
+    """Snap candidate to the next actual Excel date (not a generated business day)."""
+    real = _read_excel_dates(xlsx_path)
+    later = real[real >= pd.Timestamp(candidate).normalize()]
+    return later[0] if len(later) else pd.Timestamp(candidate)
+
+def _apply_cash_transfer_adjustment(
+    nav_df: pd.DataFrame,
+    nav_column: str,
+    transfer_row: int,
+    transfer_amount: float,
+    xlsx_path: str,
+):
+    """
+    Normalize NAV series for deposits/withdrawals to remove non-performance effects.
+    
+    Financial intent:
+    - Withdrawal: NAV drops (e.g., 182k → 82k, delta = -100k) → ADD BACK +100k from transfer date onward
+    - Deposit: NAV rises (e.g., 182k → 282k, delta = +100k) → SUBTRACT -100k from transfer date onward
+    
+    Args:
+        nav_df: DataFrame with Date index and NAV column (already reindexed/forward-filled)
+        nav_column: Name of NAV column
+        transfer_row: Excel row number where transfer occurs (1-indexed, header is row 1)
+        transfer_amount: Amount to adjust (positive = add back withdrawal, negative = remove deposit)
+                         If None, auto-detect from Excel NAV delta
+        xlsx_path: Path to Excel file for reading actual NAV values
+    
+    Returns:
+        None (modifies nav_df in place)
+    """
+    # Read actual Excel data to get true before/after NAV values (not forward-filled)
+    df_excel = pd.read_excel(
+        xlsx_path,
+        sheet_name="Sheet1",
+        usecols="B,M",
+        header=0,
+        engine="openpyxl",
+    )
+    df_excel.columns = ["Date", "NAV"]
+    df_excel["Date"] = pd.to_datetime(df_excel["Date"], errors='coerce')
+    df_excel = df_excel.dropna(subset=["Date"])
+    
+    # Filter out invalid dates (pandas datetime64 limitation)
+    MIN_VALID_DATE = pd.Timestamp('1900-01-01')
+    MAX_VALID_DATE = pd.Timestamp('2260-01-01')
+    invalid_dates = (df_excel["Date"] < MIN_VALID_DATE) | (df_excel["Date"] > MAX_VALID_DATE)
+    if invalid_dates.any():
+        df_excel = df_excel[~invalid_dates]
+    
+    df_excel = df_excel.reset_index(drop=True)
+    
+    # Get the Excel row indices (0-indexed)
+    excel_idx = transfer_row - 2  # Excel row 2 → DataFrame index 0
+    if excel_idx < 0 or excel_idx >= len(df_excel):
+        raise IndexError(f"Excel row {transfer_row} is out of range")
+    if excel_idx == 0:
+        raise ValueError(f"Cannot use row {transfer_row} as transfer row (need previous row for comparison)")
+    
+    # Get actual NAV values from Excel at transfer boundary
+    before_nav_excel = df_excel.iloc[excel_idx - 1]["NAV"]  # Row before transfer
+    after_nav_excel = df_excel.iloc[excel_idx]["NAV"]      # Row with transfer
+    delta = after_nav_excel - before_nav_excel
+    
+    # Get the transfer date from Excel
+    transfer_date_excel = df_excel.iloc[excel_idx]["Date"]
+    
+    # Determine effective adjustment amount
+    if transfer_amount is not None:
+        # User specified amount: use it directly
+        # Positive = add back (for withdrawals), Negative = remove (for deposits)
+        effective_amount = transfer_amount
+    else:
+        # Auto-detect: negate the actual cash movement
+        # If NAV dropped (withdrawal), we need to add back (positive correction)
+        # If NAV rose (deposit), we need to subtract (negative correction)
+        effective_amount = -delta
+    
+    # Find the transfer date in the reindexed NAV_df (may be forward-filled)
+    if transfer_date_excel not in nav_df.index:
+        matching_dates = nav_df.index[nav_df.index >= transfer_date_excel]
+        if len(matching_dates) == 0:
+            raise IndexError(
+                f"Transfer date {transfer_date_excel.date()} is after last NAV date"
+            )
+        transfer_date = matching_dates[0]
+    else:
+        transfer_date = transfer_date_excel
+    
+    # Get mask for all rows from transfer_date onward (never touch earlier dates)
+    mask = nav_df.index >= transfer_date
+    affected_rows = mask.sum()
+    
+    # Snapshot before adjustment
+    before_value = nav_df.loc[transfer_date, nav_column]
+    baseline_value = nav_df.loc[nav_df.index[0], nav_column]  # Preserve starting baseline
+    before_last_value = nav_df.loc[nav_df.index[-1], nav_column] if len(nav_df) > 0 else None
+    
+    # Debug: Show last 5 values before adjustment
+    print(f"   [DEBUG] Last 5 NAV values BEFORE adjustment: {nav_df[nav_column].tail(5).tolist()}")
+    print(f"   [DEBUG] Adjustment amount: ${effective_amount:+,.2f} (will be {'added' if effective_amount > 0 else 'subtracted'})")
+    
+    # Apply adjustment to all rows from transfer_date onward
+    nav_df.loc[mask, nav_column] += effective_amount
+    
+    # Debug: Show last 5 values after adjustment
+    print(f"   [DEBUG] Last 5 NAV values AFTER adjustment: {nav_df[nav_column].tail(5).tolist()}")
+    
+    # Verify baseline unchanged
+    baseline_after = nav_df.loc[nav_df.index[0], nav_column]
+    if abs(baseline_after - baseline_value) > 0.01:
+        raise ValueError(f"Baseline NAV changed from {baseline_value:,.2f} to {baseline_after:,.2f}")
+    
+    after_value = nav_df.loc[transfer_date, nav_column]
+    after_last_value = nav_df.loc[nav_df.index[-1], nav_column] if len(nav_df) > 0 else None
+    
+    # Log the adjustment
+    verb = "added back" if effective_amount >= 0 else "removed"
+    action = "withdrawal" if effective_amount > 0 else "deposit"
+    print(
+        f"✅ Cash transfer adjustment: {verb} ${abs(effective_amount):,.0f} ({action}) | "
+        f"effective date: {transfer_date.date()}"
+    )
+    print(
+        f"   Excel row {transfer_row}: NAV {before_nav_excel:,.2f} → {after_nav_excel:,.2f} (delta: {delta:+,.2f})"
+    )
+    print(
+        f"   Adjusted {affected_rows} rows from {transfer_date.date()} to {nav_df.index[-1].date()}"
+    )
+    print(
+        f"   NAV[{transfer_date.date()}] before: {before_value:,.2f} → after: {after_value:,.2f}"
+    )
+    if before_last_value is not None and after_last_value is not None:
+        print(
+            f"   NAV[{nav_df.index[-1].date()}] before: {before_last_value:,.2f} → after: {after_last_value:,.2f}"
+        )
+    print(f"   ✅ Baseline preserved: ${baseline_value:,.2f}")
+
+def _auto_detect_cash_transfers(xlsx_path: str, min_transfer_amount: float = 50000) -> list:
+    """
+    Automatically detect all cash transfers (deposits/withdrawals) by scanning for large NAV jumps.
+    
+    Args:
+        xlsx_path: Path to Excel file
+        min_transfer_amount: Minimum NAV change to consider a transfer (default: $50k)
+    
+    Returns:
+        List of tuples: (transfer_row, delta, transfer_type)
+    """
+    # Read actual Excel data
+    df_excel = pd.read_excel(
+        xlsx_path,
+        sheet_name="Sheet1",
+        usecols="B,M",
+        header=0,
+        engine="openpyxl",
+    )
+    df_excel.columns = ["Date", "NAV"]
+    
+    # Convert dates with error handling for invalid dates
+    df_excel["Date"] = pd.to_datetime(df_excel["Date"], errors='coerce')
+    
+    # Validate and filter out invalid dates (same logic as main NAV loading)
+    MIN_VALID_DATE = pd.Timestamp('1900-01-01')
+    MAX_VALID_DATE = pd.Timestamp('2260-01-01')
+    
+    # Remove rows with invalid dates
+    df_excel = df_excel.dropna(subset=["Date"])
+    invalid_dates = (df_excel["Date"] < MIN_VALID_DATE) | (df_excel["Date"] > MAX_VALID_DATE)
+    if invalid_dates.any():
+        print(f"   [Auto-detect] Removing {invalid_dates.sum()} invalid date(s) from Excel")
+        df_excel = df_excel[~invalid_dates]
+    
+    # Remove rows with missing NAV
+    df_excel = df_excel.dropna(subset=["NAV"])
+    df_excel = df_excel.reset_index(drop=True)
+    
+    transfers = []
+    for i in range(1, len(df_excel)):  # Start from row 1 (skip header)
+        before_nav = df_excel.iloc[i - 1]["NAV"]
+        after_nav = df_excel.iloc[i]["NAV"]
+        delta = after_nav - before_nav
+        
+        # Detect if this is a large jump (likely a cash transfer)
+        if abs(delta) >= min_transfer_amount:
+            # Calculate expected NAV change from returns (to distinguish from performance)
+            # If NAV changed by more than expected trading P&L, it's likely a transfer
+            # For now, just use absolute threshold - can be refined later
+            transfer_row = i + 2  # Convert to 1-indexed Excel row (header is row 1)
+            transfer_type = "withdrawal" if delta < 0 else "deposit"
+            transfers.append((transfer_row, delta, transfer_type))
+    
+    return transfers
+
+try:
+    if not AUTO_DETECT_CASH_TRANSFERS:
+        print("ℹ️  Cash transfer auto-detection disabled (showing raw NAV)")
+        if CASH_TRANSFER_DATE is not None or CASH_TRANSFER_ROW is not None:
+            print("   Manual cash transfer adjustment specified:")
+    
+    if CASH_TRANSFER_DATE is not None or CASH_TRANSFER_ROW is not None:
+        # Manual specification: single transfer
+        if CASH_TRANSFER_ROW is not None:
+            # Use specified row (this is the Excel row where transfer occurs)
+            transfer_row = CASH_TRANSFER_ROW
+        elif CASH_TRANSFER_DATE is not None:
+            # Find Excel row matching the specified date
+            df_temp = pd.read_excel(
+                xlsx_path,
+                sheet_name="Sheet1",
+                usecols="B",
+                header=0,
+                engine="openpyxl",
+            )
+            df_temp.columns = ["Date"]
+            df_temp["Date"] = pd.to_datetime(df_temp["Date"])
+            target_date = pd.to_datetime(CASH_TRANSFER_DATE).normalize()
+            matches = df_temp[df_temp["Date"].dt.normalize() == target_date]
+            if len(matches) == 0:
+                raise ValueError(f"No Excel row found for date {CASH_TRANSFER_DATE}")
+            transfer_row = matches.index[0] + 2  # Convert to 1-indexed Excel row
+        else:
+            raise ValueError("Must specify either CASH_TRANSFER_DATE or CASH_TRANSFER_ROW")
+        
+        # Apply adjustment using actual Excel row
+        _apply_cash_transfer_adjustment(
+            NAV_df, 
+            "nav-x1", 
+            transfer_row, 
+            TRANSFER_AMOUNT, 
+            xlsx_path
+        )
+    elif AUTO_DETECT_CASH_TRANSFERS:
+        # Auto-detect all cash transfers
+        print("🔍 Auto-detecting cash transfers...")
+        transfers = _auto_detect_cash_transfers(xlsx_path, min_transfer_amount=50000)
+        
+        if len(transfers) == 0:
+            print("   No cash transfers detected (no NAV jumps >= $50k)")
+        else:
+            print(f"   Found {len(transfers)} potential cash transfer(s):")
+            for transfer_row, delta, transfer_type in transfers:
+                print(f"   - Row {transfer_row}: {transfer_type} of ${abs(delta):,.0f} (delta: {delta:+,.0f})")
+            
+            # Apply corrections to all detected transfers
+            # Process in chronological order (lowest row first)
+            transfers.sort(key=lambda x: x[0])
+            
+            for transfer_row, delta, transfer_type in transfers:
+                try:
+                    # Auto-detect amount by negating the delta
+                    transfer_amount = None  # Will auto-detect from delta
+                    _apply_cash_transfer_adjustment(
+                        NAV_df,
+                        "nav-x1",
+                        transfer_row,
+                        transfer_amount,
+                        xlsx_path
+                    )
+                except Exception as e:
+                    print(f"   ⚠️  Failed to adjust transfer at row {transfer_row}: {e}")
+                    continue
+        
+        print("✅ Auto-detection complete")
+except Exception as e:
+    print(f"⚠️  Warning: cash transfer adjustment skipped: {e}")
+    import traceback
+    traceback.print_exc()
+
+print(f"📊 Final NAV data: {len(NAV_df)} rows")
+print(f"   Date range: {NAV_df.index.min().date()} to {NAV_df.index.max().date()}")
+nav_col_name_final = NAV_df.columns[0]  # Get column name before NAV_col is defined
+print(f"   Last NAV value: ${NAV_df[nav_col_name_final].iloc[-1]:,.2f}")
+print(f"   Second-to-last NAV value: ${NAV_df[nav_col_name_final].iloc[-2]:,.2f}")
 print("✅ NAV data loaded successfully (Date + nav‑x1).")
 
 
@@ -141,9 +662,6 @@ baseline = NAV_df[NAV_col].iloc[0]
 daily_returns = NAV_df[NAV_col].diff().div(baseline).dropna()
 
 
-
-
-
 # ==============================================================================
 # 7) DOWNLOAD & ALIGN BENCHMARKS
 #    For each symbol, get daily returns, align to NAV dates, then compute cum & drawdown
@@ -160,17 +678,28 @@ bench_map = {k:v for k,v in bench_map.items() if v in BENCHMARKS}
 
 bench_ret, bench_cum, bench_dd = {}, {}, {}
 for name, sym in bench_map.items():
-    # 1) get evenly-spaced returns series
-    full_ret = utils.download_returns(sym)
-    aligned = full_ret.reindex(NAV_df.index).ffill().bfill().dropna()
-    # 2) cumulative growth
-    cum = (1 + aligned).cumprod()
-    # 3) drawdown in %
-    dd = (cum / cum.cummax() - 1) * 100
+    try:
+        # 1) get evenly-spaced returns series
+        full_ret = utils.download_returns(sym)
+        
+        # Add safe validation (won't break existing functionality)
+        if full_ret is None or full_ret.empty:
+            print(f"Warning: No data for {sym}, skipping")
+            continue
+            
+        aligned = full_ret.reindex(NAV_df.index).ffill().bfill().dropna()
+        # 2) cumulative growth
+        cum = (1 + aligned).cumprod()
+        # 3) drawdown in %
+        dd = (cum / cum.cummax() - 1) * 100
 
-    bench_ret[name] = aligned
-    bench_cum[name] = cum
-    bench_dd[name]  = dd
+        bench_ret[name] = aligned
+        bench_cum[name] = cum
+        bench_dd[name]  = dd
+        
+    except Exception as e:
+        print(f"Warning: Failed to load {sym}: {e}")
+        continue
 
 # ==============================================================================
 # 8) MONTHLY SIMPLE RETURNS (NON-COMPOUNDED) 
@@ -180,11 +709,37 @@ for name, sym in bench_map.items():
 # 8a) Month-end and month-start NAV
 mp          = NAV_df.index.to_period("M")
 month_last  = NAV_df[NAV_col].groupby(mp).last()
-month_first = month_last.shift(1)
-month_first.loc[month_last.index.min()] = baseline  # first-month start = baseline
 
-# 8b) Compute each month’s change **relative** to fixed baseline
+# Calculate month_first: use the last NAV value from the day before each month starts
+# This ensures we get the correct starting NAV even if there are gaps in months
+month_first = pd.Series(index=month_last.index, dtype=float)
+for period in month_last.index:
+    # Get the first day of this month
+    month_start = period.start_time
+    # Find the last NAV value before this month starts
+    nav_before_month = NAV_df[NAV_col][NAV_df.index < month_start]
+    if len(nav_before_month) > 0:
+        # Use the last NAV value before the month starts
+        month_first.loc[period] = nav_before_month.iloc[-1]
+    else:
+        # For the very first month, use baseline
+        month_first.loc[period] = baseline
+
+# 8b) Compute each month's change **relative** to fixed baseline
 monthly_simple = (month_last - month_first) / baseline * 100
+
+# Debug output for October 2025
+oct_2025_period = pd.Period("2025-10", freq="M")
+if oct_2025_period in monthly_simple.index:
+    oct_last = month_last.loc[oct_2025_period]
+    oct_first = month_first.loc[oct_2025_period]
+    oct_return = monthly_simple.loc[oct_2025_period]
+    print(f"🔍 October 2025 Debug:")
+    print(f"   month_last (Oct end NAV): ${oct_last:,.2f}")
+    print(f"   month_first (Sep end NAV): ${oct_first:,.2f}")
+    print(f"   baseline: ${baseline:,.2f}")
+    print(f"   calculated return: {oct_return:.2f}%")
+    print(f"   formula: (${oct_last:,.2f} - ${oct_first:,.2f}) / ${baseline:,.2f} * 100 = {oct_return:.2f}%")
 
  
  
@@ -219,7 +774,34 @@ monthly_data["Year Total"] = [
 
 monthly_df = pd.DataFrame(monthly_data)
 
-
+# Safe helper function for monthly calendar (alternative to inline logic)
+def build_monthly_calendar_safe(monthly_simple_series):
+    """Alternative monthly calendar builder with error handling"""
+    try:
+        years = sorted(monthly_simple_series.index.year.unique())
+        months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
+        
+        monthly_data = {"Year": [str(y) for y in years]}
+        
+        for idx, m in enumerate(months, start=1):
+            monthly_data[m] = [
+                f"{monthly_simple_series.get(pd.Period(f'{y}-{idx:02d}'), 0):.2f}%"
+                if pd.Period(f'{y}-{idx:02d}') in monthly_simple_series.index
+                else ""
+                for y in years
+            ]
+        
+        # Calculate year totals
+        yearly_simple = monthly_simple_series.groupby(monthly_simple_series.index.year).sum()
+        monthly_data["Year Total"] = [
+            f"{yearly_simple.get(y, 0):.2f}%"
+            for y in years
+        ]
+        
+        return pd.DataFrame(monthly_data)
+    except Exception as e:
+        print(f"Warning: Error building monthly calendar: {e}")
+        return pd.DataFrame()  # Return empty DataFrame as fallback
 
 # ==============================================================================
 # 9) DAILY PERFORMANCE METRICS
@@ -412,6 +994,32 @@ def drawdown_profile(
 
     return result
 
+# Safe helper function for drawdown profile (alternative to main function)
+def safe_drawdown_profile(
+    nav: pd.Series,
+    baseline: float,
+    use_quantstats: bool,
+    show_price: bool,
+    price_series: pd.Series
+) -> dict:
+    """
+    Safe version of drawdown profile with error handling.
+    Returns empty dict if calculation fails.
+    """
+    try:
+        return drawdown_profile(nav, baseline, use_quantstats, show_price, price_series)
+    except Exception as e:
+        print(f"Warning: Error calculating drawdown profile: {e}")
+        return {
+            "Depth": "N/A",
+            "Decline Period": "N/A", 
+            "Recovery Period": "N/A",
+            "Total Duration": "N/A",
+            "Start Date": "N/A",
+            "Valley Date": "N/A",
+            "End Date": "N/A"
+        }
+
 spxtr_price_series = (
     yf.download(
         "^SP500TR",
@@ -424,6 +1032,27 @@ spxtr_price_series = (
     .reindex(NAV_df.index)
     .ffill()
 )
+
+# Safe helper function for SPXTR price series download
+def safe_spxtr_download():
+    """Safe SPXTR price series download with error handling"""
+    try:
+        return (
+            yf.download(
+                "^SP500TR",
+                start="2023-04-01",
+                end="2025-07-01",
+                auto_adjust=True,
+                progress=False
+            )[['Close']]
+            .squeeze()
+            .reindex(NAV_df.index)
+            .ffill()
+        )
+    except Exception as e:
+        print(f"Warning: Error downloading SPXTR data: {e}")
+        # Return empty series as fallback
+        return pd.Series(dtype=float, index=NAV_df.index)
 
 # ==============================================================================
 # 11) Build the “Worst Drawdown” DataFrame
@@ -555,6 +1184,27 @@ def build_NAV_figure():
     fig.update_yaxes(showgrid=True)
     return fig
 
+# Safe helper function for NAV figure building (alternative to main function)
+def safe_build_NAV_figure():
+    """Safe version of NAV figure builder with error handling"""
+    try:
+        return build_NAV_figure()
+    except Exception as e:
+        print(f"Warning: Error building NAV figure: {e}")
+        # Return a simple fallback figure
+        fig = go.Figure()
+        fig.add_annotation(
+            text="Error loading NAV data",
+            xref="paper", yref="paper",
+            x=0.5, y=0.5, showarrow=False
+        )
+        fig.update_layout(
+            title="Error Loading NAV Data",
+            xaxis_title="Date",
+            yaxis_title="Value"
+        )
+        return fig
+
 
 # ==============================================================================
 # 15) Helper: Build Plotly “Drawdown” figure
@@ -590,6 +1240,27 @@ def build_drawdown_figure():
         yaxis_title="Drawdown (%)"
     )
     return fig
+
+# Safe helper function for drawdown figure building (alternative to main function)
+def safe_build_drawdown_figure():
+    """Safe version of drawdown figure builder with error handling"""
+    try:
+        return build_drawdown_figure()
+    except Exception as e:
+        print(f"Warning: Error building drawdown figure: {e}")
+        # Return a simple fallback figure
+        fig = go.Figure()
+        fig.add_annotation(
+            text="Error loading drawdown data",
+            xref="paper", yref="paper",
+            x=0.5, y=0.5, showarrow=False
+        )
+        fig.update_layout(
+            title="Error Loading Drawdown Data",
+            xaxis_title="Date",
+            yaxis_title="Drawdown (%)"
+        )
+        return fig
 
 # ==============================================================================
 # 15) Construct the Dash App
@@ -1216,12 +1887,41 @@ dbc.Row(
                                                     html.Td("", colSpan=3, style={"height": RIGHT_TABLE_GAPS}),
                                                 ]),  # Blank row above Transaction Fees
                                                 html.Tr([
-                                                    html.Th("Transaction Fees", colSpan=3, className=HEADER_ROW_CLASS),
+                                                    html.Th("Transaction Fees (per Contract)", colSpan=3, className=HEADER_ROW_CLASS),
                                                 ]),
                                                 html.Tr([
-                                                    html.Td("Weighted Average All-In Fees per Contract"),
-                                                    html.Td("~ $0.30"),
+                                                    html.Td("Commission"),
+                                                    html.Td("$0.20"),
                                                     html.Td(),
+                                                ]),
+                                                html.Tr([
+                                                    html.Td("Exchange Fee"),
+                                                    html.Td("$0.10"),
+                                                    html.Td(),
+                                                ]),
+                                                html.Tr([
+                                                    html.Td("NFA Fee"),
+                                                    html.Td("$0.00"),
+                                                    html.Td(),
+                                                ]),
+                                                html.Tr([
+                                                    html.Td("Give Up Fee"),
+                                                    html.Td("$0.00"),
+                                                    html.Td(),
+                                                ]),
+                                                html.Tr([
+                                                    html.Td(html.Strong("Total All-In Fees")),
+                                                    html.Td(html.Strong("$0.30")),
+                                                    html.Td(),
+                                                ]),
+                                                html.Tr([
+                                                    html.Td(
+                                                        html.Small(
+                                                            "* Give up fee is waived if account is traded at StoneX Financial.",
+                                                            style={"fontStyle": "italic", "color": "#6c757d"}
+                                                        ),
+                                                        colSpan=3
+                                                    ),
                                                 ]),
                                             ]),
                                         ],
