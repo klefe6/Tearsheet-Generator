@@ -788,4 +788,4 @@ def download(n):
     return dcc.send_data_frame(df.to_csv,"metrics.csv")
 
 if __name__=="__main__":
-    app.run(debug=True,port=8075)
+    app.run(debug=True,port=8077)

@@ -31,7 +31,7 @@ us_bd = CustomBusinessDay(calendar=USFederalHolidayCalendar())
 # 2) LOGO ENCODING & ESTHETICS
 #    Read your branded logo and encode it as base64 for Dash images
 # ==============================================================================
-logo_path = r"C:\Users\H&CDanHughes\Hughes & Company\Hughes & Company - Documents\2_Hughes & Company Marketing\Branded Logo\Trianle-Only-Logo.png"
+logo_path = r"C:\Users\H&CDanHughes\Pictures\yq.png"
 try:
     with open(logo_path, "rb") as f:
         logo_b64 = base64.b64encode(f.read()).decode("utf-8")
@@ -42,7 +42,7 @@ except FileNotFoundError:
 # ─── Brand colors ────────────────────────────────
 WHITE_BG     = "#ffffff"
 GREY_BG      = "#EBEBEB"   # matches ggplot2's plot_bgcolor
-PRIMARY_COLOR = "#0D3562"  # your "blue," user‐changeable
+PRIMARY_COLOR = "#28a745"  # your "green," Y&Q theme color
 SECONDARY_COLOR = "#CCCCCC"
 
 LEFT_TABLE_GAPS = "20px"
@@ -57,7 +57,7 @@ HEADER_ROW_CLASS = "bg-light"
 # Constants for magic numbers used throughout the code
 TRADING_DAYS_PER_YEAR = 252
 BUSINESS_DAYS_PER_YEAR = 365
-BASELINE_AMOUNT = 150000
+BASELINE_AMOUNT = 100000
 NOMINAL_ASSETS = 300000
 ACCOUNT_COUNT = 4
 OPEN_ACCOUNTS = 2
@@ -174,532 +174,96 @@ def build_monthly_calendar_safe(monthly_simple_series):
 # 3) CONFIGURATION
 #    Strategy name, benchmark list, and NAV CSV path
 # ==============================================================================
-STRATEGY_NAME = "TKP"
-
-# ── LAYOUT CONFIGURATION ────────────────────────────────────────────────────
-# Set to True for side-by-side layout (current), False for stacked layout (new)
-USE_SIDE_BY_SIDE_LAYOUT = True  # Toggle between True (side-by-side) and False (stacked)
-
-# Set to True to show percentage axis on the right side of NAV chart
-SHOW_PERCENTAGE_AXIS = True  # Toggle between True (show %) and False (hide %)
+STRATEGY_NAME = "Blue Whale Program"
 
 BENCHMARKS = [
     "^SP500TR",   # S&P 500 Total Return
+    "CTA",        # CTA Index (if available)
     "AGG",        # US Aggregate Bond
     "GLD",        # Gold ETF
     "BTC-USD",    # Bitcoin
     "ETH-USD",    # Ethereum
 ]
 
-xlsx_path = (
-    r"C:\Users\H&CDanHughes\Hughes & Company\Hughes & Company - Documents\3_Advisors Marketing (Tearsheets, PitchBooks, etc)\1. Tearsheet Project\TKP\VADI\tkp_alex.xlsx"
-)
-
-# If Excel has blank rows or formula cells without cached values, pandas/openpyxl can
-# stop "early" when inferring the used range. Set this to the last Excel row you
-# want included (1-indexed, including header row). Set to None to disable.
-FORCE_LAST_EXCEL_ROW = 715
+csv_path = r"C:\Program Files\Coding Projects\Tearsheet Generator\yq.csv"
 
 # ============================================================================== 
-# 4) LOAD & VALIDATE NAV DATA (Excel cols C=Date, N=nav‑x1)
+# 4) LOAD & VALIDATE NAV DATA (CSV with monthly performance data)
 # ==============================================================================
 import sys
 
-# Validate file exists and is accessible before attempting to read
-if not os.path.exists(xlsx_path):
-    print(f"❌ File not found: {xlsx_path}")
-    sys.exit(1)
-
-if not os.access(xlsx_path, os.R_OK):
-    print(f"❌ Permission denied: Cannot read file '{xlsx_path}'")
-    print("   This usually means the file is open in Excel or another program.")
-    print("   Please close the file and try again.")
-    sys.exit(1)
-
 try:
-    # First, find the last row with data using openpyxl to ensure we read all rows
-    # This prevents pandas from stopping early at empty rows
-    # Use data_only=False so formula cells count as "present" even if cached values
-    # aren't stored in the workbook (common if the file wasn't recalculated/saved).
-    wb = openpyxl.load_workbook(xlsx_path, data_only=False)
-    ws = wb["Sheet1"]
+    # Load CSV data
+    raw_df = pd.read_csv(csv_path, encoding='latin-1')
     
-    # Find the last row with data in columns C (Date) or N (NAV)
-    # This technique matches the working approach in test_read_excel.py
-    # Scan from row 2 to max_row + 1, checking only the columns we actually need
-    last_row = 1  # Start with header row
-    for row_idx in range(2, ws.max_row + 1):
-        cell_c = ws.cell(row=row_idx, column=3)   # Column C = Date
-        cell_n = ws.cell(row=row_idx, column=14)  # Column N = NAV
-        if cell_c.value is not None or cell_n.value is not None:
-            last_row = row_idx
+    # Clean column names (remove special characters)
+    raw_df.columns = raw_df.columns.str.replace(' ', ' ').str.strip()
     
-    wb.close()
-
-    # Ensure we use at least FORCE_LAST_EXCEL_ROW if set
-    if FORCE_LAST_EXCEL_ROW is not None:
-        last_row = max(last_row, int(FORCE_LAST_EXCEL_ROW))
+    # Find the actual ROR column
+    ror_col = None
+    for col in raw_df.columns:
+        if 'Actual' in col and 'ROR' in col:
+            ror_col = col
+            break
     
-    print(f"📋 Found last non-blank row: {last_row} (Excel row number, scanned columns C and N)")
-    
-    # Load only columns C and N, parse C as Date
-    # Explicitly read up to the last row with data to ensure we don't miss anything
-    read_params = {
-        "sheet_name": "Sheet1",
-        "usecols": "C,N",              # Excel columns C and N
-        "header": 0,                   # first row is header
-        "parse_dates": ["Date"],       # parse the C‑column into datetime
-        "engine": "openpyxl",
-    }
-    # Only add nrows if we found data rows (last_row > 1 means we have data beyond header)
-    if last_row > 1:
-        read_params["nrows"] = last_row - 1  # Number of data rows (excluding header)
-    
-    NAV_df = pd.read_excel(xlsx_path, **read_params)
-    print(f"📊 Raw rows read from Excel: {len(NAV_df)}")
-    
-    # Drop rows where BOTH Date and NAV are missing (completely empty rows)
-    NAV_df = NAV_df.dropna(how='all')
-    print(f"📊 Rows after dropping completely empty: {len(NAV_df)}")
-    
-    # Add safe validation (won't break existing functionality)
-    if NAV_df.empty:
-        print("❌ NAV data is empty")
+    if ror_col is None:
+        print(f"Could not find Actual ROR column. Available: {raw_df.columns.tolist()}")
         sys.exit(1)
+    
+    # Rename columns
+    raw_df = raw_df.rename(columns={
+        'Year(yyyy)': 'year',
+        'Month(mm)': 'month',
+        ror_col: 'actual_ror'
+    })
+    
+    # Filter out empty rows
+    raw_df = raw_df[raw_df['year'].notna() & raw_df['month'].notna()].copy()
+    
+    # Convert to numeric
+    raw_df['year'] = pd.to_numeric(raw_df['year'], errors='coerce')
+    raw_df['month'] = pd.to_numeric(raw_df['month'], errors='coerce')
+    raw_df['actual_ror'] = pd.to_numeric(raw_df['actual_ror'], errors='coerce')
+    
+    # Create date index
+    raw_df['date'] = pd.to_datetime(raw_df[['year', 'month']].assign(day=1))
+    raw_df = raw_df.set_index('date').sort_index()
+    
+    # Build equity curve from $100k using actual ROR percentages
+    equity_curve = []
+    current_value = BASELINE_AMOUNT
+    for ror in raw_df['actual_ror']:  # Fixed: start from index 0, not 1
+        if pd.notna(ror):
+            current_value = current_value * (1 + ror / 100.0)
+        equity_curve.append(current_value)
+    
+    # Create NAV_df with the equity curve
+    NAV_df = pd.DataFrame({'nav-x1': equity_curve}, index=raw_df.index)
+    
+    print(f"CSV data loaded successfully ({len(NAV_df)} months)")
+    print(f"Date range: {NAV_df.index.min().strftime('%Y-%m')} to {NAV_df.index.max().strftime('%Y-%m')}")
+    print(f"Final value: ${NAV_df['nav-x1'].iloc[-1]:,.2f}")
         
-    if len(NAV_df.columns) < 2:
-        print("❌ NAV data must have at least 2 columns")
-        sys.exit(1)
-        
-except PermissionError as e:
-    print(f"❌ Permission denied: Cannot read file '{xlsx_path}'")
-    print("   This usually means the file is open in Excel or another program.")
-    print("   Please close the file and try again.")
-    sys.exit(1)
 except Exception as e:
-    print(f"❌ Failed to load NAV data: {e}")
-    print(f"   File path: {xlsx_path}")
+    print(f"Failed to load CSV data: {e}")
+    import traceback
+    traceback.print_exc()
     sys.exit(1)
 
-# Make sure pandas named the second column correctly
-if NAV_df.columns[1] != "nav‑x1" and NAV_df.columns[1] != "nav-x1":
-    NAV_df.rename(columns={NAV_df.columns[1]: "nav-x1"}, inplace=True)
+# Make sure pandas named the column correctly
+if NAV_df.columns[0] != "nav‑x1" and NAV_df.columns[0] != "nav-x1":
+    NAV_df.rename(columns={NAV_df.columns[0]: "nav-x1"}, inplace=True)
 
-# Ensure Date column is datetime - handle cases where parse_dates didn't work
-if NAV_df["Date"].dtype == 'object':
-    # Try to convert string dates to datetime
-    NAV_df["Date"] = pd.to_datetime(NAV_df["Date"], errors='coerce')
-    # Remove rows where date conversion failed
-    invalid_conversions = NAV_df["Date"].isna()
-    if invalid_conversions.any():
-        print(f"⚠️  Warning: {invalid_conversions.sum()} row(s) had unparseable dates and were removed")
-        NAV_df = NAV_df[~invalid_conversions]
-        if NAV_df.empty:
-            print("❌ No valid dates remaining after date parsing")
-            sys.exit(1)
-
-# Auto-correct year typos in dates (e.g., 2025-01-06 after 2026-01-05 should be 2026-01-06)
-# This fixes Excel data entry errors where the year gets typed incorrectly
-corrected_dates = []
-corrections_made = 0
-for i in range(len(NAV_df)):
-    current_date = NAV_df.iloc[i]["Date"]
-    
-    # Check if this date goes backwards in time compared to previous date
-    if i > 0 and current_date < NAV_df.iloc[i-1]["Date"]:
-        prev_date = NAV_df.iloc[i-1]["Date"]
-        
-        # Check if it's a year typo (same month/day but different year)
-        # and the year is exactly 1 year behind
-        if (current_date.month == prev_date.month and 
-            current_date.day >= prev_date.day and
-            prev_date.year - current_date.year == 1):
-            
-            # Correct the year
-            corrected_date = current_date.replace(year=prev_date.year)
-            corrected_dates.append((i, current_date, corrected_date))
-            NAV_df.iloc[i, NAV_df.columns.get_loc("Date")] = corrected_date
-            corrections_made += 1
-
-if corrections_made > 0:
-    print(f"⚠️  Auto-corrected {corrections_made} date(s) with year typos:")
-    for idx, old_date, new_date in corrected_dates[:5]:  # Show first 5
-        print(f"   Row {idx+2}: {old_date.date()} → {new_date.date()}")
-    if len(corrected_dates) > 5:
-        print(f"   ... and {len(corrected_dates) - 5} more")
-
-# Set Date as the index
-NAV_df.set_index("Date", inplace=True)
-
-# Validate and filter out invalid dates (pandas datetime64[ns] can only handle ~1677-2262)
-# This prevents overflow errors from dates like 2505-11-04
-MIN_VALID_DATE = pd.Timestamp('1900-01-01')
-MAX_VALID_DATE = pd.Timestamp('2260-01-01')  # Well before pandas limit
-
-# Ensure index is datetime before comparison
-if not pd.api.types.is_datetime64_any_dtype(NAV_df.index):
-    print("⚠️  Warning: Index is not datetime, attempting conversion...")
-    NAV_df.index = pd.to_datetime(NAV_df.index, errors='coerce')
-    # Remove rows where conversion failed
-    invalid_conversions = NAV_df.index.isna()
-    if invalid_conversions.any():
-        print(f"⚠️  Warning: {invalid_conversions.sum()} row(s) had unparseable dates and were removed")
-        NAV_df = NAV_df[~invalid_conversions]
-        if NAV_df.empty:
-            print("❌ No valid dates remaining after date conversion")
-            sys.exit(1)
-
-# Now safe to compare dates
-invalid_dates = (NAV_df.index < MIN_VALID_DATE) | (NAV_df.index > MAX_VALID_DATE)
-if invalid_dates.any():
-    invalid_count = invalid_dates.sum()
-    print(f"⚠️  Warning: Found {invalid_count} invalid date(s) outside valid range (1900-2260)")
-    print(f"   Invalid dates: {NAV_df.index[invalid_dates].tolist()}")
-    print(f"   Removing invalid dates...")
-    NAV_df = NAV_df[~invalid_dates]
-    
-    if NAV_df.empty:
-        print("❌ No valid dates remaining after filtering")
-        sys.exit(1)
+# Date is already set as index from CSV processing
 
 # Drop exact duplicates so .asfreq() works
 if NAV_df.index.has_duplicates:
     NAV_df = NAV_df[~NAV_df.index.duplicated(keep="first")]
 
-# Reindex to your custom business‑day calendar (fills missing dates with NaN)
-# Now safe because all dates are validated
-nav_col_name = NAV_df.columns[0]  # Get the NAV column name (usually "nav-x1")
-print(f"📊 Before asfreq: {len(NAV_df)} rows, date range: {NAV_df.index.min().date()} to {NAV_df.index.max().date()}")
-print(f"   Last NAV value before asfreq: ${NAV_df[nav_col_name].iloc[-1]:,.2f}")
+# For monthly data, we don't need to reindex to business days
+# NAV_df = NAV_df.asfreq(us_bd)  # Commented out for monthly data
 
-NAV_df = NAV_df.asfreq(us_bd)
-
-print(f"📊 After asfreq: {len(NAV_df)} rows, date range: {NAV_df.index.min().date()} to {NAV_df.index.max().date()}")
-print(f"   Last NAV value after asfreq: ${NAV_df[nav_col_name].iloc[-1]:,.2f}")
-
-# Forward fill NaN values to prevent gaps in the chart
-# This ensures smooth continuation between dates
-NAV_df = NAV_df.ffill()
-
-print(f"📊 After ffill: {len(NAV_df)} rows")
-print(f"   Last 5 NAV values: {NAV_df[nav_col_name].tail(5).tolist()}")
-print(f"   Last 5 dates: {NAV_df.index[-5:].tolist()}")
-
-# ─────────────────────────────────────────────────────────────
-# ADJUST FOR CASH TRANSFER (remove non-performance effect)
-# ─────────────────────────────────────────────────────────────
-# Configuration: Set to False to disable auto-detection and show raw NAV
-AUTO_DETECT_CASH_TRANSFERS = True  # Set to True to enable auto-detection of deposits/withdrawals
-
-# Manual specification (only used if AUTO_DETECT is False and values are provided)
-CASH_TRANSFER_DATE = None     # e.g., "2024-01-16" or pd.Timestamp("2024-01-16"); use None to disable
-CASH_TRANSFER_ROW = None       # Excel row number (1-indexed, header is row 1); use None to disable
-TRANSFER_AMOUNT = None      # Positive to add back a withdrawal; negative to remove a deposit; None to skip
-
-def _resolve_transfer_date_from_row(xlsx_path: str, excel_row: int) -> pd.Timestamp:
-    if excel_row is None:
-        raise ValueError("excel_row is None")
-    if excel_row < 2:
-        raise ValueError("Excel row number must be >= 2 (row 1 is header)")
-    if not os.access(xlsx_path, os.R_OK):
-        raise PermissionError(f"Cannot read file '{xlsx_path}' - file may be open in Excel")
-    temp_df = pd.read_excel(
-        xlsx_path,
-        sheet_name="Sheet1",
-        usecols="C",
-        header=0,
-        engine="openpyxl",
-    )
-    df_index = excel_row - 2  # Excel row 2 -> DataFrame index 0
-    if df_index < 0 or df_index >= len(temp_df):
-        raise IndexError(
-            f"Excel row {excel_row} is out of range (valid: 2 to {len(temp_df) + 1})"
-        )
-    return pd.to_datetime(temp_df.iloc[df_index, 0])
-
-def _read_excel_dates(xlsx_path: str) -> pd.DatetimeIndex:
-    """Return a normalized DatetimeIndex of actual Excel dates (no forward-filled days)."""
-    dates = pd.read_excel(
-        xlsx_path, sheet_name="Sheet1", usecols="C", header=0, engine="openpyxl"
-    )["Date"].dropna()
-    dates = pd.to_datetime(dates).dt.normalize()
-    return pd.DatetimeIndex(sorted(dates.unique()))
-
-def _next_real_excel_date(xlsx_path: str, candidate: pd.Timestamp) -> pd.Timestamp:
-    """Snap candidate to the next actual Excel date (not a generated business day)."""
-    real = _read_excel_dates(xlsx_path)
-    later = real[real >= pd.Timestamp(candidate).normalize()]
-    return later[0] if len(later) else pd.Timestamp(candidate)
-
-def _apply_cash_transfer_adjustment(
-    nav_df: pd.DataFrame,
-    nav_column: str,
-    transfer_row: int,
-    transfer_amount: float,
-    xlsx_path: str,
-):
-    """
-    Normalize NAV series for deposits/withdrawals to remove non-performance effects.
-    
-    Financial intent:
-    - Withdrawal: NAV drops (e.g., 182k → 82k, delta = -100k) → ADD BACK +100k from transfer date onward
-    - Deposit: NAV rises (e.g., 182k → 282k, delta = +100k) → SUBTRACT -100k from transfer date onward
-    
-    Args:
-        nav_df: DataFrame with Date index and NAV column (already reindexed/forward-filled)
-        nav_column: Name of NAV column
-        transfer_row: Excel row number where transfer occurs (1-indexed, header is row 1)
-        transfer_amount: Amount to adjust (positive = add back withdrawal, negative = remove deposit)
-                         If None, auto-detect from Excel NAV delta
-        xlsx_path: Path to Excel file for reading actual NAV values
-    
-    Returns:
-        None (modifies nav_df in place)
-    """
-    # Read actual Excel data to get true before/after NAV values (not forward-filled)
-    df_excel = pd.read_excel(
-        xlsx_path,
-        sheet_name="Sheet1",
-        usecols="C,N",
-        header=0,
-        engine="openpyxl",
-    )
-    df_excel.columns = ["Date", "NAV"]
-    df_excel["Date"] = pd.to_datetime(df_excel["Date"], errors='coerce')
-    df_excel = df_excel.dropna(subset=["Date"])
-    
-    # Filter out invalid dates (pandas datetime64 limitation)
-    MIN_VALID_DATE = pd.Timestamp('1900-01-01')
-    MAX_VALID_DATE = pd.Timestamp('2260-01-01')
-    invalid_dates = (df_excel["Date"] < MIN_VALID_DATE) | (df_excel["Date"] > MAX_VALID_DATE)
-    if invalid_dates.any():
-        df_excel = df_excel[~invalid_dates]
-    
-    df_excel = df_excel.reset_index(drop=True)
-    
-    # Get the Excel row indices (0-indexed)
-    excel_idx = transfer_row - 2  # Excel row 2 → DataFrame index 0
-    if excel_idx < 0 or excel_idx >= len(df_excel):
-        raise IndexError(f"Excel row {transfer_row} is out of range")
-    if excel_idx == 0:
-        raise ValueError(f"Cannot use row {transfer_row} as transfer row (need previous row for comparison)")
-    
-    # Get actual NAV values from Excel at transfer boundary
-    before_nav_excel = df_excel.iloc[excel_idx - 1]["NAV"]  # Row before transfer
-    after_nav_excel = df_excel.iloc[excel_idx]["NAV"]      # Row with transfer
-    delta = after_nav_excel - before_nav_excel
-    
-    # Get the transfer date from Excel
-    transfer_date_excel = df_excel.iloc[excel_idx]["Date"]
-    
-    # Determine effective adjustment amount
-    if transfer_amount is not None:
-        # User specified amount: use it directly
-        # Positive = add back (for withdrawals), Negative = remove (for deposits)
-        effective_amount = transfer_amount
-    else:
-        # Auto-detect: negate the actual cash movement
-        # If NAV dropped (withdrawal), we need to add back (positive correction)
-        # If NAV rose (deposit), we need to subtract (negative correction)
-        effective_amount = -delta
-    
-    # Find the transfer date in the reindexed NAV_df (may be forward-filled)
-    if transfer_date_excel not in nav_df.index:
-        matching_dates = nav_df.index[nav_df.index >= transfer_date_excel]
-        if len(matching_dates) == 0:
-            raise IndexError(
-                f"Transfer date {transfer_date_excel.date()} is after last NAV date"
-            )
-        transfer_date = matching_dates[0]
-    else:
-        transfer_date = transfer_date_excel
-    
-    # Get mask for all rows from transfer_date onward (never touch earlier dates)
-    mask = nav_df.index >= transfer_date
-    affected_rows = mask.sum()
-    
-    # Snapshot before adjustment
-    before_value = nav_df.loc[transfer_date, nav_column]
-    baseline_value = nav_df.loc[nav_df.index[0], nav_column]  # Preserve starting baseline
-    before_last_value = nav_df.loc[nav_df.index[-1], nav_column] if len(nav_df) > 0 else None
-    
-    # Debug: Show last 5 values before adjustment
-    print(f"   [DEBUG] Last 5 NAV values BEFORE adjustment: {nav_df[nav_column].tail(5).tolist()}")
-    print(f"   [DEBUG] Adjustment amount: ${effective_amount:+,.2f} (will be {'added' if effective_amount > 0 else 'subtracted'})")
-    
-    # Apply adjustment to all rows from transfer_date onward
-    nav_df.loc[mask, nav_column] += effective_amount
-    
-    # Debug: Show last 5 values after adjustment
-    print(f"   [DEBUG] Last 5 NAV values AFTER adjustment: {nav_df[nav_column].tail(5).tolist()}")
-    
-    # Verify baseline unchanged
-    baseline_after = nav_df.loc[nav_df.index[0], nav_column]
-    if abs(baseline_after - baseline_value) > 0.01:
-        raise ValueError(f"Baseline NAV changed from {baseline_value:,.2f} to {baseline_after:,.2f}")
-    
-    after_value = nav_df.loc[transfer_date, nav_column]
-    after_last_value = nav_df.loc[nav_df.index[-1], nav_column] if len(nav_df) > 0 else None
-    
-    # Log the adjustment
-    verb = "added back" if effective_amount >= 0 else "removed"
-    action = "withdrawal" if effective_amount > 0 else "deposit"
-    print(
-        f"✅ Cash transfer adjustment: {verb} ${abs(effective_amount):,.0f} ({action}) | "
-        f"effective date: {transfer_date.date()}"
-    )
-    print(
-        f"   Excel row {transfer_row}: NAV {before_nav_excel:,.2f} → {after_nav_excel:,.2f} (delta: {delta:+,.2f})"
-    )
-    print(
-        f"   Adjusted {affected_rows} rows from {transfer_date.date()} to {nav_df.index[-1].date()}"
-    )
-    print(
-        f"   NAV[{transfer_date.date()}] before: {before_value:,.2f} → after: {after_value:,.2f}"
-    )
-    if before_last_value is not None and after_last_value is not None:
-        print(
-            f"   NAV[{nav_df.index[-1].date()}] before: {before_last_value:,.2f} → after: {after_last_value:,.2f}"
-        )
-    print(f"   ✅ Baseline preserved: ${baseline_value:,.2f}")
-
-def _auto_detect_cash_transfers(xlsx_path: str, min_transfer_amount: float = 50000) -> list:
-    """
-    Automatically detect all cash transfers (deposits/withdrawals) by scanning for large NAV jumps.
-    
-    Args:
-        xlsx_path: Path to Excel file
-        min_transfer_amount: Minimum NAV change to consider a transfer (default: $50k)
-    
-    Returns:
-        List of tuples: (transfer_row, delta, transfer_type)
-    """
-    # Read actual Excel data
-    df_excel = pd.read_excel(
-        xlsx_path,
-        sheet_name="Sheet1",
-        usecols="C,N",
-        header=0,
-        engine="openpyxl",
-    )
-    df_excel.columns = ["Date", "NAV"]
-    
-    # Convert dates with error handling for invalid dates
-    df_excel["Date"] = pd.to_datetime(df_excel["Date"], errors='coerce')
-    
-    # Validate and filter out invalid dates (same logic as main NAV loading)
-    MIN_VALID_DATE = pd.Timestamp('1900-01-01')
-    MAX_VALID_DATE = pd.Timestamp('2260-01-01')
-    
-    # Remove rows with invalid dates
-    df_excel = df_excel.dropna(subset=["Date"])
-    invalid_dates = (df_excel["Date"] < MIN_VALID_DATE) | (df_excel["Date"] > MAX_VALID_DATE)
-    if invalid_dates.any():
-        print(f"   [Auto-detect] Removing {invalid_dates.sum()} invalid date(s) from Excel")
-        df_excel = df_excel[~invalid_dates]
-    
-    # Remove rows with missing NAV
-    df_excel = df_excel.dropna(subset=["NAV"])
-    df_excel = df_excel.reset_index(drop=True)
-    
-    transfers = []
-    for i in range(1, len(df_excel)):  # Start from row 1 (skip header)
-        before_nav = df_excel.iloc[i - 1]["NAV"]
-        after_nav = df_excel.iloc[i]["NAV"]
-        delta = after_nav - before_nav
-        
-        # Detect if this is a large jump (likely a cash transfer)
-        if abs(delta) >= min_transfer_amount:
-            # Calculate expected NAV change from returns (to distinguish from performance)
-            # If NAV changed by more than expected trading P&L, it's likely a transfer
-            # For now, just use absolute threshold - can be refined later
-            transfer_row = i + 2  # Convert to 1-indexed Excel row (header is row 1)
-            transfer_type = "withdrawal" if delta < 0 else "deposit"
-            transfers.append((transfer_row, delta, transfer_type))
-    
-    return transfers
-
-try:
-    if not AUTO_DETECT_CASH_TRANSFERS:
-        print("ℹ️  Cash transfer auto-detection disabled (showing raw NAV)")
-        if CASH_TRANSFER_DATE is not None or CASH_TRANSFER_ROW is not None:
-            print("   Manual cash transfer adjustment specified:")
-    
-    if CASH_TRANSFER_DATE is not None or CASH_TRANSFER_ROW is not None:
-        # Manual specification: single transfer
-        if CASH_TRANSFER_ROW is not None:
-            # Use specified row (this is the Excel row where transfer occurs)
-            transfer_row = CASH_TRANSFER_ROW
-        elif CASH_TRANSFER_DATE is not None:
-            # Find Excel row matching the specified date
-            df_temp = pd.read_excel(
-                xlsx_path,
-                sheet_name="Sheet1",
-                usecols="C",
-                header=0,
-                engine="openpyxl",
-            )
-            df_temp.columns = ["Date"]
-            df_temp["Date"] = pd.to_datetime(df_temp["Date"])
-            target_date = pd.to_datetime(CASH_TRANSFER_DATE).normalize()
-            matches = df_temp[df_temp["Date"].dt.normalize() == target_date]
-            if len(matches) == 0:
-                raise ValueError(f"No Excel row found for date {CASH_TRANSFER_DATE}")
-            transfer_row = matches.index[0] + 2  # Convert to 1-indexed Excel row
-        else:
-            raise ValueError("Must specify either CASH_TRANSFER_DATE or CASH_TRANSFER_ROW")
-        
-        # Apply adjustment using actual Excel row
-        _apply_cash_transfer_adjustment(
-            NAV_df, 
-            "nav-x1", 
-            transfer_row, 
-            TRANSFER_AMOUNT, 
-            xlsx_path
-        )
-    elif AUTO_DETECT_CASH_TRANSFERS:
-        # Auto-detect all cash transfers
-        print("🔍 Auto-detecting cash transfers...")
-        transfers = _auto_detect_cash_transfers(xlsx_path, min_transfer_amount=50000)
-        
-        if len(transfers) == 0:
-            print("   No cash transfers detected (no NAV jumps >= $50k)")
-        else:
-            print(f"   Found {len(transfers)} potential cash transfer(s):")
-            for transfer_row, delta, transfer_type in transfers:
-                print(f"   - Row {transfer_row}: {transfer_type} of ${abs(delta):,.0f} (delta: {delta:+,.0f})")
-            
-            # Apply corrections to all detected transfers
-            # Process in chronological order (lowest row first)
-            transfers.sort(key=lambda x: x[0])
-            
-            for transfer_row, delta, transfer_type in transfers:
-                try:
-                    # Auto-detect amount by negating the delta
-                    transfer_amount = None  # Will auto-detect from delta
-                    _apply_cash_transfer_adjustment(
-                        NAV_df,
-                        "nav-x1",
-                        transfer_row,
-                        transfer_amount,
-                        xlsx_path
-                    )
-                except Exception as e:
-                    print(f"   ⚠️  Failed to adjust transfer at row {transfer_row}: {e}")
-                    continue
-        
-        print("✅ Auto-detection complete")
-except Exception as e:
-    print(f"⚠️  Warning: cash transfer adjustment skipped: {e}")
-    import traceback
-    traceback.print_exc()
-
-print(f"📊 Final NAV data: {len(NAV_df)} rows")
-print(f"   Date range: {NAV_df.index.min().date()} to {NAV_df.index.max().date()}")
-nav_col_name_final = NAV_df.columns[0]  # Get column name before NAV_col is defined
-print(f"   Last NAV value: ${NAV_df[nav_col_name_final].iloc[-1]:,.2f}")
-print(f"   Second-to-last NAV value: ${NAV_df[nav_col_name_final].iloc[-2]:,.2f}")
-print("✅ NAV data loaded successfully (Date + nav‑x1).")
+print("NAV data loaded successfully (Date + nav-x1).")
 
 
 
@@ -728,15 +292,22 @@ else:
             f"None of {NAV_CANDIDATES!r} present and no numeric column found."
         )
 
-print(f"▶️ Using NAV column: {NAV_col}")
+print(f"Using NAV column: {NAV_col}")
 
 
 # ==============================================================================
-# 6) NON-COMPOUNDED DAILY RETURNS
-#    Compute each day's P&L as a % of starting NAV (baseline)
+# 6) MONTHLY RETURNS (from CSV data)
+#    Use actual ROR percentages from the CSV data
 # ==============================================================================
+# The raw_df is already loaded above in the data loading section
+# Use actual ROR percentages (already in percentage format, so divide by 100)
+monthly_returns = raw_df['actual_ror'] / 100.0
+
+# For compatibility with existing code, create daily_returns as monthly_returns
+daily_returns = monthly_returns
+
+# Define baseline for compatibility with existing code
 baseline = NAV_df[NAV_col].iloc[0]
-daily_returns = NAV_df[NAV_col].diff().div(baseline).dropna()
 
 
 # ==============================================================================
@@ -745,6 +316,7 @@ daily_returns = NAV_df[NAV_col].diff().div(baseline).dropna()
 # ==============================================================================
 bench_map = OrderedDict([
     ("SPXTR", "^SP500TR"),
+    ("CTA",   "CTA"),       # CTA Index
     ("AGG",   "AGG"),
     ("GLD",   "GLD"),
     ("BTC",   "BTC-USD"),
@@ -786,50 +358,15 @@ for name, sym in bench_map.items():
 # 8a) Month-end and month-start NAV
 mp          = NAV_df.index.to_period("M")
 month_last  = NAV_df[NAV_col].groupby(mp).last()
-
-# Calculate month_first: use the last NAV value from the day before each month starts
-# This ensures we get the correct starting NAV even if there are gaps in months
-month_first = pd.Series(index=month_last.index, dtype=float)
-for period in month_last.index:
-    # Get the first day of this month
-    month_start = period.start_time
-    # Find the last NAV value before this month starts
-    nav_before_month = NAV_df[NAV_col][NAV_df.index < month_start]
-    if len(nav_before_month) > 0:
-        # Use the last NAV value before the month starts
-        month_first.loc[period] = nav_before_month.iloc[-1]
-    else:
-        # For the very first month, use baseline
-        month_first.loc[period] = baseline
+month_first = month_last.shift(1)
+month_first.loc[month_last.index.min()] = baseline  # first-month start = baseline
 
 # 8b) Compute each month's change **relative** to fixed baseline
-monthly_simple = (month_last - month_first) / baseline * 100
-
-# Hard-coded overrides for specific months (requested adjustments)
-override_months = {
-    pd.Period('2025-04', freq='M'): 4.58,
-    pd.Period('2025-10', freq='M'): 0.58,
-}
-for override_period, override_value in override_months.items():
-    if override_period in monthly_simple.index:
-        monthly_simple.loc[override_period] = override_value
-
-# Debug output for October 2025
-oct_2025_period = pd.Period("2025-10", freq="M")
-if oct_2025_period in monthly_simple.index:
-    oct_last = month_last.loc[oct_2025_period]
-    oct_first = month_first.loc[oct_2025_period]
-    oct_return = monthly_simple.loc[oct_2025_period]
-    print(f"🔍 October 2025 Debug:")
-    print(f"   month_last (Oct end NAV): ${oct_last:,.2f}")
-    print(f"   month_first (Sep end NAV): ${oct_first:,.2f}")
-    print(f"   baseline: ${baseline:,.2f}")
-    print(f"   calculated return: {oct_return:.2f}%")
-    print(f"   formula: (${oct_last:,.2f} - ${oct_first:,.2f}) / ${baseline:,.2f} * 100 = {oct_return:.2f}%")
+monthly_simple = raw_df.groupby(raw_df.index.to_period("M"))["actual_ror"].last()
 
  
  
- 
+
  
  
  
@@ -846,7 +383,7 @@ monthly_data = {"Year": [str(y) for y in years]}
 for idx, m in enumerate(months, start=1):
     monthly_data[m] = [
         # look up period in monthly_simple; if missing, blank
-        f"{monthly_simple.get(pd.Period(f'{y}-{idx:02d}'), 0):.4f}%"
+        f"{monthly_simple.get(pd.Period(f'{y}-{idx:02d}'), 0):.2f}%"
         if pd.Period(f"{y}-{idx:02d}") in monthly_simple.index
         else ""
         for y in years
@@ -854,7 +391,7 @@ for idx, m in enumerate(months, start=1):
 
 # 8e) Use the sum-of-months for Year Total
 monthly_data["Year Total"] = [
-    f"{yearly_simple.get(y, 0):.4f}%"
+    f"{yearly_simple.get(y, 0):.2f}%"
     for y in years
 ]
 
@@ -871,7 +408,7 @@ def build_monthly_calendar_safe(monthly_simple_series):
         
         for idx, m in enumerate(months, start=1):
             monthly_data[m] = [
-                f"{monthly_simple_series.get(pd.Period(f'{y}-{idx:02d}'), 0):.4f}%"
+                f"{monthly_simple_series.get(pd.Period(f'{y}-{idx:02d}'), 0):.2f}%"
                 if pd.Period(f'{y}-{idx:02d}') in monthly_simple_series.index
                 else ""
                 for y in years
@@ -880,7 +417,7 @@ def build_monthly_calendar_safe(monthly_simple_series):
         # Calculate year totals
         yearly_simple = monthly_simple_series.groupby(monthly_simple_series.index.year).sum()
         monthly_data["Year Total"] = [
-            f"{yearly_simple.get(y, 0):.4f}%"
+            f"{yearly_simple.get(y, 0):.2f}%"
             for y in years
         ]
         
@@ -890,307 +427,363 @@ def build_monthly_calendar_safe(monthly_simple_series):
         return pd.DataFrame()  # Return empty DataFrame as fallback
 
 # ==============================================================================
-# 9) DAILY PERFORMANCE METRICS
-#    Define a helper to compute all your key stats over any period
+# 9) MONTHLY PERFORMANCE METRICS
+#    Define a helper to compute all your key stats over any period using monthly data
 # ==============================================================================
-def calculate_period_metrics(returns: pd.Series, start_date: pd.Timestamp) -> dict:
+def calculate_period_metrics_monthly(returns: pd.Series, start_date: pd.Timestamp) -> dict:
     """
-    Given a series of non-compounded daily returns,
-    compute cumulative return, annualized, avg daily,
-    win/loss counts & rates, top/bottom 3 days.
+    Given a series of monthly returns (in percentage format like 0.749 for 0.749%),
+    compute cumulative return, annualized, avg monthly,
+    win/loss counts & rates, top/bottom 3 months, Sharpe Ratio, and Max Drawdown.
     """
     keys = [
-        "Cumulative Return", "Annualized Return", "Avg Daily Return",
-        "Number of Trading Days", "% Winning Days", "% Losing Days",
-        "Best 3 Days", "Worst 3 Days",
+        "Cumulative Return", "Annualized Return", "Avg Monthly Return",
+        # "Sharpe Ratio",  # Commented out - can be restored if needed
+        # "Max Monthly Drawdown*",  # Commented out - can be restored if needed
+        "Number of Months", "% Winning Months", "% Losing Months",
+        "Best 3 Months", "Worst 3 Months",
     ]
     if len(returns) < 2:
         return dict.fromkeys(keys, "—")
 
-    cum = returns.sum()
-    days = len(returns)
-    # annualize simple sum-of-daily
-    annualized = cum * 365.0 / (returns.index.max() - start_date).days
-    avg = returns.mean()
+    # Convert percentage to decimal for calculations (0.749% -> 0.00749)
+    returns_decimal = returns / 100.0
+    
+    # Calculate compounded cumulative return (not simple sum)
+    cum = (1 + returns_decimal).prod() - 1
+    months = len(returns_decimal)
+    # Annualize using compounded rate
+    years = months / 12.0
+    annualized = (1 + cum) ** (1 / years) - 1 if years > 0 else 0
+    avg = returns_decimal.mean()
 
-    wins = (returns > 0).sum()
-    losses = (returns < 0).sum()
+    # Calculate Sharpe Ratio (using risk-free rate = 0)
+    # Annualized Sharpe = (monthly avg return / monthly std dev) * sqrt(12)
+    # Commented out - can be restored if needed
+    # monthly_std = returns_decimal.std()
+    # sharpe_ratio = (avg / monthly_std) * np.sqrt(12) if monthly_std > 0 else 0
+    
+    # Calculate Maximum Drawdown
+    # Commented out - can be restored if needed
+    # cum_returns = (1 + returns_decimal).cumprod()
+    # running_max = cum_returns.cummax()
+    # drawdown = (cum_returns - running_max) / running_max
+    # max_drawdown = drawdown.min()
 
-    top3 = returns.nlargest(3) * 100
-    bot3 = returns.nsmallest(3) * 100
+    wins = (returns_decimal > 0).sum()
+    losses = (returns_decimal < 0).sum()
+
+    # For display, use original percentage values
+    top3 = returns.nlargest(3)
+    bot3 = returns.nsmallest(3)
 
     return {
         "Cumulative Return":      f"{cum*100:.1f}%",
         "Annualized Return":      f"{annualized*100:.1f}%",
-        "Avg Daily Return":       f"{avg*100:.3f}%",
-        "Number of Trading Days": str(days),
-        "% Winning Days":         f"{wins} ({wins/days*100:.1f}%)",
-        "% Losing Days":          f"{losses} ({losses/days*100:.1f}%)",
-        "Best 3 Days":            ", ".join(f"{v:.2f}%" for v in top3),
-        "Worst 3 Days":           ", ".join(f"{v:.2f}%" for v in bot3),
+        "Avg Monthly Return":     f"{avg*100:.3f}%",
+        # "Sharpe Ratio":           f"{sharpe_ratio:.2f}",  # Commented out - can be restored if needed
+        # "Max Monthly Drawdown*":  f"{max_drawdown*100:.2f}%",  # Commented out - can be restored if needed
+        "Number of Months":       str(months),
+        "% Winning Months":       f"{wins} ({wins/months*100:.1f}%)",
+        "% Losing Months":        f"{losses} ({losses/months*100:.1f}%)",
+        "Best 3 Months":          ", ".join(f"{v:.2f}%" for v in top3),
+        "Worst 3 Months":         ", ".join(f"{v:.2f}%" for v in bot3),
     }
 
 # ── List of the metrics in the order you want them shown ────────────────────
 metric_labels = [
     "Cumulative Return",
     "Annualized Return",
-    "Avg Daily Return",
-    "Number of Trading Days",
-    "% Winning Days",
-    "% Losing Days",
-    "Best 3 Days",
-    "Worst 3 Days"
+    "Avg Monthly Return",
+    # "Sharpe Ratio",  # Commented out - can be restored if needed
+    # "Max Monthly Drawdown*",  # Commented out - can be restored if needed
+    "Number of Months",
+    "% Winning Months",
+    "% Losing Months",
+    "Best 3 Months",
+    "Worst 3 Months"
 ]
 
 # ── Define period boundaries ────────────────────────────────────────────────
 inception_start = NAV_df.index.min()
-ttm_start       = NAV_df.index.max() - pd.DateOffset(years=1)
+# For exactly 12 months, go back 11 months from max (to include current month = 12 total)
+ttm_start       = NAV_df.index.max() - pd.DateOffset(months=11)
 
-# ── Slice your strategy series ─────────────────────────────────────────────
-one_year_returns  = daily_returns.loc[ttm_start:].dropna()
-inception_returns = daily_returns.copy()
+# ── Slice your strategy series (monthly data) ─────────────────────────────────────────────
+one_year_returns  = monthly_simple.loc[ttm_start:].dropna()
+inception_returns = monthly_simple.copy()
 
 # ── Slice your SPXTR series ────────────────────────────────────────────────
-spxtr_series       = bench_ret["SPXTR"]
-spxtr_one_year     = spxtr_series.loc[ttm_start:].dropna()
-spxtr_inception    = spxtr_series.loc[inception_start:].dropna()
+# Check if SPXTR data was successfully downloaded
+if "SPXTR" in bench_ret:
+    spxtr_series       = bench_ret["SPXTR"]
+    spxtr_one_year     = spxtr_series.loc[ttm_start:].dropna()
+    spxtr_inception    = spxtr_series.loc[inception_start:].dropna()
+else:
+    # Create empty series if SPXTR failed to download
+    print("Warning: SPXTR benchmark data not available, using empty series")
+    spxtr_series       = pd.Series(dtype=float)
+    spxtr_one_year     = pd.Series(dtype=float)
+    spxtr_inception    = pd.Series(dtype=float)
 
-# ── Compute metrics ─────────────────────────────────────────────────────────
-one_year_metrics       = calculate_period_metrics(one_year_returns,  ttm_start)
-inception_metrics      = calculate_period_metrics(inception_returns, inception_start)
+# ── Compute metrics (monthly version) ─────────────────────────────────────────────────────────
+one_year_metrics       = calculate_period_metrics_monthly(one_year_returns,  ttm_start)
+inception_metrics      = calculate_period_metrics_monthly(inception_returns, inception_start)
 
 # ── Assemble your DataFrame ────────────────────────────────────────────────
-daily_perf_df = pd.DataFrame({
+monthly_perf_df = pd.DataFrame({
     "Metric": metric_labels,
     f"{STRATEGY_NAME} (1 Year/TTM)":    [one_year_metrics[m] for m in metric_labels],
     f"{STRATEGY_NAME} (Inception)":     [inception_metrics[m] for m in metric_labels],
 })
 
-
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# CONFIG: choose your drawdown method
-# ──────────────────────────────────────────────────────────────────────────────
-# True  = standard peak-to-trough drawdown (quantstats style)
-# False = custom baseline-relative drawdown
-USE_QUANTSTATS_DD_STRATEGY   = False   # TKP
-USE_QUANTSTATS_DD_BENCHMARKS = True  # SPXTR & others
-SHOW_DD_PRICE = False   # True ⇒ “2025-02-20 (152345.67)”, False ⇒ “2025-02-20”
+# ==============================================================================
+# Build blank Maximum Drawdown Profile DataFrame (to be filled in later)
+# ==============================================================================
+max_dd_df = pd.DataFrame({
+    "Metric": ["Depth", "Decline Period", "Recovery Period", "Total Duration", "Start Date", "Valley Date", "End Date"],
+    f"{STRATEGY_NAME} (Inception)": ["", "", "", "", "", "", ""],
+})
 
 # ==============================================================================
-# 10) Compute Worst (Max) Drawdown Profile, Inception Only
+# 10) Calculate Monthly Performance Statistics (from actual data)
 # ==============================================================================
-def drawdown_profile(
-    nav: pd.Series,
-    baseline: float,
-    use_quantstats: bool,
-    show_price: bool,
-    price_series: pd.Series
-) -> dict:
+def calculate_monthly_stats(returns: pd.Series) -> dict:
     """
-    Returns the single worst drawdown episode,
-    with optional price display.
+    Calculate monthly performance statistics from actual monthly return data.
     """
-    # 1) running peak & choose drawdown series
-    running_max = nav.cummax()
-    if use_quantstats:
-        dd_series = (nav / running_max - 1) * 100
-    else:
-        dd_series = (nav - running_max) / baseline * 100
-
-    # 2) find trough and its preceding peak
-    trough = dd_series.idxmin()
-    peak   = nav.loc[:trough].idxmax()
-
-    # 3) format dates and optional prices
-    peak_date   = peak.strftime("%Y-%m-%d")
-    valley_date = trough.strftime("%Y-%m-%d")
-
-    if show_price:
-        peak_str   = f"{peak_date} - {price_series.loc[peak]:,.2f}"
-        valley_str = f"{valley_date} - {price_series.loc[trough]:,.2f}"
-    else:
-        peak_str   = peak_date
-        valley_str = valley_date
-
-     # 4) recovery logic
-    rec      = nav[trough:][nav[trough:] >= nav[peak]]
-    rec_idx  = rec.index[0] if not rec.empty else None
-    decline_days = (trough - peak).days
-
-    if rec_idx:
-        # fully recovered
-        end_date   = rec_idx.strftime("%Y-%m-%d")
-        if show_price:
-            price = price_series.loc[rec_idx]
-            end_str = f"{end_date} - {price:,.2f}"
+    if len(returns) < 2:
+        return {
+            "Number of Positive Months": "—",
+            "Number of Negative Months": "—", 
+            "Average Winning Month %": "—",
+            "Average Losing Month %": "—",
+            "Best Single Month %": "—",
+            "Worst Single Month %": "—",
+            "Longest Winning Streak": "—",
+            "Longest Losing Streak": "—",
+        }
+    
+    # Separate winning and losing months
+    positive_months = returns[returns > 0]
+    negative_months = returns[returns < 0]
+    
+    # Calculate streaks
+    streak_signs = (returns > 0).astype(int)
+    
+    # Find longest winning and losing streaks
+    winning_streaks = []
+    losing_streaks = []
+    current_streak = 1
+    current_sign = streak_signs.iloc[0]
+    
+    for i in range(1, len(streak_signs)):
+        if streak_signs.iloc[i] == current_sign:
+            current_streak += 1
         else:
-            end_str = end_date
-
-        recovery_days = (rec_idx - trough).days
-        total_days    = (rec_idx - peak).days
-        recovery_text = f"{recovery_days} days"
-        total_text    = f"{total_days} days"
-
+            if current_sign == 1:
+                winning_streaks.append(current_streak)
+            else:
+                losing_streaks.append(current_streak)
+            current_streak = 1
+            current_sign = streak_signs.iloc[i]
+    
+    # Add the final streak
+    if current_sign == 1:
+        winning_streaks.append(current_streak)
     else:
-        # still in drawdown
-        # inside your `else:` for “not recovered”:
-        last_date     = nav.index.max()
-        last_price    = price_series.loc[last_date]
-        peak_price    = price_series.loc[peak]
-        trough_price  = price_series.loc[trough]
-
-        remaining_pct = (peak_price - last_price) / (peak_price - trough_price) * 100
-
-        last_date = nav.index.max()
-        if show_price:
-            last_price = price_series.loc[last_date]
-            end_str = (
-                f"TBD - Current Price is {last_price:,.2f}, "
-                f"{remaining_pct:.1f} % of the current drawdown is left for a full recovery"
-            )
-        else:
-            end_str = "TBD"
-
-        recovery_days = (last_date - trough).days
-        total_days    = (last_date - peak).days
-        recovery_text = f"Ongoing for {recovery_days} days"
-        total_text    = f"Ongoing for {total_days} days"
-
-    # 5) worst depth
-    depth = dd_series.min()
-
-    # assemble result with dynamic field names
-    result = {
-        "Depth":           f"{depth:.1f}%",
-        "Decline Period":  f"{decline_days} days",
-        "Recovery Period": recovery_text,
-        "Total Duration":  total_text
+        losing_streaks.append(current_streak)
+    
+    longest_winning = max(winning_streaks) if winning_streaks else 0
+    longest_losing = max(losing_streaks) if losing_streaks else 0
+    
+    return {
+        "Number of Positive Months": f"{len(positive_months)} ({len(positive_months)/len(returns)*100:.1f}%)",
+        "Number of Negative Months": f"{len(negative_months)} ({len(negative_months)/len(returns)*100:.1f}%)",
+        "Average Winning Month %": f"{positive_months.mean():.2f}%" if len(positive_months) > 0 else "0.00%",
+        "Average Losing Month %": f"{negative_months.mean():.2f}%" if len(negative_months) > 0 else "0.00%",
+        "Best Single Month %": f"{returns.max():.2f}%",
+        "Worst Single Month %": f"{returns.min():.2f}%",
+        "Longest Winning Streak": f"{longest_winning} months",
+        "Longest Losing Streak": f"{longest_losing} months",
     }
 
-    if show_price:
-        result["Start Date & Price"]    = peak_str
-        result["Valley Date & Price"]   = valley_str
-        result["End Date & Price"]      = end_str
-    else:
-        result["Start Date"]            = peak_str
-        result["Valley Date"]           = valley_str
-        result["End Date"]              = end_str
 
-    return result
-
-# Safe helper function for drawdown profile (alternative to main function)
-def safe_drawdown_profile(
-    nav: pd.Series,
-    baseline: float,
-    use_quantstats: bool,
-    show_price: bool,
-    price_series: pd.Series
-) -> dict:
+# Download benchmark data and compound returns
+def download_and_compound_benchmark(symbol, start_date, end_date, baseline_amount):
     """
-    Safe version of drawdown profile with error handling.
-    Returns empty dict if calculation fails.
+    Download benchmark data and compound returns from start date to end date
     """
     try:
-        return drawdown_profile(nav, baseline, use_quantstats, show_price, price_series)
+        print(f"Downloading {symbol} data from {start_date} to {end_date}...")
+        
+        # Download data
+        data = yf.download(
+            symbol,
+            start=start_date,
+            end=end_date,
+            auto_adjust=True,
+            progress=False
+        )
+        
+        if data.empty:
+            print(f"Warning: No data found for {symbol}")
+            return pd.Series(dtype=float, index=pd.date_range(start=start_date, end=end_date, freq='ME'))
+        
+        # Handle multi-level columns from yfinance
+        if isinstance(data.columns, pd.MultiIndex):
+            # Get the close prices from the multi-level column
+            close_prices = data['Close'].iloc[:, 0] if data['Close'].ndim > 1 else data['Close']
+        else:
+            close_prices = data['Close']
+        
+        # Get monthly close prices (use 'ME' instead of deprecated 'M')
+        monthly_prices = close_prices.resample('ME').last()
+        
+        # Calculate monthly returns
+        monthly_returns = monthly_prices.pct_change().dropna()
+        
+        # Compound returns from baseline amount
+        compounded_values = [baseline_amount]
+        for return_rate in monthly_returns:
+            compounded_values.append(compounded_values[-1] * (1 + return_rate))
+        
+        # Create series with proper dates
+        dates = monthly_prices.index[1:]  # Skip first date since we don't have return for it
+        compounded_series = pd.Series(compounded_values[1:], index=dates)
+        
+        print(f"{symbol} data processed: {len(compounded_series)} months")
+        print(f"{symbol} final value: ${compounded_series.iloc[-1]:,.2f}")
+        return compounded_series
+        
     except Exception as e:
-        print(f"Warning: Error calculating drawdown profile: {e}")
+        print(f"Warning: Error downloading {symbol} data: {e}")
+        import traceback
+        traceback.print_exc()
+        return pd.Series(dtype=float, index=pd.date_range(start=start_date, end=end_date, freq='ME'))
+
+# Download and compound SPX Total Return data
+spx_compounded = download_and_compound_benchmark(
+    "^SP500TR", 
+    "2011-04-01", 
+    "2025-10-01", 
+    BASELINE_AMOUNT
+)
+
+
+# ==============================================================================
+# 11) Build the "Monthly Performance Statistics" DataFrame
+# ==============================================================================
+
+# Calculate monthly statistics for the Blue Whale Program (inception)
+monthly_stats_inception = calculate_monthly_stats(monthly_simple)
+
+# Create DataFrame with monthly statistics
+monthly_stats_df = pd.DataFrame({
+    "Metric": list(monthly_stats_inception.keys()),
+    f"{STRATEGY_NAME} (Inception)": list(monthly_stats_inception.values()),
+})
+
+# ==============================================================================
+# 12) Calculate Comparative Performance Metrics
+# ==============================================================================
+def calculate_comparative_metrics(blue_whale_returns, spx_nav_data):
+    """
+    Calculate comparative metrics for Blue Whale vs SPX
+    """
+    # Calculate monthly returns for both strategies from their NAV data
+    blue_whale_monthly_returns = blue_whale_returns.pct_change().dropna() * 100  # Convert to percentage
+    spx_monthly_returns = spx_nav_data.pct_change().dropna() * 100  # Convert to percentage
+    
+    # Ensure all series have the same length (align dates)
+    min_length = min(len(blue_whale_monthly_returns), len(spx_monthly_returns))
+    
+    blue_whale_aligned = blue_whale_monthly_returns.iloc[-min_length:]
+    spx_aligned = spx_monthly_returns.iloc[-min_length:]
+    
+    # Calculate total returns from NAV data
+    blue_whale_total_return = ((blue_whale_returns.iloc[-1] / blue_whale_returns.iloc[0]) - 1) * 100
+    spx_total_return = ((spx_nav_data.iloc[-1] / spx_nav_data.iloc[0]) - 1) * 100
+    
+    def calculate_metrics(returns, total_return, name):
+        if len(returns) == 0:
+            return {key: "—" for key in ["Total Return", "Win Rate", "Loss Rate", "Avg Win", "Avg Loss", "Best Month", "Worst Month", "Max Streak Win", "Max Streak Loss"]}
+        
+        # Basic metrics
+        positive_months = returns[returns > 0]
+        negative_months = returns[returns < 0]
+        
+        win_rate = len(positive_months) / len(returns) * 100 if len(returns) > 0 else 0
+        loss_rate = len(negative_months) / len(returns) * 100 if len(returns) > 0 else 0
+        
+        avg_win = positive_months.mean() if len(positive_months) > 0 else 0
+        avg_loss = negative_months.mean() if len(negative_months) > 0 else 0
+        
+        best_month = returns.max()
+        worst_month = returns.min()
+        
+        # Calculate streaks
+        streak_signs = (returns > 0).astype(int)
+        max_win_streak = 0
+        max_loss_streak = 0
+        current_streak = 1
+        current_sign = streak_signs.iloc[0] if len(streak_signs) > 0 else 0
+        
+        for i in range(1, len(streak_signs)):
+            if streak_signs.iloc[i] == current_sign:
+                current_streak += 1
+            else:
+                if current_sign == 1:
+                    max_win_streak = max(max_win_streak, current_streak)
+                else:
+                    max_loss_streak = max(max_loss_streak, current_streak)
+                current_streak = 1
+                current_sign = streak_signs.iloc[i]
+        
+        # Add final streak
+        if current_sign == 1:
+            max_win_streak = max(max_win_streak, current_streak)
+        else:
+            max_loss_streak = max(max_loss_streak, current_streak)
+        
         return {
-            "Depth": "N/A",
-            "Decline Period": "N/A", 
-            "Recovery Period": "N/A",
-            "Total Duration": "N/A",
-            "Start Date": "N/A",
-            "Valley Date": "N/A",
-            "End Date": "N/A"
+            "Total Return": f"{total_return:.1f}%",
+            "Win Rate": f"{win_rate:.1f}%",
+            "Loss Rate": f"{loss_rate:.1f}%",
+            "Avg Win": f"{avg_win:.2f}%",
+            "Avg Loss": f"{avg_loss:.2f}%",
+            "Best Month": f"{best_month:.2f}%",
+            "Worst Month": f"{worst_month:.2f}%",
+            "Max Streak Win": f"{max_win_streak} months",
+            "Max Streak Loss": f"{max_loss_streak} months"
         }
-
-spxtr_price_series = (
-    yf.download(
-        "^SP500TR",
-        start="2023-04-01",
-        end="2025-07-01",
-        auto_adjust=True,
-        progress=False
-    )[['Close']]
-    .squeeze()
-    .reindex(NAV_df.index)
-    .ffill()
-)
-
-# Safe helper function for SPXTR price series download
-def safe_spxtr_download():
-    """Safe SPXTR price series download with error handling"""
-    try:
-        return (
-            yf.download(
-                "^SP500TR",
-                start="2023-04-01",
-                end="2025-07-01",
-                auto_adjust=True,
-                progress=False
-            )[['Close']]
-            .squeeze()
-            .reindex(NAV_df.index)
-            .ffill()
-        )
-    except Exception as e:
-        print(f"Warning: Error downloading SPXTR data: {e}")
-        # Return empty series as fallback
-        return pd.Series(dtype=float, index=NAV_df.index)
-
-# ==============================================================================
-# 11) Build the “Worst Drawdown” DataFrame
-# ==============================================================================
-# Strategy NAV + baseline
-strategy_nav      = NAV_df[NAV_col]
-strategy_baseline = strategy_nav.iloc[0]
-
-# SPXTR NAV scaled to strategy baseline
-spxtr_returns    = bench_ret["SPXTR"]
-spxtr_nav        = (1 + spxtr_returns.loc[inception_start:]).cumprod() * strategy_baseline
-spxtr_baseline   = strategy_baseline
-
-# Make sure you have the raw SPXTR close-price series defined as spxtr_price_series
-# e.g.: spxtr_price_series = utils.download_price("^SP500TR").reindex(NAV_df.index).ffill()
-
-period_slices = {
-    f"{STRATEGY_NAME} (Inception)": (
-        strategy_nav,
-        strategy_baseline,
-        USE_QUANTSTATS_DD_STRATEGY,
-        SHOW_DD_PRICE,
-        strategy_nav        # use NAV as price series for TKP
-    ),
-    "SPXTR (Inception)": (
-        spxtr_nav,
-        spxtr_baseline,
-        USE_QUANTSTATS_DD_BENCHMARKS,
-        SHOW_DD_PRICE,
-        spxtr_price_series  # your SPXTR close-price Series
-    ),
-}
-
-max_dd_df = (
-    pd.DataFrame({
-        name: drawdown_profile(
-            nav,
-            baseline,
-            use_flag,
-            show_price,
-            price_series
-        )
-        for name, (nav, baseline, use_flag, show_price, price_series)
-            in period_slices.items()
+    
+    # Calculate metrics for each strategy
+    blue_whale_metrics = calculate_metrics(blue_whale_aligned, blue_whale_total_return, "Blue Whale")
+    spx_metrics = calculate_metrics(spx_aligned, spx_total_return, "SPX")
+    
+    # Create comparative DataFrame
+    metrics = [
+        "Total Return", "Win Rate", "Loss Rate", "Avg Win", "Avg Loss", 
+        "Best Month", "Worst Month", "Max Streak Win", "Max Streak Loss"
+    ]
+    
+    comparative_df = pd.DataFrame({
+        "Metric": metrics,
+        "Blue Whale Program": [blue_whale_metrics[m] for m in metrics],
+        "SPX Total Return": [spx_metrics[m] for m in metrics]
     })
-    .rename_axis("Metric")
-    .reset_index()
+    
+    return comparative_df
+
+# Calculate comparative metrics
+comparative_metrics_df = calculate_comparative_metrics(
+    NAV_df[NAV_col], 
+    spx_compounded
 )
 
-
 # ==============================================================================
-# 12) Hard-coded “Additional Information”
+# 12) Hard-coded "Additional Information"
 # ==============================================================================
 grouped_info = {
     "Account Stats": [
@@ -1203,12 +796,15 @@ grouped_info = {
     ],
     "Terms & Fees": [
         ("Investment Type",    "Managed Account"),
-        ("Fee Structure",      "0% Annual / 20% Performance"),
+        ("Management Fee",     "None"),
+        ("Performance Fee",    "20% of Trading Profits, Quarterly, High-Water Mark"),
         ("High Water Mark",    "Yes"),
         ("Lockup Period",      "None"),
-        ("Liquidity",          "Daily"),
-        ("Notional Funding",   "Yes"),
-        ("Execution FCM",      "StoneX Financial"),
+        ("Liquidity",          "Withdrawals with 7 days' notice; no lock-up"),
+        ("Minimum Investment", "$100,000 (advisor may reduce)"),
+        ("Additional Contributions", "$10,000+"),
+        ("Notional Funding",   "Yes (see disclosure below)"),
+        ("Execution FCM",      "Client choice (StoneX Financial default)"),
     ],
 }
 
@@ -1216,105 +812,52 @@ grouped_info = {
 # 13) Legal disclaimers & footer contact
 # ==============================================================================
 hcdisclaimer_text = (
-    "UNTIL TKP IS OFFICIALLY OPENED TO OUTSIDE INVESTORS BY THE INTRODUCING BROKER, "
-    "THE STRATEGY REMAINS PROPRIETARY AND THIS PAGE OR DESCRIPTION IS NOT A SOLICITATION TO INVEST. "
-    "NO SUBSCRIPTION DOCUMENTS HAVE BEEN ISSUED, AND TKP WILL ONLY BECOME AVAILABLE ONCE THE IB "
-    "PUBLISHES THE APPROPRIATE SUBSCRIPTION MATERIALS AND DECLARES THE PROGRAM OPEN FOR OUTSIDE INVESTMENT."
+    "THE BLUE WHALE PROGRAM IS A PROPRIETARY TRADING STRATEGY. "
+    "THIS PERFORMANCE DATA IS FOR INFORMATIONAL PURPOSES ONLY AND IS NOT A SOLICITATION TO INVEST. "
+    "PAST PERFORMANCE IS NOT INDICATIVE OF FUTURE RESULTS."
 )
 
 disclaimer_text = (
-    "THE RISK OF LOSS IN COMMODITY INTEREST TRADING CAN BE SUBSTANTIAL. YOU SHOULD, THEREFORE, "
-    "CAREFULLY CONSIDER WHETHER SUCH TRADING IS SUITABLE FOR YOU IN LIGHT OF YOUR FINANCIAL CONDITION. "
-    "THE HIGH DEGREE OF LEVERAGE IN COMMODITY INTEREST TRADING MEANS INVESTMENTS SHOULD BE MADE WITH RISK "
-    "CAPITAL ONLY. ALL INFORMATION ABOVE IS COMPILED WITH THE INTENTION OF BEING FULLY CORRECT, THOUGH THERE "
-    "IS NO GUARANTEE ALL INFORMATION IS CORRECT AND COULD BE SUBJECT TO UNINTENTIONAL CLERICAL ITEMS. "
-    "PAST PERFORMANCE IS NOT NECESSARILY INDICATIVE OF FUTURE RESULTS.\n\n"
-    "PLEASE ENSURE THAT YOU ARE FULLY AWARE AND UNDERSTAND ALL RISKS, FEES, AND OTHER CONCERNS RELATED TO YOUR "
-    "INVESTMENT BY REQUESTING THE COMPLETE DISCLOSURE DOCUMENT & INVESTMENT MANAGEMENT AGREEMENT MATERIALS BY "
-    "REACHING OUT DIRECTLY TO THE ADVISOR."
+    "Past performance is not necessarily indicative of future results. The risk of loss in commodity trading can be substantial. "
+    "This information is for informational purposes only and does not constitute investment advice or a solicitation to invest."
 )
+
 footer_contact = (
-    "HUGHES & COMPANY LLC • NFA ID 0423388 • 330 Himmararshee, Ste 110, FTL, FL 33312 • 954-500-0500 • www.hughesandco.ltd"
+    "For more information, contact Y & Q Investments, LLC"
 )
 
 # ==============================================================================
 # 14) Helper: Build Plotly “NAV” figure
 # ==============================================================================
 def build_NAV_figure():
-    fig = go.Figure(
-        go.Scatter(
-            x=NAV_df.index,
-            y=NAV_df[NAV_col],
-            mode="lines",
-            line={"color": PRIMARY_COLOR},
-            name="NAV"
-        )
-    )
+    fig = go.Figure()
+    
+    # Add main NAV line
+    fig.add_trace(go.Scatter(
+        x=NAV_df.index,
+        y=NAV_df[NAV_col],
+        mode="lines",
+        line={"color": PRIMARY_COLOR},
+        name=STRATEGY_NAME
+    ))
+    
+    
 
-    # Base layout configuration
-    layout_config = {
-        "title": {
-            "text": "<u>Non-Compounded NAV Since Inception</u>",
+    fig.update_layout(
+        title={
+            "text": "<u>Compounded NAV Since Inception</u>",
             "x": 0.5,
             "xanchor": "center"
         },
-        "template": "ggplot2",
-        "plot_bgcolor": GREY_BG,
-        "paper_bgcolor": WHITE_BG,
-        "xaxis_title": "Date",
-        "yaxis_title": "NAV",
-        "autosize": True,
-    }
+        template="ggplot2",
+        plot_bgcolor=GREY_BG,
+        paper_bgcolor=WHITE_BG,
+        xaxis_title="Date",
+        yaxis_title="Normalized NAV ($100k baseline)",
+        autosize=True,               # ← responsive sizing
+        margin={"l": 40, "r": 10, "t": 40, "b": 40}
+    )
 
-    # Add secondary percentage axis if enabled
-    if SHOW_PERCENTAGE_AXIS:
-        # Get the primary y-axis range from the data
-        nav_min = NAV_df[NAV_col].min()
-        nav_max = NAV_df[NAV_col].max()
-        nav_range = nav_max - nav_min
-        
-        # Calculate percentage range
-        pct_min = ((nav_min - BASELINE_AMOUNT) / BASELINE_AMOUNT) * 100
-        pct_max = ((nav_max - BASELINE_AMOUNT) / BASELINE_AMOUNT) * 100
-        pct_range = pct_max - pct_min
-        
-        # Determine appropriate tick step based on range
-        if pct_range > 50:
-            tick_step = 10  # 10% increments
-        elif pct_range > 20:
-            tick_step = 5   # 5% increments
-        elif pct_range > 10:
-            tick_step = 2   # 2% increments
-        else:
-            tick_step = 1   # 1% increments
-        
-        # Generate percentage tick values
-        pct_tick_start = (int(pct_min / tick_step) - 1) * tick_step
-        pct_tick_end = (int(pct_max / tick_step) + 2) * tick_step
-        pct_ticks = list(range(int(pct_tick_start), int(pct_tick_end) + tick_step, tick_step))
-        
-        # Convert percentage ticks to NAV values (for positioning)
-        # NAV = BASELINE_AMOUNT * (1 + pct/100)
-        nav_tick_values = [BASELINE_AMOUNT * (1 + pct / 100) for pct in pct_ticks]
-        pct_tick_labels = [f"{pct:.0f}%" for pct in pct_ticks]
-        
-        # Create percentage axis config with explicit ticks
-        layout_config["yaxis2"] = {
-            "title": "Return (%)",
-            "overlaying": "y",
-            "side": "right",
-            "tickmode": "array",
-            "tickvals": nav_tick_values,  # NAV positions where ticks appear
-            "ticktext": pct_tick_labels,   # Percentage labels to display
-            "showgrid": False,
-            "zeroline": False,
-        }
-        layout_config["margin"] = {"l": 40, "r": 70, "t": 40, "b": 40}
-    else:
-        # No secondary axis, use standard margins
-        layout_config["margin"] = {"l": 40, "r": 10, "t": 40, "b": 40}
-
-    fig.update_layout(**layout_config)
     fig.update_xaxes(showgrid=True)
     fig.update_yaxes(showgrid=True)
     return fig
@@ -1404,16 +947,37 @@ app = dash.Dash(
     __name__,
     external_stylesheets=[dbc.themes.BOOTSTRAP, "/assets/styles.css"],
     suppress_callback_exceptions=True,
-    title="H&C – TKP",
+    title="Y&Q – Blue Whale Program",
 )
 
 def serve_layout():
-    last_updated = NAV_df.index.max().strftime("%B %d, %Y")
+    # Calculate first Monday of current month after the 2nd
+    from datetime import datetime, timedelta
+    import calendar
+    
+    today = datetime.now()
+    # Get first day of current month
+    first_day = today.replace(day=1)
+    
+    # Find first Monday of the month
+    # Monday is weekday 0 in Python
+    days_ahead = 0 - first_day.weekday()  # Monday is 0
+    if days_ahead <= 0:  # Target day already happened this week
+        days_ahead += 7
+    
+    first_monday = first_day + timedelta(days=days_ahead)
+    
+    # If first Monday is before the 3rd, move to next Monday
+    if first_monday.day <= 2:
+        first_monday += timedelta(days=7)
+    
+    last_updated = first_monday.strftime("%B %d, %Y")
 
     return dbc.Container(
         id="page-container",
         fluid=True,        # ⇒ always 100% on xs, sm; constrained on md+ breakpoints
         className="py-4",
+                style={"maxWidth": "1400px"},  # Match TKP width exactly
         children=[
             # ── Header ─────────────────────────────────────────────────────────
             dbc.Row(
@@ -1434,8 +998,8 @@ def serve_layout():
                     dbc.Col(
                         html.Div(
                             [
-                                html.H2("Hughes & Company LLC", className="text-center"),
-                                html.H5("The Keymaker Program", className="text-center text-muted"),
+                                html.H2("Y & Q Investment Fund Pool", className="text-center"),
+                                html.H5("Blue Whale Program", className="text-center text-muted"),
                             ],
                             style={"lineHeight": "1.2", "paddingTop": "20px"},
                         ),
@@ -1448,7 +1012,7 @@ def serve_layout():
                             html.Div(
                                 [
                                     html.H6("Last Updated", className="text-end text-secondary mb-1"),
-                                    html.H5(last_updated, className="text-end text-primary"),
+                                    html.H5(last_updated, className="text-end", style={"color": "#28a745"}),
                                 ],
                                 className="d-none d-md-block",   # hide on small viewports
                                 style={"paddingTop": "30px"}
@@ -1459,12 +1023,13 @@ def serve_layout():
                                     # re-add “Last Updated” label
                                     html.Small(
                                         "Last Updated",
-                                        className="d-block text-end text-primary mb-1",
+                                        className="d-block text-end text-secondary mb-1",
                                     ),
                                     # show the date underneath in one line
                                     html.Small(
                                         last_updated,
-                                        className="d-block text-end text-primary",
+                                        className="d-block text-end",
+                                        style={"color": "#28a745"}
                                     ),
                                 ],
                                 className="d-block d-md-none",
@@ -1485,13 +1050,13 @@ def serve_layout():
             html.Div(
                 [
                     html.P(
-                        "Hughes & Company LLC is an introducing brokerage firm with expertise in the futures options industry. ",
-                        className="lead text-center",
-                    ),
-                    html.P(
-                        "Principals: Daniel V. Hughes III | Inception: April 2023 | Products Traded: E-Mini Micro S&P 500 Options | Styles: Short Options",
-                        className="text-center mb-5",
-                    ),
+                "Y & Q Investments, LLC — CTA & CPO; NFA member since 2010. Blue Whale Trading Program (inception April 2011).",
+                className="lead text-center",
+            ),
+            html.P(
+                "Instruments: S&P 500 E-mini, Nasdaq-100 E-mini, standard S&P 500 futures; may trade foreign futures/options. Objective: Capital preservation + consistent returns via premium collection with dynamic risk adjustments.",
+                className="text-center mb-5",
+            ),
                 ],
                 className="description",
             ),
@@ -1510,18 +1075,19 @@ def serve_layout():
                 },
             ),
             html.P(
-                "This chart visualizes the growth of a $150,000 investment from inception to today. "
-                "NAV stands for Net Asset Value; it reflects the non-compounded performance, net of all fees.",
+                "This chart visualizes the growth of a $100,000 investment from inception to today. "
+                "NAV stands for Net Asset Value; it reflects the compounded performance, net of all fees.",
                 className="text-center small",
                 style={"marginTop": "4rem"}  # gives some breathing room
             ),
 
             html.P(
-                "Please note that all percentages shown are relative to the initial amount invested. "
-                "Also note that performance may vary depending on the time of entry due to the fixed-sizing nature of this strategy.",
+                "This chart shows the compounded growth of the Blue Whale Program from inception to present. "
+                "All profits are reinvested and compounded over time, demonstrating the power of systematic options selling.",
                 className="text-center small",
                 style={"marginBottom": "3rem"}
             ),
+
 
             # ── Performance Summary ────────────────────────────────────────────
             html.H5("Performance Summary", className="text-center mb-2"),
@@ -1529,12 +1095,32 @@ def serve_layout():
                 [
                     html.Thead(
                         html.Tr([
-                            html.Th(col, style={"backgroundColor": GREY_BG, "color": "#000"})
+                            html.Th(
+                                col, 
+                                style={
+                                    "backgroundColor": GREY_BG, 
+                                    "color": "#000",
+                                    "borderLeft": "3px solid #dee2e6" if col == "Year Total" else "none"
+                                }
+                            )
                             for col in monthly_df.columns
                         ])
                     ),
                     html.Tbody([
-                        html.Tr([html.Td(monthly_df.iloc[i][col]) for col in monthly_df.columns])
+                        html.Tr([
+                            html.Td(
+                                monthly_df.iloc[i][col],
+                                style={
+                                    "backgroundColor": (
+                                        "#d4edda" if col != "Year" and monthly_df.iloc[i][col] != "" and float(monthly_df.iloc[i][col].replace("%", "")) > 0
+                                        else "#f8d7da" if col != "Year" and monthly_df.iloc[i][col] != "" and float(monthly_df.iloc[i][col].replace("%", "")) < 0
+                                        else "white"
+                                    ),
+                                    "borderLeft": "3px solid #dee2e6" if col == "Year Total" else "none"
+                                }
+                            )
+                            for col in monthly_df.columns
+                        ])
                         for i in range(len(monthly_df))
                     ])
                 ],
@@ -1542,7 +1128,7 @@ def serve_layout():
                 hover=True,
                 size="sm",
                 className="table-responsive mb-5",
-                style={"width": "95%", "margin": "0 auto", "pageBreakInside": "avoid"},
+                style={"width": "100%", "margin": "0 auto", "pageBreakInside": "avoid"},
             ),
 
             # ── General and Sector Information Tables ──────────────────────────
@@ -1568,9 +1154,9 @@ dbc.Row(
                                     html.Tr([
                                         html.Td(
                                             [
-                                                html.P(
-                                                    "The Keymaker Program (TKP) is a unique offering by Hughes & Company LLC which utilizes specific strike daily options on the S&P 500 Index. It is oriented to achieve long-biased stable returns through intraday scalping of a proprietarily selected Put strikes in the nearest expiring option chain of the Micro ES product suite, and is most active in Volatile environments. The strategy simultaneously was built to allow for Put assignments for underlying Micro Futures Contracts, writing proprietarily selected Call strikes in sequential fashion to mitigate both drawdown depth and duration regardless of market environment. TKP has been designed as a long term, positively performing, market-neutral offering, with daily visibility and liquidity."
-                                                ),
+                    html.P(
+                        "The Blue Whale Program is a systematic options trading strategy focused on selling options on the E-Mini S&P 500 futures, Nasdaq-100 E-mini, and standard S&P 500 futures. Core approach: Sell OTM index options (predominantly short strangles); also uses credit/debit spreads and may buy options for risk control. The strategy aims to generate consistent returns through premium collection while managing risk through proprietary position sizing and strike selection. The program has been actively trading since April 2011 and compounds profits through systematic reinvestment. Advisor may alter strategies; material changes will be noticed to clients."
+                    ),
                                             ],
                                             colSpan=3,
                                             style={
@@ -1598,7 +1184,7 @@ dbc.Row(
                                                         html.Tr([
                                                             html.Td([
                                                                 html.Tr([
-                                                                    html.Td(html.Span("✓ Mean Reversion", style={"color": PRIMARY_COLOR, "marginRight": "0.5rem"}),),
+                                                                    html.Td(html.Span("✗ Mean Reversion", style={"color": SECONDARY_COLOR, "marginRight": "0.5rem"}),),
                                                                 ]),
                                                                 html.Tr([
                                                                     html.Td(html.Span("✗ Technical", style={"color": SECONDARY_COLOR, "marginRight": "0.5rem"}),),
@@ -1646,7 +1232,7 @@ dbc.Row(
                                                     html.Td("Execution Style"),
                                                     html.Td([
                                                         html.Tr([
-                                                            html.Td(html.Span("✓ Automated", style={"color": PRIMARY_COLOR, "marginRight": "0.5rem"})),
+                                                            html.Td(html.Span("✗ Automated", style={"color": SECONDARY_COLOR, "marginRight": "0.5rem"})),
                                                             html.Td(),
                                                         ]),
                                                     ]),
@@ -1663,7 +1249,7 @@ dbc.Row(
                                                         html.Tr([
                                                             html.Td([
                                                                 html.Tr([
-                                                                    html.Td(html.Span("✓ Straight Futures", style={"color": PRIMARY_COLOR, "marginRight": "0.5rem"}),),
+                                                                    html.Td(html.Span("✗ Straight Futures", style={"color": SECONDARY_COLOR, "marginRight": "0.5rem"}),),
                                                                 ]),
                                                                 html.Tr([
                                                                     html.Td(html.Span("✗ Futures Spreads", style={"color": SECONDARY_COLOR, "marginRight": "0.5rem"}),),
@@ -1679,7 +1265,7 @@ dbc.Row(
                                                         html.Tr([
                                                             html.Td([
                                                                 html.Tr([
-                                                                    html.Td(html.Span("✓ Covered Options", style={"color": PRIMARY_COLOR, "marginRight": "0.5rem"}),),
+                                                                    html.Td(html.Span("✗ Covered Options", style={"color": SECONDARY_COLOR, "marginRight": "0.5rem"}),),
                                                                 ]),
                                                                 html.Tr([
                                                                     html.Td(html.Span("✓ Uncovered Options", style={"color": PRIMARY_COLOR, "marginRight": "0.5rem"}),),
@@ -1709,10 +1295,10 @@ dbc.Row(
                                                             html.Td(html.Span("✗ Low (<500 Contracts)", style={"color": SECONDARY_COLOR, "marginRight": "0.5rem"})),
                                                         ]),
                                                         html.Tr([
-                                                            html.Td(html.Span("✓ Medium (500-2000 Contracts)", style={"color": PRIMARY_COLOR, "marginRight": "0.5rem"})),
+                                                            html.Td(html.Span("✗ Medium (500-2000 Contracts)", style={"color": SECONDARY_COLOR, "marginRight": "0.5rem"})),
                                                         ]),
                                                         html.Tr([
-                                                            html.Td(html.Span("✗ High (>2000 Contracts)", style={"color": SECONDARY_COLOR, "marginRight": "0.5rem"})),
+                                                            html.Td(html.Span("✓ High (>2000 Contracts)", style={"color": PRIMARY_COLOR, "marginRight": "0.5rem"})),
                                                         ]),
                                                     ]),
                                                     html.Td([
@@ -1723,15 +1309,18 @@ dbc.Row(
                                                             html.Td(html.Span("--"), style={"color": SECONDARY_COLOR, "marginRight": "0.5rem"}),
                                                         ]),
                                                         html.Tr([
-                                                            html.Td(html.Span("1000"), style={"color": PRIMARY_COLOR, "marginRight": "0.5rem"}),
+                                                            html.Td(html.Span("--"), style={"color": SECONDARY_COLOR, "marginRight": "0.5rem"}),
                                                         ]),
                                                         html.Tr([
-                                                            html.Td(html.Span("--"), style={"color": SECONDARY_COLOR, "marginRight": "0.5rem"}),
+                                                            html.Td(html.Span("15000"), style={"color": PRIMARY_COLOR, "marginRight": "0.5rem"}),
                                                         ]),
                                                     ]),
                                                 ]),
                                                 html.Tr([
-                                                    html.Td("Holding Periods"),
+                                                    html.Td([
+                                                        "Holding Periods ",
+                                                        html.Span("(*to verify*)", style={"backgroundColor": "yellow", "color": "black"})
+                                                    ]),
                                                     html.Td([
                                                         html.Tr([
                                                             html.Td("Time Period", style={"text-decoration": "underline"}), 
@@ -1888,7 +1477,10 @@ dbc.Row(
                                                 ]),  # Blank row above Risk Management
                                                 
                                                 html.Tr([
-                                                    html.Th("Risk Management", colSpan=3, className=HEADER_ROW_CLASS),
+                                                    html.Th([
+                                                        "Risk Management ",
+                                                        html.Span("(*to verify*)", style={"backgroundColor": "yellow", "color": "black"})
+                                                    ], colSpan=3, className=HEADER_ROW_CLASS),
                                                 ]),
                                                 
                                                 html.Tr([
@@ -1961,7 +1553,7 @@ dbc.Row(
                                                             html.Td(html.Span("✗ Stop Losses", style={"color": SECONDARY_COLOR, "marginRight": "0.5rem"}, id="stop-losses")),
                                                         ]),
                                                         html.Tr([
-                                                            html.Td(html.Span("✓ VaR Considerations", style={"color": PRIMARY_COLOR, "marginRight": "0.5rem"}, id="var-considerations")),
+                                                            html.Td(html.Span("✗ VaR Considerations", style={"color": SECONDARY_COLOR, "marginRight": "0.5rem"}, id="var-considerations")),
                                                         ]),
                                                         #html.Tr([
                                                         #    html.Td(html.Span("Fixed Stop Losses", style={"color": SECONDARY_COLOR, "marginRight": "0.5rem"})),
@@ -1975,10 +1567,10 @@ dbc.Row(
                                                         #    html.Td(html.Span("Anti-Martingale", style={"color": SECONDARY_COLOR, "marginRight": "0.5rem"})),
                                                         #]),
                                                         html.Tr([
-                                                            html.Td(html.Span("✗ Position Reductions", style={"color": SECONDARY_COLOR, "marginRight": "0.5rem"}, id="position-reductions")),
+                                                            html.Td(html.Span("✓ Position Reductions", style={"color": PRIMARY_COLOR, "marginRight": "0.5rem"}, id="position-reductions")),
                                                         ]),
                                                         html.Tr([
-                                                            html.Td(html.Span("✓ Position Offsets (Hedges)", style={"color": PRIMARY_COLOR, "marginRight": "0.5rem"}, id="position-hedges")),
+                                                            html.Td(html.Span("✗ Position Offsets (Hedges)", style={"color": SECONDARY_COLOR, "marginRight": "0.5rem"}, id="position-hedges")),
                                                         ]),
                                                     ]),
                                                 ]),
@@ -2026,7 +1618,7 @@ dbc.Row(
                                                 ]),
                                                 html.Tr([
                                                     html.Td("Commission"),
-                                                    html.Td("$0.20"),
+                                                    html.Td("$1.00"),
                                                     html.Td(),
                                                 ]),
                                                 html.Tr([
@@ -2036,17 +1628,17 @@ dbc.Row(
                                                 ]),
                                                 html.Tr([
                                                     html.Td("NFA Fee"),
-                                                    html.Td("$0.00"),
+                                                    html.Td("$0.01"),
                                                     html.Td(),
                                                 ]),
                                                 html.Tr([
                                                     html.Td("Give Up Fee"),
-                                                    html.Td("$0.00"),
+                                                    html.Td("$0.50"),
                                                     html.Td(),
                                                 ]),
                                                 html.Tr([
                                                     html.Td(html.Strong("Total All-In Fees")),
-                                                    html.Td(html.Strong("$0.30")),
+                                                    html.Td(html.Strong("$1.11 or $1.61")),
                                                     html.Td(),
                                                 ]),
                                                 html.Tr([
@@ -2079,13 +1671,10 @@ dbc.Row(
             ),
 
             # ── Metrics & Info ─────────────────────────────────────────────────────────────────────
-            # CONDITIONAL LAYOUT: Toggle USE_SIDE_BY_SIDE_LAYOUT flag at top of file to switch layouts
-            # Current: Side-by-side (Metrics left, Info right) vs New: Stacked (Metrics top, Info bottom)
-        ] + (
-            # LAYOUT OPTION 1: SIDE-BY-SIDE (current layout, width=6 each)
-            [dbc.Row(
+            # Row 1: Performance Metrics & Monthly Performance Statistics (side by side)
+            dbc.Row(
                 [
-                    # ── LEFT SIDE: Metrics + Drawdown ─────────────────────
+                    # ── LEFT SIDE: Performance Metrics ─────────────────────
                     dbc.Col(
                         [
                             # Performance Metrics
@@ -2094,7 +1683,7 @@ dbc.Row(
                                     dbc.CardHeader(html.H6("Performance Metrics", className="mb-0")),
                                     dbc.CardBody(
                                         dbc.Table.from_dataframe(
-                                            daily_perf_df,
+                                            monthly_perf_df,
                                             striped=False,
                                             bordered=True,
                                             hover=True,
@@ -2102,9 +1691,17 @@ dbc.Row(
                                             className="fixed-cols",
                                         )
                                     ),
+                                    # dbc.CardFooter(
+                                    #     html.Small([
+                                    #         html.Span("Sharpe Ratio (*to verify*)", style={"backgroundColor": "yellow", "color": "black"}),
+                                    #         " calculated using risk-free rate = 0% (assumes all returns are excess returns). ",
+                                    #         html.Span("Max Monthly Drawdown* (*to verify*)", style={"backgroundColor": "yellow", "color": "black"}),
+                                    #         " calculated from monthly NAV data (not intraday drawdowns)."
+                                    #     ], className="text-muted fst-italic")
+                                    # ),
                                 ],
                                 outline=True,
-                                className="mb-4",
+                                className="mb-2",
                             ),
 
                             # Maximum Drawdown Profile
@@ -2121,277 +1718,151 @@ dbc.Row(
                                             className="fixed-cols",
                                         )
                                     ),
-                                    dbc.CardFooter(
-                                        html.Small(
-                                            "Both TKP & SPXTR drawdown stats are reflective of the same $150,000 fixed nominal exposure at start of drawdown period.",
-                                            className="text-muted fst-italic"
-                                        )
-                                    ),
                                 ],
                                 outline=True,
-                                className="mb-4",
+                                className="mb-2",
                             ),
                         ],
                         width=6,
                     ),
 
-                    # ── RIGHT SIDE: Additional Information ─────────────────
+                    # ── RIGHT SIDE: Monthly Performance Statistics ─────────────────────
                     dbc.Col(
-                        dbc.Card(
-                            [
-                                dbc.CardHeader(html.H6("Investor Information", className="mb-0")),
-                                dbc.CardBody(
-                                    html.Div(
-                                        [
-                                            dbc.Table(
-                                                [
-                                                    html.Thead(
-                                                        html.Tr([
-                                                            html.Th("Terms & Fees"),
-                                                            html.Th("Details"),
-                                                        ])
-                                                    ),
-                                                    html.Tbody([
-                                                        html.Tr([
-                                                            html.Td(label),
-                                                            html.Td(value)
-                                                        ])
-                                                        for label, value in grouped_info["Terms & Fees"]
-                                                    ]),
-                                                ],
-                                                striped=False,
-                                                bordered=True,
-                                                hover=True,
-                                                size="sm",
-                                                className="mb-3"
-                                            ),
-                                            dbc.Table(
-                                                [
-                                                    html.Thead(
-                                                        html.Tr([
-                                                            html.Th("Account Stats"),
-                                                            html.Th("Proprietary"),
-                                                            html.Th("Client"),
-                                                        ])
-                                                    ),
-                                                    html.Tbody([
-                                                        html.Tr([
-                                                            html.Td("Nominal Assets Being Traded in the Program"),
-                                                            html.Td("$300,000"),
-                                                            html.Td("0")
-                                                        ]),
-                                                        html.Tr([
-                                                            html.Td("Total Accounts/Tranches Opened"),
-                                                            html.Td("4"),
-                                                            html.Td("0")
-                                                        ]),
-                                                        html.Tr([
-                                                            html.Td("Accounts/Tranches Currently Open"),
-                                                            html.Td("2"),
-                                                            html.Td("0")
-                                                        ]),
-                                                        html.Tr([
-                                                            html.Td("Accounts/Tranches Closed Profitably"),
-                                                            html.Td("2"),
-                                                            html.Td("0")
-                                                        ]),
-                                                        html.Tr([
-                                                            html.Td("Accounts/Tranches Closed Unprofitably"),
-                                                            html.Td("0"),
-                                                            html.Td("0")
-                                                        ]),
-                                                        html.Tr([
-                                                            html.Td("Range of Net Returns of Accounts/Tranches Closed"),
-                                                            html.Td("0.36% to 4.2%"),
-                                                            html.Td("N/A")
-                                                        ]),
-                                                    ]),
-                                                ],
-                                                striped=False,
-                                                bordered=True,
-                                                hover=True,
-                                                size="sm",
-                                                className="mb-3"
-                                            ),
-                                            html.P(
-                                                "Other Notes:",
-                                                className="small fw-bold mb-1 mt-2"
-                                            ),
-                                            html.P(
-                                                "TKP allows for efficient, opportunistic deployments of capital in and out of the program in fixed nominal trading levels of $150,000 per tranche. The program will remain perpetually funded with permanent capital of the Introducing Broker in the form of a minimum of two tranches ($300,000 Nominal). The IB itself also has historically allocated more tranches, and closed tranches profitably, and plans on continuing in doing so, in what it considers opportunities for additional capital deployment based on drawdowns of the program itself, with expected recoveries. This capability is allowed for investors as well, with the announcement of any tranche opening or closure by/of the IB shared for complete disclosure and additional visibility for the benefit of all potential participants.",
-                                                className="mt-2",
-                                                style={"fontSize": "0.9rem"}
-                                            ),
-                                        ]
-                                    )
-                                ),
-                            ],
-                            outline=True,
-                            className="mb-4",
-                        ),
+                        [
+                            # Monthly Performance Statistics
+                            dbc.Card(
+                                [
+                                    dbc.CardHeader(html.H6("Monthly Performance Statistics", className="mb-0")),
+                                    dbc.CardBody(
+                                        dbc.Table.from_dataframe(
+                                            monthly_stats_df,
+                                            striped=False,
+                                            bordered=True,
+                                            hover=True,
+                                            size="sm",
+                                            className="fixed-cols",
+                                        )
+                                    ),
+                                    dbc.CardFooter(
+                                        html.Small(
+                                            "Statistics calculated from actual monthly return data from April 2011 to September 2025.",
+                                            className="text-muted fst-italic"
+                                        )
+                                    ),
+                                ],
+                                outline=True,
+                                className="mb-2",
+                            ),
+                        ],
                         width=6,
                     ),
                 ],
                 justify="start",
                 className="mb-2",
-            )] if USE_SIDE_BY_SIDE_LAYOUT else
-            # LAYOUT OPTION 2: STACKED (new layout, full width blocks)
-            [
-                # Row 1: Metrics + Drawdown (full width)
-                dbc.Row(
-                    dbc.Col(
-                        [
-                            # Performance Metrics
-                            dbc.Card(
-                                [
-                                    dbc.CardHeader(html.H6("Performance Metrics", className="mb-0")),
-                                    dbc.CardBody(
-                                        dbc.Table.from_dataframe(
-                                            daily_perf_df,
-                                            striped=False,
-                                            bordered=True,
-                                            hover=True,
-                                            size="sm",
-                                            className="fixed-cols",
-                                        )
-                                    ),
-                                ],
-                                outline=True,
-                                className="mb-4",
-                            ),
+            ),
 
-                            # Maximum Drawdown Profile
-                            dbc.Card(
-                                [
-                                    dbc.CardHeader(html.H6("Maximum Drawdown Profile", className="mb-0")),
-                                    dbc.CardBody(
-                                        dbc.Table.from_dataframe(
-                                            max_dd_df,
-                                            striped=False,
-                                            bordered=True,
-                                            hover=True,
-                                            size="sm",
-                                            className="fixed-cols",
-                                        )
-                                    ),
-                                    dbc.CardFooter(
-                                        html.Small(
-                                            "Both TKP & SPXTR drawdown stats are reflective of the same $150,000 fixed nominal exposure at start of drawdown period.",
-                                            className="text-muted fst-italic"
-                                        )
-                                    ),
-                                ],
-                                outline=True,
-                                className="mb-4",
-                            ),
-                        ],
-                        width=12,
-                    ),
-                    justify="start",
-                    className="mb-2",
-                ),
-                # Row 2: Investor Information (full width)
-                dbc.Row(
+            # Row 2: Investor Information (full width below)
+            dbc.Row(
+                [
                     dbc.Col(
                         dbc.Card(
-                            [
-                                dbc.CardHeader(html.H6("Investor Information", className="mb-0")),
-                                dbc.CardBody(
-                                    html.Div(
-                                        [
-                                            dbc.Table(
-                                                [
-                                                    html.Thead(
-                                                        html.Tr([
-                                                            html.Th("Terms & Fees"),
-                                                            html.Th("Details"),
-                                                        ])
-                                                    ),
-                                                    html.Tbody([
-                                                        html.Tr([
-                                                            html.Td(label),
-                                                            html.Td(value)
-                                                        ])
-                                                        for label, value in grouped_info["Terms & Fees"]
-                                                    ]),
-                                                ],
-                                                striped=False,
-                                                bordered=True,
-                                                hover=True,
-                                                size="sm",
-                                                className="mb-3"
-                                            ),
-                                            dbc.Table(
-                                                [
-                                                    html.Thead(
-                                                        html.Tr([
-                                                            html.Th("Account Stats"),
-                                                            html.Th("Proprietary"),
-                                                            html.Th("Client"),
-                                                        ])
-                                                    ),
-                                                    html.Tbody([
-                                                        html.Tr([
-                                                            html.Td("Nominal Assets Being Traded in the Program"),
-                                                            html.Td("$300,000"),
-                                                            html.Td("0")
-                                                        ]),
-                                                        html.Tr([
-                                                            html.Td("Total Accounts/Tranches Opened"),
-                                                            html.Td("4"),
-                                                            html.Td("0")
-                                                        ]),
-                                                        html.Tr([
-                                                            html.Td("Accounts/Tranches Currently Open"),
-                                                            html.Td("2"),
-                                                            html.Td("0")
-                                                        ]),
-                                                        html.Tr([
-                                                            html.Td("Accounts/Tranches Closed Profitably"),
-                                                            html.Td("2"),
-                                                            html.Td("0")
-                                                        ]),
-                                                        html.Tr([
-                                                            html.Td("Accounts/Tranches Closed Unprofitably"),
-                                                            html.Td("0"),
-                                                            html.Td("0")
-                                                        ]),
-                                                        html.Tr([
-                                                            html.Td("Range of Net Returns of Accounts/Tranches Closed"),
-                                                            html.Td("0.36% to 4.2%"),
-                                                            html.Td("N/A")
-                                                        ]),
-                                                    ]),
-                                                ],
-                                                striped=False,
-                                                bordered=True,
-                                                hover=True,
-                                                size="sm",
-                                                className="mb-3"
-                                            ),
-                                            html.P(
-                                                "Other Notes:",
-                                                className="small fw-bold mb-1 mt-2"
-                                            ),
-                                            html.P(
-                                                "TKP allows for efficient, opportunistic deployments of capital in and out of the program in fixed nominal trading levels of $150,000 per tranche. The program will remain perpetually funded with permanent capital of the Introducing Broker in the form of a minimum of two tranches ($300,000 Nominal). The IB itself also has historically allocated more tranches, and closed tranches profitably, and plans on continuing in doing so, in what it considers opportunities for additional capital deployment based on drawdowns of the program itself, with expected recoveries. This capability is allowed for investors as well, with the announcement of any tranche opening or closure by/of the IB shared for complete disclosure and additional visibility for the benefit of all potential participants.",
-                                                className="mt-2",
-                                                style={"fontSize": "0.9rem"}
-                                            ),
-                                        ]
-                                    )
-                                ),
-                            ],
-                            outline=True,
-                            className="mb-4",
-                        ),
+                                                    [
+                                                        dbc.CardHeader(html.H6("Investor Information", className="mb-0")),
+                                                        dbc.CardBody(
+                                                            dbc.Row([
+                                                                # Left side: Terms & Fees
+                                                                dbc.Col(
+                                                                    dbc.Table(
+                                                                        [
+                                                                            html.Thead(
+                                                                                html.Tr([
+                                                                                    html.Th("Terms & Fees"),
+                                                                                    html.Th("Details"),
+                                                                                ])
+                                                                            ),
+                                                                            html.Tbody([
+                                                                                html.Tr([
+                                                                                    html.Td(label),
+                                                                                    html.Td(value)
+                                                                                ])
+                                                                                for label, value in grouped_info["Terms & Fees"]
+                                                                            ]),
+                                                                        ],
+                                                                        striped=False,
+                                                                        bordered=True,
+                                                                        hover=True,
+                                                                        size="sm",
+                                                                    ),
+                                                                    width=6
+                                                                ),
+                                                                # Right side: Account Stats
+                                                                dbc.Col(
+                                                                    dbc.Table(
+                                                                        [
+                                                                            html.Thead(
+                                                                                html.Tr([
+                                                                                    html.Th("Account Stats"),
+                                                                                    html.Th("Current"),
+                                                                                    html.Th("Historical"),
+                                                                                ])
+                                                                            ),
+                                                                            html.Tbody([
+                                                                                html.Tr([
+                                                                                    html.Td("Total Accounts Currently Traded"),
+                                                                                    html.Td("128"),
+                                                                                    html.Td("—")
+                                                                                ]),
+                                                                                html.Tr([
+                                                                                    html.Td("Total Nominal AUM"),
+                                                                                    html.Td("$140,033,575"),
+                                                                                    html.Td("—")
+                                                                                ]),
+                                                                                html.Tr([
+                                                                                    html.Td("Currently Traded Pursuant to Program"),
+                                                                                    html.Td("$85,164,605"),
+                                                                                    html.Td("—")
+                                                                                ]),
+                                                                                html.Tr([
+                                                                                    html.Td("Accounts Closed Profitably"),
+                                                                                    html.Td("—"),
+                                                                                    html.Td("111")
+                                                                                ]),
+                                                                                html.Tr([
+                                                                                    html.Td("Accounts Closed Unprofitably"),
+                                                                                    html.Td("—"),
+                                                                                    html.Td("10")
+                                                                                ]),
+                                                                                html.Tr([
+                                                                                    html.Td("Best Closed Account Return"),
+                                                                                    html.Td("—"),
+                                                                                    html.Td("+255.76%")
+                                                                                ]),
+                                                                                html.Tr([
+                                                                                    html.Td("Worst Closed Account Return"),
+                                                                                    html.Td("—"),
+                                                                                    html.Td("-16.60%")
+                                                                                ]),
+                                                                            ]),
+                                                                        ],
+                                                                        striped=False,
+                                                                        bordered=True,
+                                                                        hover=True,
+                                                                        size="sm",
+                                                                    ),
+                                                                    width=6
+                                                                ),
+                                                            ])
+                                                        ),
+                                                    ],
+                                                    outline=True,
+                                                    className="mb-2",
+                                                ),
                         width=12,
                     ),
-                    justify="start",
-                    className="mb-2",
-                ),
-            ]
-        ) + [
+                ],
+                justify="start",
+                className="mb-2",
+            ),
 
             # ── Notional Funding Disclosure ────────────────────────────────────────────────────
             dbc.Row(
@@ -2466,6 +1937,7 @@ dbc.Row(
                 className="mb-4",
             ),
 
+
             # ── Toggle & Footer ───────────────────────────────────────────────
             dbc.Row(
                 dbc.Col(html.P(footer_contact, className="text-center small text-muted"), width=12),
@@ -2488,9 +1960,11 @@ disclaimer_screen = html.Div(
             dbc.Button(
                 "Accept & Continue",
                 id="accept-button",
-                color="primary"
+                color="success",
+                style={"backgroundColor": "#28a745", "borderColor": "#28a745"}
             )
-        ]
+        ],
+        style={"padding": "4rem", "textAlign": "center"}
     )
 )
 
@@ -2516,7 +1990,5 @@ def show_main(n_clicks):
         return {"display": "none"}, {"display": "block"}
     return {"padding": "4rem", "textAlign": "center"}, {"display": "none"}
 
-
-
 if __name__ == "__main__":
-    app.run(debug=True, port=8076)
+    app.run(debug=True, port=8071)

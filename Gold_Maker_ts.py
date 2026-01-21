@@ -796,4 +796,4 @@ def resize_page(click_full, click_80, click_50, current_style):
     return current_style
 
 if __name__=="__main__":
-    app.run(debug=True, port=8077)
+    app.run(debug=True, port=8075)

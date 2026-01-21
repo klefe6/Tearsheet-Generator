@@ -174,14 +174,7 @@ def build_monthly_calendar_safe(monthly_simple_series):
 # 3) CONFIGURATION
 #    Strategy name, benchmark list, and NAV CSV path
 # ==============================================================================
-STRATEGY_NAME = "TKP"
-
-# ── LAYOUT CONFIGURATION ────────────────────────────────────────────────────
-# Set to True for side-by-side layout (current), False for stacked layout (new)
-USE_SIDE_BY_SIDE_LAYOUT = True  # Toggle between True (side-by-side) and False (stacked)
-
-# Set to True to show percentage axis on the right side of NAV chart
-SHOW_PERCENTAGE_AXIS = True  # Toggle between True (show %) and False (hide %)
+STRATEGY_NAME = "TCP"
 
 BENCHMARKS = [
     "^SP500TR",   # S&P 500 Total Return
@@ -195,13 +188,8 @@ xlsx_path = (
     r"C:\Users\H&CDanHughes\Hughes & Company\Hughes & Company - Documents\3_Advisors Marketing (Tearsheets, PitchBooks, etc)\1. Tearsheet Project\TKP\VADI\tkp_alex.xlsx"
 )
 
-# If Excel has blank rows or formula cells without cached values, pandas/openpyxl can
-# stop "early" when inferring the used range. Set this to the last Excel row you
-# want included (1-indexed, including header row). Set to None to disable.
-FORCE_LAST_EXCEL_ROW = 715
-
 # ============================================================================== 
-# 4) LOAD & VALIDATE NAV DATA (Excel cols C=Date, N=nav‑x1)
+# 4) LOAD & VALIDATE NAV DATA (Excel cols B=Date, M=nav‑x1)
 # ==============================================================================
 import sys
 
@@ -217,50 +205,15 @@ if not os.access(xlsx_path, os.R_OK):
     sys.exit(1)
 
 try:
-    # First, find the last row with data using openpyxl to ensure we read all rows
-    # This prevents pandas from stopping early at empty rows
-    # Use data_only=False so formula cells count as "present" even if cached values
-    # aren't stored in the workbook (common if the file wasn't recalculated/saved).
-    wb = openpyxl.load_workbook(xlsx_path, data_only=False)
-    ws = wb["Sheet1"]
-    
-    # Find the last row with data in columns C (Date) or N (NAV)
-    # This technique matches the working approach in test_read_excel.py
-    # Scan from row 2 to max_row + 1, checking only the columns we actually need
-    last_row = 1  # Start with header row
-    for row_idx in range(2, ws.max_row + 1):
-        cell_c = ws.cell(row=row_idx, column=3)   # Column C = Date
-        cell_n = ws.cell(row=row_idx, column=14)  # Column N = NAV
-        if cell_c.value is not None or cell_n.value is not None:
-            last_row = row_idx
-    
-    wb.close()
-
-    # Ensure we use at least FORCE_LAST_EXCEL_ROW if set
-    if FORCE_LAST_EXCEL_ROW is not None:
-        last_row = max(last_row, int(FORCE_LAST_EXCEL_ROW))
-    
-    print(f"📋 Found last non-blank row: {last_row} (Excel row number, scanned columns C and N)")
-    
-    # Load only columns C and N, parse C as Date
-    # Explicitly read up to the last row with data to ensure we don't miss anything
-    read_params = {
-        "sheet_name": "Sheet1",
-        "usecols": "C,N",              # Excel columns C and N
-        "header": 0,                   # first row is header
-        "parse_dates": ["Date"],       # parse the C‑column into datetime
-        "engine": "openpyxl",
-    }
-    # Only add nrows if we found data rows (last_row > 1 means we have data beyond header)
-    if last_row > 1:
-        read_params["nrows"] = last_row - 1  # Number of data rows (excluding header)
-    
-    NAV_df = pd.read_excel(xlsx_path, **read_params)
-    print(f"📊 Raw rows read from Excel: {len(NAV_df)}")
-    
-    # Drop rows where BOTH Date and NAV are missing (completely empty rows)
-    NAV_df = NAV_df.dropna(how='all')
-    print(f"📊 Rows after dropping completely empty: {len(NAV_df)}")
+    # Load only columns B and M, parse B as Date
+    NAV_df = pd.read_excel(
+        xlsx_path,
+        sheet_name="Sheet1",
+        usecols="B,M",              # Excel columns B and M
+        header=0,                   # first row is header
+        parse_dates=["Date"],       # parse the B‑column into datetime
+        engine="openpyxl",
+    )
     
     # Add safe validation (won't break existing functionality)
     if NAV_df.empty:
@@ -297,36 +250,6 @@ if NAV_df["Date"].dtype == 'object':
         if NAV_df.empty:
             print("❌ No valid dates remaining after date parsing")
             sys.exit(1)
-
-# Auto-correct year typos in dates (e.g., 2025-01-06 after 2026-01-05 should be 2026-01-06)
-# This fixes Excel data entry errors where the year gets typed incorrectly
-corrected_dates = []
-corrections_made = 0
-for i in range(len(NAV_df)):
-    current_date = NAV_df.iloc[i]["Date"]
-    
-    # Check if this date goes backwards in time compared to previous date
-    if i > 0 and current_date < NAV_df.iloc[i-1]["Date"]:
-        prev_date = NAV_df.iloc[i-1]["Date"]
-        
-        # Check if it's a year typo (same month/day but different year)
-        # and the year is exactly 1 year behind
-        if (current_date.month == prev_date.month and 
-            current_date.day >= prev_date.day and
-            prev_date.year - current_date.year == 1):
-            
-            # Correct the year
-            corrected_date = current_date.replace(year=prev_date.year)
-            corrected_dates.append((i, current_date, corrected_date))
-            NAV_df.iloc[i, NAV_df.columns.get_loc("Date")] = corrected_date
-            corrections_made += 1
-
-if corrections_made > 0:
-    print(f"⚠️  Auto-corrected {corrections_made} date(s) with year typos:")
-    for idx, old_date, new_date in corrected_dates[:5]:  # Show first 5
-        print(f"   Row {idx+2}: {old_date.date()} → {new_date.date()}")
-    if len(corrected_dates) > 5:
-        print(f"   ... and {len(corrected_dates) - 5} more")
 
 # Set Date as the index
 NAV_df.set_index("Date", inplace=True)
@@ -406,7 +329,7 @@ def _resolve_transfer_date_from_row(xlsx_path: str, excel_row: int) -> pd.Timest
     temp_df = pd.read_excel(
         xlsx_path,
         sheet_name="Sheet1",
-        usecols="C",
+        usecols="B",
         header=0,
         engine="openpyxl",
     )
@@ -420,7 +343,7 @@ def _resolve_transfer_date_from_row(xlsx_path: str, excel_row: int) -> pd.Timest
 def _read_excel_dates(xlsx_path: str) -> pd.DatetimeIndex:
     """Return a normalized DatetimeIndex of actual Excel dates (no forward-filled days)."""
     dates = pd.read_excel(
-        xlsx_path, sheet_name="Sheet1", usecols="C", header=0, engine="openpyxl"
+        xlsx_path, sheet_name="Sheet1", usecols="B", header=0, engine="openpyxl"
     )["Date"].dropna()
     dates = pd.to_datetime(dates).dt.normalize()
     return pd.DatetimeIndex(sorted(dates.unique()))
@@ -460,7 +383,7 @@ def _apply_cash_transfer_adjustment(
     df_excel = pd.read_excel(
         xlsx_path,
         sheet_name="Sheet1",
-        usecols="C,N",
+        usecols="B,M",
         header=0,
         engine="openpyxl",
     )
@@ -578,7 +501,7 @@ def _auto_detect_cash_transfers(xlsx_path: str, min_transfer_amount: float = 500
     df_excel = pd.read_excel(
         xlsx_path,
         sheet_name="Sheet1",
-        usecols="C,N",
+        usecols="B,M",
         header=0,
         engine="openpyxl",
     )
@@ -635,7 +558,7 @@ try:
             df_temp = pd.read_excel(
                 xlsx_path,
                 sheet_name="Sheet1",
-                usecols="C",
+                usecols="B",
                 header=0,
                 engine="openpyxl",
             )
@@ -860,6 +783,11 @@ monthly_data["Year Total"] = [
 
 monthly_df = pd.DataFrame(monthly_data)
 
+# TEMPORARY: Override monthly returns with 0 placeholders (keeping calculation logic intact)
+for col in monthly_df.columns:
+    if col != "Year":
+        monthly_df[col] = monthly_df[col].apply(lambda x: "0.0000%" if x != "" else "")
+
 # Safe helper function for monthly calendar (alternative to inline logic)
 def build_monthly_calendar_safe(monthly_simple_series):
     """Alternative monthly calendar builder with error handling"""
@@ -966,6 +894,10 @@ daily_perf_df = pd.DataFrame({
     f"{STRATEGY_NAME} (Inception)":     [inception_metrics[m] for m in metric_labels],
 })
 
+# TEMPORARY: Override with 0 placeholders for display (keeping calculation logic intact)
+daily_perf_df[f"{STRATEGY_NAME} (1 Year/TTM)"] = ["0.0%", "0.0%", "0.000%", "0", "0 (0.0%)", "0 (0.0%)", "0.00%, 0.00%, 0.00%", "0.00%, 0.00%, 0.00%"]
+daily_perf_df[f"{STRATEGY_NAME} (Inception)"] = ["0.0%", "0.0%", "0.000%", "0", "0 (0.0%)", "0 (0.0%)", "0.00%, 0.00%, 0.00%", "0.00%, 0.00%, 0.00%"]
+
 
 
 
@@ -974,7 +906,7 @@ daily_perf_df = pd.DataFrame({
 # ──────────────────────────────────────────────────────────────────────────────
 # True  = standard peak-to-trough drawdown (quantstats style)
 # False = custom baseline-relative drawdown
-USE_QUANTSTATS_DD_STRATEGY   = False   # TKP
+USE_QUANTSTATS_DD_STRATEGY   = False   # TCP
 USE_QUANTSTATS_DD_BENCHMARKS = True  # SPXTR & others
 SHOW_DD_PRICE = False   # True ⇒ “2025-02-20 (152345.67)”, False ⇒ “2025-02-20”
 
@@ -1161,7 +1093,7 @@ period_slices = {
         strategy_baseline,
         USE_QUANTSTATS_DD_STRATEGY,
         SHOW_DD_PRICE,
-        strategy_nav        # use NAV as price series for TKP
+        strategy_nav        # use NAV as price series for TCP
     ),
     "SPXTR (Inception)": (
         spxtr_nav,
@@ -1187,6 +1119,11 @@ max_dd_df = (
     .rename_axis("Metric")
     .reset_index()
 )
+
+# TEMPORARY: Override drawdown profile with 0 placeholders (keeping calculation logic intact)
+for col in max_dd_df.columns:
+    if col != "Metric":
+        max_dd_df[col] = ["0.0%", "0 days", "0 days", "0 days", "TBD", "TBD", "TBD"]
 
 
 # ==============================================================================
@@ -1216,9 +1153,9 @@ grouped_info = {
 # 13) Legal disclaimers & footer contact
 # ==============================================================================
 hcdisclaimer_text = (
-    "UNTIL TKP IS OFFICIALLY OPENED TO OUTSIDE INVESTORS BY THE INTRODUCING BROKER, "
+    "UNTIL TCP IS OFFICIALLY OPENED TO OUTSIDE INVESTORS BY THE INTRODUCING BROKER, "
     "THE STRATEGY REMAINS PROPRIETARY AND THIS PAGE OR DESCRIPTION IS NOT A SOLICITATION TO INVEST. "
-    "NO SUBSCRIPTION DOCUMENTS HAVE BEEN ISSUED, AND TKP WILL ONLY BECOME AVAILABLE ONCE THE IB "
+    "NO SUBSCRIPTION DOCUMENTS HAVE BEEN ISSUED, AND TCP WILL ONLY BECOME AVAILABLE ONCE THE IB "
     "PUBLISHES THE APPROPRIATE SUBSCRIPTION MATERIALS AND DECLARES THE PROGRAM OPEN FOR OUTSIDE INVESTMENT."
 )
 
@@ -1251,70 +1188,21 @@ def build_NAV_figure():
         )
     )
 
-    # Base layout configuration
-    layout_config = {
-        "title": {
+    fig.update_layout(
+        title={
             "text": "<u>Non-Compounded NAV Since Inception</u>",
             "x": 0.5,
             "xanchor": "center"
         },
-        "template": "ggplot2",
-        "plot_bgcolor": GREY_BG,
-        "paper_bgcolor": WHITE_BG,
-        "xaxis_title": "Date",
-        "yaxis_title": "NAV",
-        "autosize": True,
-    }
+        template="ggplot2",
+        plot_bgcolor=GREY_BG,
+        paper_bgcolor=WHITE_BG,
+        xaxis_title="Date",
+        yaxis_title="Value Added Daily Index",
+        autosize=True,               # ← responsive sizing
+        margin={"l": 40, "r": 10, "t": 40, "b": 40}
+    )
 
-    # Add secondary percentage axis if enabled
-    if SHOW_PERCENTAGE_AXIS:
-        # Get the primary y-axis range from the data
-        nav_min = NAV_df[NAV_col].min()
-        nav_max = NAV_df[NAV_col].max()
-        nav_range = nav_max - nav_min
-        
-        # Calculate percentage range
-        pct_min = ((nav_min - BASELINE_AMOUNT) / BASELINE_AMOUNT) * 100
-        pct_max = ((nav_max - BASELINE_AMOUNT) / BASELINE_AMOUNT) * 100
-        pct_range = pct_max - pct_min
-        
-        # Determine appropriate tick step based on range
-        if pct_range > 50:
-            tick_step = 10  # 10% increments
-        elif pct_range > 20:
-            tick_step = 5   # 5% increments
-        elif pct_range > 10:
-            tick_step = 2   # 2% increments
-        else:
-            tick_step = 1   # 1% increments
-        
-        # Generate percentage tick values
-        pct_tick_start = (int(pct_min / tick_step) - 1) * tick_step
-        pct_tick_end = (int(pct_max / tick_step) + 2) * tick_step
-        pct_ticks = list(range(int(pct_tick_start), int(pct_tick_end) + tick_step, tick_step))
-        
-        # Convert percentage ticks to NAV values (for positioning)
-        # NAV = BASELINE_AMOUNT * (1 + pct/100)
-        nav_tick_values = [BASELINE_AMOUNT * (1 + pct / 100) for pct in pct_ticks]
-        pct_tick_labels = [f"{pct:.0f}%" for pct in pct_ticks]
-        
-        # Create percentage axis config with explicit ticks
-        layout_config["yaxis2"] = {
-            "title": "Return (%)",
-            "overlaying": "y",
-            "side": "right",
-            "tickmode": "array",
-            "tickvals": nav_tick_values,  # NAV positions where ticks appear
-            "ticktext": pct_tick_labels,   # Percentage labels to display
-            "showgrid": False,
-            "zeroline": False,
-        }
-        layout_config["margin"] = {"l": 40, "r": 70, "t": 40, "b": 40}
-    else:
-        # No secondary axis, use standard margins
-        layout_config["margin"] = {"l": 40, "r": 10, "t": 40, "b": 40}
-
-    fig.update_layout(**layout_config)
     fig.update_xaxes(showgrid=True)
     fig.update_yaxes(showgrid=True)
     return fig
@@ -1404,7 +1292,7 @@ app = dash.Dash(
     __name__,
     external_stylesheets=[dbc.themes.BOOTSTRAP, "/assets/styles.css"],
     suppress_callback_exceptions=True,
-    title="H&C – TKP",
+    title="H&C – TCP",
 )
 
 def serve_layout():
@@ -1435,7 +1323,7 @@ def serve_layout():
                         html.Div(
                             [
                                 html.H2("Hughes & Company LLC", className="text-center"),
-                                html.H5("The Keymaker Program", className="text-center text-muted"),
+                                html.H5("The Crypto Program", className="text-center text-muted"),
                             ],
                             style={"lineHeight": "1.2", "paddingTop": "20px"},
                         ),
@@ -1489,7 +1377,7 @@ def serve_layout():
                         className="lead text-center",
                     ),
                     html.P(
-                        "Principals: Daniel V. Hughes III | Inception: April 2023 | Products Traded: E-Mini Micro S&P 500 Options | Styles: Short Options",
+                        "Principals: Daniel V. Hughes III | Inception: January 2026 | Products Traded: Bitcoin & Ethereum Options | Styles: Short Options",
                         className="text-center mb-5",
                     ),
                 ],
@@ -1569,7 +1457,7 @@ dbc.Row(
                                         html.Td(
                                             [
                                                 html.P(
-                                                    "The Keymaker Program (TKP) is a unique offering by Hughes & Company LLC which utilizes specific strike daily options on the S&P 500 Index. It is oriented to achieve long-biased stable returns through intraday scalping of a proprietarily selected Put strikes in the nearest expiring option chain of the Micro ES product suite, and is most active in Volatile environments. The strategy simultaneously was built to allow for Put assignments for underlying Micro Futures Contracts, writing proprietarily selected Call strikes in sequential fashion to mitigate both drawdown depth and duration regardless of market environment. TKP has been designed as a long term, positively performing, market-neutral offering, with daily visibility and liquidity."
+                                                    "The Crypto Program (TCP) is a crypto options strategy focused on Bitcoin and Ethereum, designed to generate long-biased, stable returns through the systematic sale of short-dated put options at proprietary strike levels. The strategy actively monetizes volatility by selling puts with the intent to either capture premium or be assigned underlying assets at attractive prices, after which out-of-the-money call options are written sequentially to generate additional yield and manage downside risk. TCP is most active during volatile market conditions and is structured to reduce both drawdown depth and duration while maintaining long-term exposure to BTC and ETH. The program is built for consistent performance across market environments, with frequent visibility, disciplined risk management, and liquidity as core design principles.",    
                                                 ),
                                             ],
                                             colSpan=3,
@@ -1865,7 +1753,7 @@ dbc.Row(
                                                 ]),
                                                 html.Tr([
                                                     html.Td([
-                                                        html.Tr(html.Td(html.Span("✓ Equity Indices", style={"color": PRIMARY_COLOR, "marginRight": "0.5rem"}))),
+                                                        html.Tr(html.Td(html.Span("✗ Equity Indices", style={"color": SECONDARY_COLOR, "marginRight": "0.5rem"}))),
                                                         html.Tr(html.Td(html.Span("✗ Volatility Indices", style={"color": SECONDARY_COLOR, "marginRight": "0.5rem"}))),
                                                         html.Tr(html.Td(html.Span("✗ Interest Rates", style={"color": SECONDARY_COLOR, "marginRight": "0.5rem"}))),
                                                         html.Tr(html.Td(html.Span("✗ Currencies", style={"color": SECONDARY_COLOR, "marginRight": "0.5rem"}))),
@@ -1879,7 +1767,7 @@ dbc.Row(
                                                     html.Td([
                                                         html.Tr(html.Td(html.Span("✗ Metals", style={"color": SECONDARY_COLOR, "marginRight": "0.5rem"}))),
                                                         html.Tr(html.Td(html.Span("✗ Renewable Fuels", style={"color": SECONDARY_COLOR, "marginRight": "0.5rem"}))),
-                                                        html.Tr(html.Td(html.Span("✗ Cryptocurrencies", style={"color": SECONDARY_COLOR, "marginRight": "0.5rem"}))),
+                                                        html.Tr(html.Td(html.Span("✓ Cryptocurrencies", style={"color": PRIMARY_COLOR, "marginRight": "0.5rem"}))),
                                                     ]),
                                                 ]),
 
@@ -1895,7 +1783,7 @@ dbc.Row(
                                                     html.Td("Average Margin Usage"),
                                                     html.Td([
                                                         html.Tr([
-                                                            html.Td("1.77 %"),
+                                                            html.Td("5.00 %"),
                                                         ]),
                                                     ]),
                                                     html.Td([
@@ -2079,11 +1967,7 @@ dbc.Row(
             ),
 
             # ── Metrics & Info ─────────────────────────────────────────────────────────────────────
-            # CONDITIONAL LAYOUT: Toggle USE_SIDE_BY_SIDE_LAYOUT flag at top of file to switch layouts
-            # Current: Side-by-side (Metrics left, Info right) vs New: Stacked (Metrics top, Info bottom)
-        ] + (
-            # LAYOUT OPTION 1: SIDE-BY-SIDE (current layout, width=6 each)
-            [dbc.Row(
+            dbc.Row(
                 [
                     # ── LEFT SIDE: Metrics + Drawdown ─────────────────────
                     dbc.Col(
@@ -2123,7 +2007,7 @@ dbc.Row(
                                     ),
                                     dbc.CardFooter(
                                         html.Small(
-                                            "Both TKP & SPXTR drawdown stats are reflective of the same $150,000 fixed nominal exposure at start of drawdown period.",
+                                            "Both TCP & SPXTR drawdown stats are reflective of the same $150,000 fixed nominal exposure at start of drawdown period.",
                                             className="text-muted fst-italic"
                                         )
                                     ),
@@ -2137,35 +2021,35 @@ dbc.Row(
 
                     # ── RIGHT SIDE: Additional Information ─────────────────
                     dbc.Col(
-                        dbc.Card(
-                            [
-                                dbc.CardHeader(html.H6("Investor Information", className="mb-0")),
-                                dbc.CardBody(
-                                    html.Div(
-                                        [
-                                            dbc.Table(
-                                                [
-                                                    html.Thead(
-                                                        html.Tr([
-                                                            html.Th("Terms & Fees"),
-                                                            html.Th("Details"),
-                                                        ])
-                                                    ),
-                                                    html.Tbody([
-                                                        html.Tr([
-                                                            html.Td(label),
-                                                            html.Td(value)
-                                                        ])
-                                                        for label, value in grouped_info["Terms & Fees"]
-                                                    ]),
-                                                ],
-                                                striped=False,
-                                                bordered=True,
-                                                hover=True,
-                                                size="sm",
-                                                className="mb-3"
-                                            ),
-                                            dbc.Table(
+                                                dbc.Card(
+                                                    [
+                                                        dbc.CardHeader(html.H6("Investor Information", className="mb-0")),
+                                                        dbc.CardBody(
+                                                            html.Div(
+                                                                [
+                                                                    dbc.Table(
+                                                    [
+                                                        html.Thead(
+                                                            html.Tr([
+                                                                html.Th("Terms & Fees"),
+                                                                html.Th("Details"),
+                                                            ])
+                                                        ),
+                                                        html.Tbody([
+                                                            html.Tr([
+                                                                html.Td(label),
+                                                                html.Td(value)
+                                                            ])
+                                                            for label, value in grouped_info["Terms & Fees"]
+                                                        ]),
+                                                    ],
+                                                    striped=False,
+                                                    bordered=True,
+                                                    hover=True,
+                                                    size="sm",
+                                                    className="mb-3"
+                                                ),
+                                                dbc.Table(
                                                 [
                                                     html.Thead(
                                                         html.Tr([
@@ -2218,7 +2102,7 @@ dbc.Row(
                                                 className="small fw-bold mb-1 mt-2"
                                             ),
                                             html.P(
-                                                "TKP allows for efficient, opportunistic deployments of capital in and out of the program in fixed nominal trading levels of $150,000 per tranche. The program will remain perpetually funded with permanent capital of the Introducing Broker in the form of a minimum of two tranches ($300,000 Nominal). The IB itself also has historically allocated more tranches, and closed tranches profitably, and plans on continuing in doing so, in what it considers opportunities for additional capital deployment based on drawdowns of the program itself, with expected recoveries. This capability is allowed for investors as well, with the announcement of any tranche opening or closure by/of the IB shared for complete disclosure and additional visibility for the benefit of all potential participants.",
+                                                "TCP allows for efficient, opportunistic deployments of capital in and out of the program in fixed nominal trading levels of $150,000 per tranche. The program will remain perpetually funded with permanent capital of the Introducing Broker in the form of a minimum of two tranches ($300,000 Nominal). The IB itself also has historically allocated more tranches, and closed tranches profitably, and plans on continuing in doing so, in what it considers opportunities for additional capital deployment based on drawdowns of the program itself, with expected recoveries. This capability is allowed for investors as well, with the announcement of any tranche opening or closure by/of the IB shared for complete disclosure and additional visibility for the benefit of all potential participants.",
                                                 className="mt-2",
                                                 style={"fontSize": "0.9rem"}
                                             ),
@@ -2234,218 +2118,6 @@ dbc.Row(
                 ],
                 justify="start",
                 className="mb-2",
-            )] if USE_SIDE_BY_SIDE_LAYOUT else
-            # LAYOUT OPTION 2: STACKED (new layout, full width blocks)
-            [
-                # Row 1: Metrics + Drawdown (full width)
-                dbc.Row(
-                    dbc.Col(
-                        [
-                            # Performance Metrics
-                            dbc.Card(
-                                [
-                                    dbc.CardHeader(html.H6("Performance Metrics", className="mb-0")),
-                                    dbc.CardBody(
-                                        dbc.Table.from_dataframe(
-                                            daily_perf_df,
-                                            striped=False,
-                                            bordered=True,
-                                            hover=True,
-                                            size="sm",
-                                            className="fixed-cols",
-                                        )
-                                    ),
-                                ],
-                                outline=True,
-                                className="mb-4",
-                            ),
-
-                            # Maximum Drawdown Profile
-                            dbc.Card(
-                                [
-                                    dbc.CardHeader(html.H6("Maximum Drawdown Profile", className="mb-0")),
-                                    dbc.CardBody(
-                                        dbc.Table.from_dataframe(
-                                            max_dd_df,
-                                            striped=False,
-                                            bordered=True,
-                                            hover=True,
-                                            size="sm",
-                                            className="fixed-cols",
-                                        )
-                                    ),
-                                    dbc.CardFooter(
-                                        html.Small(
-                                            "Both TKP & SPXTR drawdown stats are reflective of the same $150,000 fixed nominal exposure at start of drawdown period.",
-                                            className="text-muted fst-italic"
-                                        )
-                                    ),
-                                ],
-                                outline=True,
-                                className="mb-4",
-                            ),
-                        ],
-                        width=12,
-                    ),
-                    justify="start",
-                    className="mb-2",
-                ),
-                # Row 2: Investor Information (full width)
-                dbc.Row(
-                    dbc.Col(
-                        dbc.Card(
-                            [
-                                dbc.CardHeader(html.H6("Investor Information", className="mb-0")),
-                                dbc.CardBody(
-                                    html.Div(
-                                        [
-                                            dbc.Table(
-                                                [
-                                                    html.Thead(
-                                                        html.Tr([
-                                                            html.Th("Terms & Fees"),
-                                                            html.Th("Details"),
-                                                        ])
-                                                    ),
-                                                    html.Tbody([
-                                                        html.Tr([
-                                                            html.Td(label),
-                                                            html.Td(value)
-                                                        ])
-                                                        for label, value in grouped_info["Terms & Fees"]
-                                                    ]),
-                                                ],
-                                                striped=False,
-                                                bordered=True,
-                                                hover=True,
-                                                size="sm",
-                                                className="mb-3"
-                                            ),
-                                            dbc.Table(
-                                                [
-                                                    html.Thead(
-                                                        html.Tr([
-                                                            html.Th("Account Stats"),
-                                                            html.Th("Proprietary"),
-                                                            html.Th("Client"),
-                                                        ])
-                                                    ),
-                                                    html.Tbody([
-                                                        html.Tr([
-                                                            html.Td("Nominal Assets Being Traded in the Program"),
-                                                            html.Td("$300,000"),
-                                                            html.Td("0")
-                                                        ]),
-                                                        html.Tr([
-                                                            html.Td("Total Accounts/Tranches Opened"),
-                                                            html.Td("4"),
-                                                            html.Td("0")
-                                                        ]),
-                                                        html.Tr([
-                                                            html.Td("Accounts/Tranches Currently Open"),
-                                                            html.Td("2"),
-                                                            html.Td("0")
-                                                        ]),
-                                                        html.Tr([
-                                                            html.Td("Accounts/Tranches Closed Profitably"),
-                                                            html.Td("2"),
-                                                            html.Td("0")
-                                                        ]),
-                                                        html.Tr([
-                                                            html.Td("Accounts/Tranches Closed Unprofitably"),
-                                                            html.Td("0"),
-                                                            html.Td("0")
-                                                        ]),
-                                                        html.Tr([
-                                                            html.Td("Range of Net Returns of Accounts/Tranches Closed"),
-                                                            html.Td("0.36% to 4.2%"),
-                                                            html.Td("N/A")
-                                                        ]),
-                                                    ]),
-                                                ],
-                                                striped=False,
-                                                bordered=True,
-                                                hover=True,
-                                                size="sm",
-                                                className="mb-3"
-                                            ),
-                                            html.P(
-                                                "Other Notes:",
-                                                className="small fw-bold mb-1 mt-2"
-                                            ),
-                                            html.P(
-                                                "TKP allows for efficient, opportunistic deployments of capital in and out of the program in fixed nominal trading levels of $150,000 per tranche. The program will remain perpetually funded with permanent capital of the Introducing Broker in the form of a minimum of two tranches ($300,000 Nominal). The IB itself also has historically allocated more tranches, and closed tranches profitably, and plans on continuing in doing so, in what it considers opportunities for additional capital deployment based on drawdowns of the program itself, with expected recoveries. This capability is allowed for investors as well, with the announcement of any tranche opening or closure by/of the IB shared for complete disclosure and additional visibility for the benefit of all potential participants.",
-                                                className="mt-2",
-                                                style={"fontSize": "0.9rem"}
-                                            ),
-                                        ]
-                                    )
-                                ),
-                            ],
-                            outline=True,
-                            className="mb-4",
-                        ),
-                        width=12,
-                    ),
-                    justify="start",
-                    className="mb-2",
-                ),
-            ]
-        ) + [
-
-            # ── Notional Funding Disclosure ────────────────────────────────────────────────────
-            dbc.Row(
-                dbc.Col(
-                    dbc.Card(
-                        [
-                            dbc.CardHeader(html.H6("Special Notional Funding Disclosure", className="mb-0")),
-                            dbc.CardBody([
-                                html.P("Notional funding is allowed (partially funded accounts). This increases leverage and magnifies volatility, margin calls, and percentage returns (and losses).", className="mb-2"),
-                                html.P("Performance fees are computed on Nominal Account Size (not cash equity).", className="mb-2"),
-                                html.H6("Funding Level Impact on Returns:", className="mb-2"),
-                                dbc.Table([
-                                    html.Thead([
-                                        html.Tr([
-                                            html.Th("Funding Level"),
-                                            html.Th("Leverage"),
-                                            html.Th("Example: +10% Strategy Return"),
-                                            html.Th("Example: -10% Strategy Return"),
-                                        ])
-                                    ]),
-                                    html.Tbody([
-                                        html.Tr([
-                                            html.Td("100% Funded"),
-                                            html.Td("1:1"),
-                                            html.Td("+10.0%"),
-                                            html.Td("-10.0%"),
-                                        ]),
-                                        html.Tr([
-                                            html.Td("50% Funded"),
-                                            html.Td("2:1"),
-                                            html.Td("+20.0%"),
-                                            html.Td("-20.0%"),
-                                        ]),
-                                        html.Tr([
-                                            html.Td("25% Funded"),
-                                            html.Td("4:1"),
-                                            html.Td("+40.0%"),
-                                            html.Td("-40.0%"),
-                                        ]),
-                                    ])
-                                ], striped=True, bordered=True, hover=True, size="sm"),
-                                html.P("Higher leverage increases both potential gains and losses. Consider your risk tolerance carefully.", className="mt-2 text-muted small"),
-                                html.P(
-                                    "For more detailed information regarding notional funding, please refer to the complete disclosure document.",
-                                    className="mt-2 text-muted small fw-bold"
-                                ),
-                            ]),
-                        ],
-                        outline=True,
-                        className="mb-4",
-                    ),
-                    width=12
-                ),
-                className="mb-4",
             ),
 
             # ── H&C Disclaimer ────────────────────────────────────────────────────
@@ -2519,4 +2191,4 @@ def show_main(n_clicks):
 
 
 if __name__ == "__main__":
-    app.run(debug=True, port=8076)
+    app.run(debug=True, port=8078)
