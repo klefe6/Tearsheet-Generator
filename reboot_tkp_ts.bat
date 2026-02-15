@@ -1,4 +1,7 @@
-@echo off
+@echo on
+setlocal
 cd /d "%~dp0"
-call .venv13\Scripts\activate.bat
+echo BAT_DIR=%~dp0
+echo CWD=%CD%
+call .venv310\Scripts\activate.bat
 python tkp_ts.py

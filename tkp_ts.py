@@ -183,6 +183,9 @@ USE_SIDE_BY_SIDE_LAYOUT = True  # Toggle between True (side-by-side) and False (
 # Set to True to show percentage axis on the right side of NAV chart
 SHOW_PERCENTAGE_AXIS = True  # Toggle between True (show %) and False (hide %)
 
+# When True, show a "Debug / Data Provenance" table at bottom of page (field name vs source).
+DEBUG_PROVENANCE = False
+
 BENCHMARKS = [
     "^SP500TR",   # S&P 500 Total Return
     "AGG",        # US Aggregate Bond
@@ -899,18 +902,26 @@ def calculate_period_metrics(returns: pd.Series, start_date: pd.Timestamp) -> di
     compute cumulative return, annualized, avg daily,
     win/loss counts & rates, top/bottom 3 days.
     """
-    keys = [
-        "Cumulative Return", "Annualized Return", "Avg Daily Return",
-        "Number of Trading Days", "% Winning Days", "% Losing Days",
-        "Best 3 Days", "Worst 3 Days",
-    ]
+    short_period = {
+        "Cumulative Return":      "0.0%",
+        "Annualized Return":      "0.0%",
+        "Avg Daily Return":       "0.000%",
+        "Number of Trading Days": "0",
+        "% Winning Days":         "0 (0.0%)",
+        "% Losing Days":          "0 (0.0%)",
+        "Best 3 Days":            "0.00%, 0.00%, 0.00%",
+        "Worst 3 Days":           "0.00%, 0.00%, 0.00%",
+    }
     if len(returns) < 2:
-        return dict.fromkeys(keys, "—")
+        return short_period
 
     cum = returns.sum()
     days = len(returns)
-    # annualize simple sum-of-daily
-    annualized = cum * 365.0 / (returns.index.max() - start_date).days
+    span_days = (returns.index.max() - start_date).days
+    if span_days == 0:
+        annualized = cum
+    else:
+        annualized = cum * 365.0 / span_days
     avg = returns.mean()
 
     wins = (returns > 0).sum()
@@ -1194,7 +1205,7 @@ max_dd_df = (
 # ==============================================================================
 grouped_info = {
     "Account Stats": [
-        ("Nominal Assets Being Traded in the Program", "300k"),
+        ("Nominal Assets Being Traded in the Program", "200k"),
         ("Total Accounts/Tranches Opened",           "4"),
         ("Accounts/Tranches Currently Open",         "2"),
         ("Accounts/Tranches Closed Profitably",      "2"),
@@ -1919,39 +1930,19 @@ dbc.Row(
                                                         ),
                                                     ]),
                                                     html.Td([
-                                                        html.Tr([
-                                                            html.Td("Ranges", style={"text-decoration": "underline"}),
-                                                        ]),
-                                                        html.Tr([
-                                                            html.Td(html.Span("✓ 0-10 %", style={"color": PRIMARY_COLOR, "marginRight": "0.5rem"})),
-                                                        ]),
-                                                        html.Tr([
-                                                            html.Td(html.Span("✓ 10-25 %", style={"color": PRIMARY_COLOR, "marginRight": "0.5rem"})),
-                                                        ]),
-                                                        html.Tr([
-                                                            html.Td(html.Span("✗ 25-50 %", style={"color": SECONDARY_COLOR, "marginRight": "0.5rem"})),
-                                                        ]),
-                                                        html.Tr([
-                                                            html.Td(html.Span("✗ 50 %+", style={"color": SECONDARY_COLOR, "marginRight": "0.5rem"})),
-                                                        ]),
-                                                    ]),
-                                                    html.Td([
-                                                        html.Tr([
-                                                            html.Td("Percentage", style={"text-decoration": "underline"}),
-                                                        ]),
-                                                        html.Tr([
-                                                            html.Td(html.Span("94.8 %", style={"color": PRIMARY_COLOR, "marginRight": "0.5rem"})),
-                                                        ]),
-                                                        html.Tr([
-                                                            html.Td(html.Span("5.2 %", style={"color": PRIMARY_COLOR, "marginRight": "0.5rem"})),
-                                                        ]),
-                                                        html.Tr([
-                                                            html.Td(html.Span("-- %", style={"color": SECONDARY_COLOR, "marginRight": "0.5rem"})),
-                                                        ]),
-                                                        html.Tr([
-                                                            html.Td(html.Span("-- %", style={"color": SECONDARY_COLOR, "marginRight": "0.5rem"})),
-                                                        ]),
-                                                    ]),
+                                                        html.Div([
+                                                            html.Div("Ranges", className="ratio-header"),
+                                                            html.Div("% time in range (daily)", className="ratio-header"),
+                                                            html.Div(html.Span("✓ 0-10 %", style={"color": PRIMARY_COLOR, "marginRight": "0.5rem"}), className="ratio-cell"),
+                                                            html.Div(html.Span("94.8 %", style={"color": PRIMARY_COLOR, "marginRight": "0.5rem"}), className="ratio-cell"),
+                                                            html.Div(html.Span("✓ 10-25 %", style={"color": PRIMARY_COLOR, "marginRight": "0.5rem"}), className="ratio-cell"),
+                                                            html.Div(html.Span("5.2 %", style={"color": PRIMARY_COLOR, "marginRight": "0.5rem"}), className="ratio-cell"),
+                                                            html.Div(html.Span("✗ 25-50 %", style={"color": SECONDARY_COLOR, "marginRight": "0.5rem"}), className="ratio-cell"),
+                                                            html.Div(html.Span("-- %", style={"color": SECONDARY_COLOR, "marginRight": "0.5rem"}), className="ratio-cell"),
+                                                            html.Div(html.Span("✗ 50 %+", style={"color": SECONDARY_COLOR, "marginRight": "0.5rem"}), className="ratio-cell"),
+                                                            html.Div(html.Span("-- %", style={"color": SECONDARY_COLOR, "marginRight": "0.5rem"}), className="ratio-cell"),
+                                                        ], className="ratio-grid"),
+                                                    ], colSpan=2),
                                                 ]),
 
                                                 html.Tr([
@@ -2466,6 +2457,33 @@ dbc.Row(
                 className="mb-4",
             ),
 
+            # ── Debug / Data Provenance (only when DEBUG_PROVENANCE) ───────────
+            *([] if not DEBUG_PROVENANCE else [
+                dbc.Row(
+                    dbc.Col(
+                        html.Div([
+                            html.H6("Debug / Data Provenance", className="text-muted mb-2"),
+                            dbc.Table(
+                                [
+                                    html.Thead(html.Tr([html.Th("Field name"), html.Th("Source")])),
+                                    html.Tbody([
+                                        html.Tr([html.Td("Monthly returns"), html.Td("computed from NAV unless in override_months")]),
+                                        html.Tr([html.Td("Daily perf metrics"), html.Td("computed from daily_returns")]),
+                                        html.Tr([html.Td("Drawdown profile"), html.Td("computed from strategy_nav and spxtr_nav")]),
+                                        html.Tr([html.Td("Terms & Fees / Account Stats"), html.Td("hard-coded (from grouped_info)")]),
+                                        html.Tr([html.Td("Risk Management (margin usage, exchange margin ratios)"), html.Td("hard-coded in layout")]),
+                                    ]),
+                                ],
+                                bordered=True,
+                                size="sm",
+                                className="mb-0",
+                            ),
+                        ], style={"fontSize": "0.85rem"}),
+                    width=12),
+                    className="mb-4",
+                ),
+            ]),
+
             # ── Toggle & Footer ───────────────────────────────────────────────
             dbc.Row(
                 dbc.Col(html.P(footer_contact, className="text-center small text-muted"), width=12),
@@ -2494,17 +2512,22 @@ disclaimer_screen = html.Div(
     )
 )
 
-main_app = html.Div(
-    id="main-app",
-    style={"display": "none"},
-    children=serve_layout()
-)
+# Make layout dynamic - this function is called on every page load
+# This ensures fresh data is loaded when the app restarts
+def dynamic_layout():
+    """Generate layout with fresh data on each page load."""
+    return html.Div([
+        dcc_store,
+        disclaimer_screen,
+        html.Div(
+            id="main-app",
+            style={"display": "none"},
+            children=serve_layout()
+        )
+    ])
 
-app.layout = html.Div([
-    dcc_store,
-    disclaimer_screen,
-    main_app
-])
+# Set layout as a function for dynamic data loading
+app.layout = dynamic_layout
 
 @app.callback(
     Output("disclaimer-screen", "style"),

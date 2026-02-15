@@ -185,7 +185,7 @@ BENCHMARKS = [
     "ETH-USD",    # Ethereum
 ]
 
-csv_path = r"C:\Program Files\Coding Projects\Tearsheet Generator\yq.csv"
+csv_path = r"C:\Coding Projects\Tearsheet Generator\yq.csv"
 
 # ============================================================================== 
 # 4) LOAD & VALIDATE NAV DATA (CSV with monthly performance data)
@@ -666,7 +666,7 @@ def download_and_compound_benchmark(symbol, start_date, end_date, baseline_amoun
 spx_compounded = download_and_compound_benchmark(
     "^SP500TR", 
     "2011-04-01", 
-    "2025-10-01", 
+    "2025-12-01", 
     BASELINE_AMOUNT
 )
 
@@ -1511,39 +1511,19 @@ dbc.Row(
                                                         ),
                                                     ]),
                                                     html.Td([
-                                                        html.Tr([
-                                                            html.Td("Ranges", style={"text-decoration": "underline"}),
-                                                        ]),
-                                                        html.Tr([
-                                                            html.Td(html.Span("✓ 0-10 %", style={"color": PRIMARY_COLOR, "marginRight": "0.5rem"})),
-                                                        ]),
-                                                        html.Tr([
-                                                            html.Td(html.Span("✓ 10-25 %", style={"color": PRIMARY_COLOR, "marginRight": "0.5rem"})),
-                                                        ]),
-                                                        html.Tr([
-                                                            html.Td(html.Span("✗ 25-50 %", style={"color": SECONDARY_COLOR, "marginRight": "0.5rem"})),
-                                                        ]),
-                                                        html.Tr([
-                                                            html.Td(html.Span("✗ 50 %+", style={"color": SECONDARY_COLOR, "marginRight": "0.5rem"})),
-                                                        ]),
-                                                    ]),
-                                                    html.Td([
-                                                        html.Tr([
-                                                            html.Td("Percentage", style={"text-decoration": "underline"}),
-                                                        ]),
-                                                        html.Tr([
-                                                            html.Td(html.Span("94.8 %", style={"color": PRIMARY_COLOR, "marginRight": "0.5rem"})),
-                                                        ]),
-                                                        html.Tr([
-                                                            html.Td(html.Span("5.2 %", style={"color": PRIMARY_COLOR, "marginRight": "0.5rem"})),
-                                                        ]),
-                                                        html.Tr([
-                                                            html.Td(html.Span("-- %", style={"color": SECONDARY_COLOR, "marginRight": "0.5rem"})),
-                                                        ]),
-                                                        html.Tr([
-                                                            html.Td(html.Span("-- %", style={"color": SECONDARY_COLOR, "marginRight": "0.5rem"})),
-                                                        ]),
-                                                    ]),
+                                                        html.Div([
+                                                            html.Div("Ranges", className="ratio-header"),
+                                                            html.Div("% time in range (daily)", className="ratio-header"),
+                                                            html.Div(html.Span("✓ 0-10 %", style={"color": PRIMARY_COLOR, "marginRight": "0.5rem"}), className="ratio-cell"),
+                                                            html.Div(html.Span("94.8 %", style={"color": PRIMARY_COLOR, "marginRight": "0.5rem"}), className="ratio-cell"),
+                                                            html.Div(html.Span("✓ 10-25 %", style={"color": PRIMARY_COLOR, "marginRight": "0.5rem"}), className="ratio-cell"),
+                                                            html.Div(html.Span("5.2 %", style={"color": PRIMARY_COLOR, "marginRight": "0.5rem"}), className="ratio-cell"),
+                                                            html.Div(html.Span("✗ 25-50 %", style={"color": SECONDARY_COLOR, "marginRight": "0.5rem"}), className="ratio-cell"),
+                                                            html.Div(html.Span("-- %", style={"color": SECONDARY_COLOR, "marginRight": "0.5rem"}), className="ratio-cell"),
+                                                            html.Div(html.Span("✗ 50 %+", style={"color": SECONDARY_COLOR, "marginRight": "0.5rem"}), className="ratio-cell"),
+                                                            html.Div(html.Span("-- %", style={"color": SECONDARY_COLOR, "marginRight": "0.5rem"}), className="ratio-cell"),
+                                                        ], className="ratio-grid"),
+                                                    ], colSpan=2),
                                                 ]),
 
                                                 html.Tr([

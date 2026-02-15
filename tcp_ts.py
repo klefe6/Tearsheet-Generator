@@ -185,11 +185,40 @@ BENCHMARKS = [
 ]
 
 xlsx_path = (
-    r"C:\Users\H&CDanHughes\Hughes & Company\Hughes & Company - Documents\3_Advisors Marketing (Tearsheets, PitchBooks, etc)\1. Tearsheet Project\TKP\VADI\tkp_alex.xlsx"
+    r"C:\Users\H&CDanHughes\Hughes & Company\Hughes & Company - Documents\3_Advisors Marketing (Tearsheets, PitchBooks, etc)\1. Tearsheet Project\TCP\tcp_alex.xlsx"
 )
 
-# ============================================================================== 
-# 4) LOAD & VALIDATE NAV DATA (Excel cols B=Date, M=nav‑x1)
+# When True, Performance Summary, Performance Metrics, and Max Drawdown tables show
+# placeholder values instead of computed values. Default False = show real metrics.
+SHOW_PLACEHOLDERS = False
+
+# When True, show a "Debug / Data Provenance" table at bottom of page (field name vs source).
+DEBUG_PROVENANCE = False
+
+
+def _apply_monthly_placeholders(monthly_df: pd.DataFrame) -> None:
+    """Overwrite monthly returns with 0 placeholders (in-place). Used when SHOW_PLACEHOLDERS is True."""
+    for col in monthly_df.columns:
+        if col != "Year":
+            monthly_df[col] = monthly_df[col].apply(lambda x: "0.0000%" if x != "" else "")
+
+
+def _apply_daily_perf_placeholders(daily_perf_df: pd.DataFrame, strategy_name: str) -> None:
+    """Overwrite strategy performance columns with 0 placeholders (in-place). Used when SHOW_PLACEHOLDERS is True."""
+    placeholder_row = ["0.0%", "0.0%", "0.000%", "0", "0 (0.0%)", "0 (0.0%)", "0.00%, 0.00%, 0.00%", "0.00%, 0.00%, 0.00%"]
+    daily_perf_df[f"{strategy_name} (1 Year/TTM)"] = placeholder_row
+    daily_perf_df[f"{strategy_name} (Inception)"] = placeholder_row
+
+
+def _apply_drawdown_placeholders(max_dd_df: pd.DataFrame) -> None:
+    """Overwrite drawdown profile columns with 0/TBD placeholders (in-place). Used when SHOW_PLACEHOLDERS is True."""
+    for col in max_dd_df.columns:
+        if col != "Metric":
+            max_dd_df[col] = ["0.0%", "0 days", "0 days", "0 days", "TBD", "TBD", "TBD"]
+
+
+# ==============================================================================
+# 4) LOAD & VALIDATE NAV DATA (Excel col C=Date, col L=price/NAV for chart)
 # ==============================================================================
 import sys
 
@@ -205,15 +234,15 @@ if not os.access(xlsx_path, os.R_OK):
     sys.exit(1)
 
 try:
-    # Load only columns B and M, parse B as Date
+    # Load column C (Date) and column L (price/NAV for chart)
     NAV_df = pd.read_excel(
         xlsx_path,
         sheet_name="Sheet1",
-        usecols="B,M",              # Excel columns B and M
+        usecols="C,L",              # C=Date, L=price/NAV
         header=0,                   # first row is header
-        parse_dates=["Date"],       # parse the B‑column into datetime
         engine="openpyxl",
     )
+    NAV_df.rename(columns={NAV_df.columns[0]: "Date"}, inplace=True)
     
     # Add safe validation (won't break existing functionality)
     if NAV_df.empty:
@@ -233,10 +262,6 @@ except Exception as e:
     print(f"❌ Failed to load NAV data: {e}")
     print(f"   File path: {xlsx_path}")
     sys.exit(1)
-
-# Make sure pandas named the second column correctly
-if NAV_df.columns[1] != "nav‑x1" and NAV_df.columns[1] != "nav-x1":
-    NAV_df.rename(columns={NAV_df.columns[1]: "nav-x1"}, inplace=True)
 
 # Ensure Date column is datetime - handle cases where parse_dates didn't work
 if NAV_df["Date"].dtype == 'object':
@@ -329,7 +354,7 @@ def _resolve_transfer_date_from_row(xlsx_path: str, excel_row: int) -> pd.Timest
     temp_df = pd.read_excel(
         xlsx_path,
         sheet_name="Sheet1",
-        usecols="B",
+        usecols="C",  # Date column
         header=0,
         engine="openpyxl",
     )
@@ -343,7 +368,7 @@ def _resolve_transfer_date_from_row(xlsx_path: str, excel_row: int) -> pd.Timest
 def _read_excel_dates(xlsx_path: str) -> pd.DatetimeIndex:
     """Return a normalized DatetimeIndex of actual Excel dates (no forward-filled days)."""
     dates = pd.read_excel(
-        xlsx_path, sheet_name="Sheet1", usecols="B", header=0, engine="openpyxl"
+        xlsx_path, sheet_name="Sheet1", usecols="C", header=0, engine="openpyxl"
     )["Date"].dropna()
     dates = pd.to_datetime(dates).dt.normalize()
     return pd.DatetimeIndex(sorted(dates.unique()))
@@ -383,7 +408,7 @@ def _apply_cash_transfer_adjustment(
     df_excel = pd.read_excel(
         xlsx_path,
         sheet_name="Sheet1",
-        usecols="B,M",
+        usecols="C,L",  # Date (C), price/NAV (L)
         header=0,
         engine="openpyxl",
     )
@@ -497,11 +522,11 @@ def _auto_detect_cash_transfers(xlsx_path: str, min_transfer_amount: float = 500
     Returns:
         List of tuples: (transfer_row, delta, transfer_type)
     """
-    # Read actual Excel data
+    # Read actual Excel data (Date col C, price/NAV col L)
     df_excel = pd.read_excel(
         xlsx_path,
         sheet_name="Sheet1",
-        usecols="B,M",
+        usecols="C,L",
         header=0,
         engine="openpyxl",
     )
@@ -558,7 +583,7 @@ try:
             df_temp = pd.read_excel(
                 xlsx_path,
                 sheet_name="Sheet1",
-                usecols="B",
+                usecols="C",  # Date column
                 header=0,
                 engine="openpyxl",
             )
@@ -574,11 +599,11 @@ try:
         
         # Apply adjustment using actual Excel row
         _apply_cash_transfer_adjustment(
-            NAV_df, 
-            "nav-x1", 
-            transfer_row, 
-            TRANSFER_AMOUNT, 
-            xlsx_path
+            NAV_df,
+            NAV_df.columns[0],
+            transfer_row,
+            TRANSFER_AMOUNT,
+            xlsx_path,
         )
     elif AUTO_DETECT_CASH_TRANSFERS:
         # Auto-detect all cash transfers
@@ -602,10 +627,10 @@ try:
                     transfer_amount = None  # Will auto-detect from delta
                     _apply_cash_transfer_adjustment(
                         NAV_df,
-                        "nav-x1",
+                        NAV_df.columns[0],
                         transfer_row,
                         transfer_amount,
-                        xlsx_path
+                        xlsx_path,
                     )
                 except Exception as e:
                     print(f"   ⚠️  Failed to adjust transfer at row {transfer_row}: {e}")
@@ -622,7 +647,7 @@ print(f"   Date range: {NAV_df.index.min().date()} to {NAV_df.index.max().date()
 nav_col_name_final = NAV_df.columns[0]  # Get column name before NAV_col is defined
 print(f"   Last NAV value: ${NAV_df[nav_col_name_final].iloc[-1]:,.2f}")
 print(f"   Second-to-last NAV value: ${NAV_df[nav_col_name_final].iloc[-2]:,.2f}")
-print("✅ NAV data loaded successfully (Date + nav‑x1).")
+print("✅ NAV data loaded successfully (Date col C, price col L).")
 
 
 
@@ -633,8 +658,9 @@ print("✅ NAV data loaded successfully (Date + nav‑x1).")
 #    To change later, just update NAV_CANDIDATES.
 # ==============================================================================
 NAV_CANDIDATES = [
-    "nav-x1",    # your composite Net Liquidation Value column in the sheet
-       # alternative name you might use in the future
+    "nav-x1",            # column L in tcp_alex.xlsx (chart price series)
+    "Balance (StoneX)",
+    "Cash Balance",
 ]
 
 for cand in NAV_CANDIDATES:
@@ -782,11 +808,8 @@ monthly_data["Year Total"] = [
 ]
 
 monthly_df = pd.DataFrame(monthly_data)
-
-# TEMPORARY: Override monthly returns with 0 placeholders (keeping calculation logic intact)
-for col in monthly_df.columns:
-    if col != "Year":
-        monthly_df[col] = monthly_df[col].apply(lambda x: "0.0000%" if x != "" else "")
+if SHOW_PLACEHOLDERS:
+    _apply_monthly_placeholders(monthly_df)
 
 # Safe helper function for monthly calendar (alternative to inline logic)
 def build_monthly_calendar_safe(monthly_simple_series):
@@ -827,18 +850,26 @@ def calculate_period_metrics(returns: pd.Series, start_date: pd.Timestamp) -> di
     compute cumulative return, annualized, avg daily,
     win/loss counts & rates, top/bottom 3 days.
     """
-    keys = [
-        "Cumulative Return", "Annualized Return", "Avg Daily Return",
-        "Number of Trading Days", "% Winning Days", "% Losing Days",
-        "Best 3 Days", "Worst 3 Days",
-    ]
+    short_period = {
+        "Cumulative Return":      "0.0%",
+        "Annualized Return":      "0.0%",
+        "Avg Daily Return":       "0.000%",
+        "Number of Trading Days": "0",
+        "% Winning Days":         "0 (0.0%)",
+        "% Losing Days":          "0 (0.0%)",
+        "Best 3 Days":            "0.00%, 0.00%, 0.00%",
+        "Worst 3 Days":           "0.00%, 0.00%, 0.00%",
+    }
     if len(returns) < 2:
-        return dict.fromkeys(keys, "—")
+        return short_period
 
     cum = returns.sum()
     days = len(returns)
-    # annualize simple sum-of-daily
-    annualized = cum * 365.0 / (returns.index.max() - start_date).days
+    span_days = (returns.index.max() - start_date).days
+    if span_days == 0:
+        annualized = cum
+    else:
+        annualized = cum * 365.0 / span_days
     avg = returns.mean()
 
     wins = (returns > 0).sum()
@@ -893,12 +924,8 @@ daily_perf_df = pd.DataFrame({
     f"{STRATEGY_NAME} (1 Year/TTM)":    [one_year_metrics[m] for m in metric_labels],
     f"{STRATEGY_NAME} (Inception)":     [inception_metrics[m] for m in metric_labels],
 })
-
-# TEMPORARY: Override with 0 placeholders for display (keeping calculation logic intact)
-daily_perf_df[f"{STRATEGY_NAME} (1 Year/TTM)"] = ["0.0%", "0.0%", "0.000%", "0", "0 (0.0%)", "0 (0.0%)", "0.00%, 0.00%, 0.00%", "0.00%, 0.00%, 0.00%"]
-daily_perf_df[f"{STRATEGY_NAME} (Inception)"] = ["0.0%", "0.0%", "0.000%", "0", "0 (0.0%)", "0 (0.0%)", "0.00%, 0.00%, 0.00%", "0.00%, 0.00%, 0.00%"]
-
-
+if SHOW_PLACEHOLDERS:
+    _apply_daily_perf_placeholders(daily_perf_df, STRATEGY_NAME)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1120,23 +1147,27 @@ max_dd_df = (
     .reset_index()
 )
 
-# TEMPORARY: Override drawdown profile with 0 placeholders (keeping calculation logic intact)
-for col in max_dd_df.columns:
-    if col != "Metric":
-        max_dd_df[col] = ["0.0%", "0 days", "0 days", "0 days", "TBD", "TBD", "TBD"]
+if SHOW_PLACEHOLDERS:
+    _apply_drawdown_placeholders(max_dd_df)
 
 
 # ==============================================================================
 # 12) Hard-coded “Additional Information”
 # ==============================================================================
+# Account Stats table: (label, proprietary_display, client_display). Used to build
+# the Account Stats table; formatting: currency $ and commas, integers plain, N/A uppercase.
+ACCOUNT_STATS = [
+    ("Nominal Assets Being Traded in the Program", "$50,000", "0"),
+    ("Total Accounts/Tranches Opened", "2", "0"),
+    ("Accounts/Tranches Currently Open", "2", "0"),
+    ("Accounts/Tranches Closed Profitably", "0", "0"),
+    ("Accounts/Tranches Closed Unprofitably", "0", "0"),
+    ("Range of Net Returns of Accounts/Tranches Closed", "N/A", "N/A"),
+]
+
 grouped_info = {
     "Account Stats": [
-        ("Nominal Assets Being Traded in the Program", "300k"),
-        ("Total Accounts/Tranches Opened",           "4"),
-        ("Accounts/Tranches Currently Open",         "2"),
-        ("Accounts/Tranches Closed Profitably",      "2"),
-        ("Accounts/Tranches Closed Unprofitably",    "0"),
-        ("Range of Net Returns of Accounts/Tranches Closed", "0.36% to 4.2%"),
+        (label, prop) for label, prop, _ in ACCOUNT_STATS
     ],
     "Terms & Fees": [
         ("Investment Type",    "Managed Account"),
@@ -1807,39 +1838,19 @@ dbc.Row(
                                                         ),
                                                     ]),
                                                     html.Td([
-                                                        html.Tr([
-                                                            html.Td("Ranges", style={"text-decoration": "underline"}),
-                                                        ]),
-                                                        html.Tr([
-                                                            html.Td(html.Span("✓ 0-10 %", style={"color": PRIMARY_COLOR, "marginRight": "0.5rem"})),
-                                                        ]),
-                                                        html.Tr([
-                                                            html.Td(html.Span("✓ 10-25 %", style={"color": PRIMARY_COLOR, "marginRight": "0.5rem"})),
-                                                        ]),
-                                                        html.Tr([
-                                                            html.Td(html.Span("✗ 25-50 %", style={"color": SECONDARY_COLOR, "marginRight": "0.5rem"})),
-                                                        ]),
-                                                        html.Tr([
-                                                            html.Td(html.Span("✗ 50 %+", style={"color": SECONDARY_COLOR, "marginRight": "0.5rem"})),
-                                                        ]),
-                                                    ]),
-                                                    html.Td([
-                                                        html.Tr([
-                                                            html.Td("Percentage", style={"text-decoration": "underline"}),
-                                                        ]),
-                                                        html.Tr([
-                                                            html.Td(html.Span("94.8 %", style={"color": PRIMARY_COLOR, "marginRight": "0.5rem"})),
-                                                        ]),
-                                                        html.Tr([
-                                                            html.Td(html.Span("5.2 %", style={"color": PRIMARY_COLOR, "marginRight": "0.5rem"})),
-                                                        ]),
-                                                        html.Tr([
-                                                            html.Td(html.Span("-- %", style={"color": SECONDARY_COLOR, "marginRight": "0.5rem"})),
-                                                        ]),
-                                                        html.Tr([
-                                                            html.Td(html.Span("-- %", style={"color": SECONDARY_COLOR, "marginRight": "0.5rem"})),
-                                                        ]),
-                                                    ]),
+                                                        html.Div([
+                                                            html.Div("Ranges", className="ratio-header"),
+                                                            html.Div("% time in range (daily)", className="ratio-header"),
+                                                            html.Div(html.Span("✓ 0-10 %", style={"color": PRIMARY_COLOR, "marginRight": "0.5rem"}), className="ratio-cell"),
+                                                            html.Div(html.Span("94.8 %", style={"color": PRIMARY_COLOR, "marginRight": "0.5rem"}), className="ratio-cell"),
+                                                            html.Div(html.Span("✓ 10-25 %", style={"color": PRIMARY_COLOR, "marginRight": "0.5rem"}), className="ratio-cell"),
+                                                            html.Div(html.Span("5.2 %", style={"color": PRIMARY_COLOR, "marginRight": "0.5rem"}), className="ratio-cell"),
+                                                            html.Div(html.Span("✗ 25-50 %", style={"color": SECONDARY_COLOR, "marginRight": "0.5rem"}), className="ratio-cell"),
+                                                            html.Div(html.Span("-- %", style={"color": SECONDARY_COLOR, "marginRight": "0.5rem"}), className="ratio-cell"),
+                                                            html.Div(html.Span("✗ 50 %+", style={"color": SECONDARY_COLOR, "marginRight": "0.5rem"}), className="ratio-cell"),
+                                                            html.Div(html.Span("-- %", style={"color": SECONDARY_COLOR, "marginRight": "0.5rem"}), className="ratio-cell"),
+                                                        ], className="ratio-grid"),
+                                                    ], colSpan=2),
                                                 ]),
 
                                                 html.Tr([
@@ -2059,36 +2070,8 @@ dbc.Row(
                                                         ])
                                                     ),
                                                     html.Tbody([
-                                                        html.Tr([
-                                                            html.Td("Nominal Assets Being Traded in the Program"),
-                                                            html.Td("$300,000"),
-                                                            html.Td("0")
-                                                        ]),
-                                                        html.Tr([
-                                                            html.Td("Total Accounts/Tranches Opened"),
-                                                            html.Td("4"),
-                                                            html.Td("0")
-                                                        ]),
-                                                        html.Tr([
-                                                            html.Td("Accounts/Tranches Currently Open"),
-                                                            html.Td("2"),
-                                                            html.Td("0")
-                                                        ]),
-                                                        html.Tr([
-                                                            html.Td("Accounts/Tranches Closed Profitably"),
-                                                            html.Td("2"),
-                                                            html.Td("0")
-                                                        ]),
-                                                        html.Tr([
-                                                            html.Td("Accounts/Tranches Closed Unprofitably"),
-                                                            html.Td("0"),
-                                                            html.Td("0")
-                                                        ]),
-                                                        html.Tr([
-                                                            html.Td("Range of Net Returns of Accounts/Tranches Closed"),
-                                                            html.Td("0.36% to 4.2%"),
-                                                            html.Td("N/A")
-                                                        ]),
+                                                        html.Tr([html.Td(label), html.Td(prop), html.Td(client)])
+                                                        for label, prop, client in ACCOUNT_STATS
                                                     ]),
                                                 ],
                                                 striped=False,
@@ -2138,6 +2121,33 @@ dbc.Row(
                 className="mb-4",
             ),
 
+            # ── Debug / Data Provenance (only when DEBUG_PROVENANCE) ───────────
+            *([] if not DEBUG_PROVENANCE else [
+                dbc.Row(
+                    dbc.Col(
+                        html.Div([
+                            html.H6("Debug / Data Provenance", className="text-muted mb-2"),
+                            dbc.Table(
+                                [
+                                    html.Thead(html.Tr([html.Th("Field name"), html.Th("Source")])),
+                                    html.Tbody([
+                                        html.Tr([html.Td("Monthly returns"), html.Td("computed from NAV unless in override_months")]),
+                                        html.Tr([html.Td("Daily perf metrics"), html.Td("computed from daily_returns")]),
+                                        html.Tr([html.Td("Drawdown profile"), html.Td("computed from strategy_nav and spxtr_nav")]),
+                                        html.Tr([html.Td("Terms & Fees / Account Stats"), html.Td("hard-coded (from grouped_info)")]),
+                                        html.Tr([html.Td("Risk Management (margin usage, exchange margin ratios)"), html.Td("hard-coded in layout")]),
+                                    ]),
+                                ],
+                                bordered=True,
+                                size="sm",
+                                className="mb-0",
+                            ),
+                        ], style={"fontSize": "0.85rem"}),
+                    width=12),
+                    className="mb-4",
+                ),
+            ]),
+
             # ── Toggle & Footer ───────────────────────────────────────────────
             dbc.Row(
                 dbc.Col(html.P(footer_contact, className="text-center small text-muted"), width=12),
@@ -2166,17 +2176,22 @@ disclaimer_screen = html.Div(
     )
 )
 
-main_app = html.Div(
-    id="main-app",
-    style={"display": "none"},
-    children=serve_layout()
-)
+# Make layout dynamic - this function is called on every page load
+# This ensures fresh data is loaded when the app restarts
+def dynamic_layout():
+    """Generate layout with fresh data on each page load."""
+    return html.Div([
+        dcc_store,
+        disclaimer_screen,
+        html.Div(
+            id="main-app",
+            style={"display": "none"},
+            children=serve_layout()
+        )
+    ])
 
-app.layout = html.Div([
-    dcc_store,
-    disclaimer_screen,
-    main_app
-])
+# Set layout as a function for dynamic data loading
+app.layout = dynamic_layout
 
 @app.callback(
     Output("disclaimer-screen", "style"),

@@ -7,11 +7,11 @@ import numpy as np
 # ───────────────────────────────────────────────────────────────────────────────
 
 # Input files
-TRADES_XLSX = r"C:\Program Files\Coding Projects\Tearsheet Generator\CHoCH_+_Dual_EMA_Bias_(Full_Signal_Control)_+_Zones_+_EMA_Shifts_COMEX_MINI_MGC1!_2025-06-13.xlsx"
-HIST_TXT    = r"C:\Program Files\Coding Projects\StrategyOptimizer\25Futures_hist_data\daily\GC_daily.txt"
+TRADES_XLSX = r"C:\Coding Projects\Tearsheet Generator\CHoCH_+_Dual_EMA_Bias_(Full_Signal_Control)_+_Zones_+_EMA_Shifts_COMEX_MINI_MGC1!_2025-06-13.xlsx"
+HIST_TXT    = r"C:\Coding Projects\StrategyOptimizer\25Futures_hist_data\daily\GC_daily.txt"
 
 # Output file
-OUTPUT_XLSX = r"C:\Program Files\Coding Projects\Tearsheet Generator\VADI.xlsx"
+OUTPUT_XLSX = r"C:\Coding Projects\Tearsheet Generator\VADI.xlsx"
 
 # Strategy parameters
 MULTIPLIER     = 10       # $10 per point per contract (micro-gold)

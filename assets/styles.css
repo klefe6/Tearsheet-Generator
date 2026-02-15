@@ -222,3 +222,19 @@ body, #page-container {
     padding: 0 10px;
   }
 }
+
+/* Exchange Margin Ratios: single grid so header wrapping never desyncs data rows */
+.ratio-grid {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  column-gap: 24px;
+  row-gap: 10px;
+  align-items: center;
+}
+.ratio-grid .ratio-header {
+  font-weight: 600;
+  text-decoration: underline;
+}
+.ratio-grid .ratio-cell {
+  white-space: nowrap;
+}

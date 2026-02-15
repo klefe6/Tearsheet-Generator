@@ -17,9 +17,9 @@ import plotly.graph_objs as go
 
 # ── 0) Map friendly names → filepaths ─────────────────────────────────────
 strategy_map = {
-    "Adalpha - Core Program":      r"C:\Program Files\Coding Projects\Tearsheet Generator\Trade_Results.csv",
-    "Numberline - Badoo Program":    r"C:\Program Files\Coding Projects\Tearsheet Generator\Trade_Results_Numberline.csv",
-    "AP Futures - Toto Program":   r"C:\Program Files\Coding Projects\Tearsheet Generator\Trade_Results_APFutures.csv",
+    "Adalpha - Core Program":      r"C:\Coding Projects\Tearsheet Generator\Trade_Results.csv",
+    "Numberline - Badoo Program":    r"C:\Coding Projects\Tearsheet Generator\Trade_Results_Numberline.csv",
+    "AP Futures - Toto Program":   r"C:\Coding Projects\Tearsheet Generator\Trade_Results_APFutures.csv",
     "H&C - TKP":   r"C:\Users\H&CDanHughes\Hughes & Company\Hughes & Company - Documents\3_Advisors Marketing (Tearsheets, PitchBooks, etc)\1. Tearsheet Project\TKP\VADI\TKP VADI.csv",
 }
 
@@ -32,7 +32,7 @@ preset_fees = {
 }
 
 # ── 1) LOAD & PREPARE RETURNS ────────────────────────────────────────────────
-CSV = r"C:\Program Files\Coding Projects\Tearsheet Generator\Trade_Results.csv"
+CSV = r"C:\Coding Projects\Tearsheet Generator\Trade_Results.csv"
 df   = (pd.read_csv(CSV, parse_dates=["Date"])
             .set_index("Date").sort_index())
 rets = df["Net liquidation Value"].pct_change().dropna()
