@@ -237,7 +237,7 @@ try:
     # Load column C (Date) and column L (price/NAV for chart)
     NAV_df = pd.read_excel(
         xlsx_path,
-        sheet_name="Sheet1",
+        sheet_name="NAV",
         usecols="C,L",              # C=Date, L=price/NAV
         header=0,                   # first row is header
         engine="openpyxl",
@@ -320,6 +320,9 @@ nav_col_name = NAV_df.columns[0]  # Get the NAV column name (usually "nav-x1")
 print(f"📊 Before asfreq: {len(NAV_df)} rows, date range: {NAV_df.index.min().date()} to {NAV_df.index.max().date()}")
 print(f"   Last NAV value before asfreq: ${NAV_df[nav_col_name].iloc[-1]:,.2f}")
 
+# Capture the actual last Excel date BEFORE forward-filling (for "Last Updated" display)
+ACTUAL_LAST_DATE = NAV_df.index.max()
+
 NAV_df = NAV_df.asfreq(us_bd)
 
 print(f"📊 After asfreq: {len(NAV_df)} rows, date range: {NAV_df.index.min().date()} to {NAV_df.index.max().date()}")
@@ -353,7 +356,7 @@ def _resolve_transfer_date_from_row(xlsx_path: str, excel_row: int) -> pd.Timest
         raise PermissionError(f"Cannot read file '{xlsx_path}' - file may be open in Excel")
     temp_df = pd.read_excel(
         xlsx_path,
-        sheet_name="Sheet1",
+        sheet_name="NAV",
         usecols="C",  # Date column
         header=0,
         engine="openpyxl",
@@ -368,7 +371,7 @@ def _resolve_transfer_date_from_row(xlsx_path: str, excel_row: int) -> pd.Timest
 def _read_excel_dates(xlsx_path: str) -> pd.DatetimeIndex:
     """Return a normalized DatetimeIndex of actual Excel dates (no forward-filled days)."""
     dates = pd.read_excel(
-        xlsx_path, sheet_name="Sheet1", usecols="C", header=0, engine="openpyxl"
+        xlsx_path, sheet_name="NAV", usecols="C", header=0, engine="openpyxl"
     )["Date"].dropna()
     dates = pd.to_datetime(dates).dt.normalize()
     return pd.DatetimeIndex(sorted(dates.unique()))
@@ -407,7 +410,7 @@ def _apply_cash_transfer_adjustment(
     # Read actual Excel data to get true before/after NAV values (not forward-filled)
     df_excel = pd.read_excel(
         xlsx_path,
-        sheet_name="Sheet1",
+        sheet_name="NAV",
         usecols="C,L",  # Date (C), price/NAV (L)
         header=0,
         engine="openpyxl",
@@ -525,7 +528,7 @@ def _auto_detect_cash_transfers(xlsx_path: str, min_transfer_amount: float = 500
     # Read actual Excel data (Date col C, price/NAV col L)
     df_excel = pd.read_excel(
         xlsx_path,
-        sheet_name="Sheet1",
+        sheet_name="NAV",
         usecols="C,L",
         header=0,
         engine="openpyxl",
@@ -582,7 +585,7 @@ try:
             # Find Excel row matching the specified date
             df_temp = pd.read_excel(
                 xlsx_path,
-                sheet_name="Sheet1",
+                sheet_name="NAV",
                 usecols="C",  # Date column
                 header=0,
                 engine="openpyxl",
@@ -1327,7 +1330,8 @@ app = dash.Dash(
 )
 
 def serve_layout():
-    last_updated = NAV_df.index.max().strftime("%B %d, %Y")
+    # Use the actual last Excel date (not the forward-filled index max)
+    last_updated = ACTUAL_LAST_DATE.strftime("%B %d, %Y")
 
     return dbc.Container(
         id="page-container",

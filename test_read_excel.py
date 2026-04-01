@@ -3,7 +3,7 @@ import pandas as pd
 import os
 
 # File path
-xlsx_path = r"C:\Users\H&CDanHughes\Hughes & Company\Hughes & Company - Documents\3_Advisors Marketing (Tearsheets, PitchBooks, etc)\1. Tearsheet Project\TKP\VADI\tkp_alex.xlsx"
+xlsx_path = r"C:\Users\H&CDanHughes\Hughes & Company\Hughes & Company - Documents\3_Advisors Marketing (Tearsheets, PitchBooks, etc)\1. Tearsheet Project\TKP\VADI\tkp_alex_old.xlsx"
 
 print("=" * 80)
 print("TEST: Reading Excel file to check column G")

@@ -11,9 +11,9 @@ import numpy as np
 import plotly.graph_objs as go
 
 import dash
-from dash import html, dcc
+from dash import html, dcc, dash_table
 import dash_bootstrap_components as dbc
-from dash.dependencies import Input, Output
+from dash.dependencies import Input, Output, State
 
 import yfinance as yf
 
@@ -195,7 +195,7 @@ BENCHMARKS = [
 ]
 
 xlsx_path = (
-    r"C:\Users\H&CDanHughes\Hughes & Company\Hughes & Company - Documents\3_Advisors Marketing (Tearsheets, PitchBooks, etc)\1. Tearsheet Project\TKP\VADI\tkp_alex.xlsx"
+    r"C:\Users\H&CDanHughes\Hughes & Company\Hughes & Company - Documents\3_Advisors Marketing (Tearsheets, PitchBooks, etc)\1. Tearsheet Project\TKP\VADI\Copy of tkp_alex_old1.xlsx"
 )
 
 # If Excel has blank rows or formula cells without cached values, pandas/openpyxl can
@@ -283,6 +283,158 @@ except Exception as e:
     print(f"❌ Failed to load NAV data: {e}")
     print(f"   File path: {xlsx_path}")
     sys.exit(1)
+
+# ==============================================================================
+# 4b) LOAD FULL DAILY-RETURNS TABLE (Excel cols A–S) for secret "Daily Returns" view
+# ==============================================================================
+try:
+    full_daily_df = pd.read_excel(
+        xlsx_path,
+        sheet_name="Sheet1",
+        usecols="A:S",
+        header=0,
+        nrows=last_row - 1 if last_row > 1 else None,
+        engine="openpyxl",
+    )
+    full_daily_df = full_daily_df.dropna(how="all")
+
+    # Normalise every column name to string so float headers (e.g. 0.2) match the rename map
+    full_daily_df.columns = [str(c) if not isinstance(c, str) else c for c in full_daily_df.columns]
+
+    # Drop the empty "Unnamed" placeholder column (Excel col D has no header)
+    unnamed_cols = [c for c in full_daily_df.columns if c.startswith("Unnamed")]
+    if unnamed_cols:
+        full_daily_df.drop(columns=unnamed_cols, inplace=True)
+
+    # Rename columns to clean display names (preserve Excel order, move Deposit last)
+    # Both old (% symbol) and new (perc word) header variants are mapped
+    col_map = {
+        "cash transfers": "Deposit",
+        "trading date": "#Day",
+        "Date": "Date",
+        "Balance (StoneX)": "Balance (StoneX)",
+        "Plus500 NL": "Plus500 NL",
+        "StoneX NL": "StoneX NL",
+        "#": "# Trades",
+        "$PL": "$PL",
+        "0.2": "Fee (20%)",
+        "cumm fee": "Cumm Fee",
+        "Net P&L": "Net P&L",
+        "Net P&L / unit": "Net P&L / Unit",
+        "nav-x1": "NAV",
+        "Loss Carry": "Loss Carry",
+        "%Net": "Perc. Net",
+        "S net cummulative %": "Cumm Perc. Net",
+        "percNet": "Perc. Net",
+        "S net cummulative perc": "Cumm Perc. Net",
+        "HWM": "HWM",
+        "Cash": "Cash",
+    }
+    full_daily_df.rename(columns=col_map, inplace=True)
+
+    # Permanently remove excluded columns from this UI
+    SECRET_EXCLUDED = {"Cash", "Plus500 NL", "StoneX NL"}
+    full_daily_df.drop(columns=[c for c in SECRET_EXCLUDED if c in full_daily_df.columns], inplace=True)
+
+    # Final safety: drop any remaining None/NaN column names and deduplicate
+    full_daily_df = full_daily_df.loc[:, full_daily_df.columns.notna()]
+    full_daily_df.columns = pd.io.common.dedup_names(list(full_daily_df.columns), is_potential_multiindex=False)
+
+    # Parse Date column
+    if "Date" in full_daily_df.columns:
+        full_daily_df["Date"] = pd.to_datetime(full_daily_df["Date"], errors="coerce")
+        full_daily_df = full_daily_df.dropna(subset=["Date"])
+
+    # Sort chronologically (oldest first) for HWM asterisk calculation
+    full_daily_df = full_daily_df.sort_values("Date").reset_index(drop=True)
+
+    # HWM asterisk: mark rows where HWM exceeds the previous row's HWM (chronological)
+    if "HWM" in full_daily_df.columns:
+        hwm_shifted = full_daily_df["HWM"].shift(1)
+        hwm_new_high = (full_daily_df["HWM"] > hwm_shifted) & hwm_shifted.notna()
+        full_daily_df["HWM"] = full_daily_df["HWM"].apply(
+            lambda v: f"${v:,.2f}" if pd.notna(v) else ""
+        )
+        full_daily_df.loc[hwm_new_high, "HWM"] = full_daily_df.loc[hwm_new_high, "HWM"] + " *"
+
+    # Format Date for display
+    full_daily_df["Date"] = full_daily_df["Date"].dt.strftime("%Y-%m-%d")
+
+    # Move Deposit to last column
+    if "Deposit" in full_daily_df.columns:
+        deposit_col = full_daily_df.pop("Deposit")
+        full_daily_df["Deposit"] = deposit_col
+
+    # Format numeric columns for display
+    money_cols = [
+        "Balance (StoneX)", "$PL", "Fee (20%)",
+        "Cumm Fee", "Net P&L", "Net P&L / Unit", "NAV", "Loss Carry",
+    ]
+    pct_cols = ["Perc. Net", "Cumm Perc. Net"]
+
+    for col in money_cols:
+        if col in full_daily_df.columns:
+            full_daily_df[col] = full_daily_df[col].apply(
+                lambda v: f"${v:,.2f}" if pd.notna(v) else ""
+            )
+    for col in pct_cols:
+        if col in full_daily_df.columns:
+            full_daily_df[col] = full_daily_df[col].apply(
+                lambda v: f"{v * 100:.4f}%" if pd.notna(v) else ""
+            )
+    if "Deposit" in full_daily_df.columns:
+        full_daily_df["Deposit"] = full_daily_df["Deposit"].apply(
+            lambda v: f"${v:,.0f}" if pd.notna(v) and v != 0 else ""
+        )
+    if "# Trades" in full_daily_df.columns:
+        full_daily_df["# Trades"] = pd.to_numeric(full_daily_df["# Trades"], errors="coerce")
+        full_daily_df["# Trades"] = full_daily_df["# Trades"].apply(
+            lambda v: str(int(v)) if pd.notna(v) else ""
+        )
+    if "#Day" in full_daily_df.columns:
+        full_daily_df["#Day"] = pd.to_numeric(full_daily_df["#Day"], errors="coerce")
+        full_daily_df["#Day"] = full_daily_df["#Day"].apply(
+            lambda v: str(int(v)) if pd.notna(v) else ""
+        )
+
+    # Add stable row identifier for CRUD operations
+    full_daily_df.insert(0, "_row_id", range(len(full_daily_df)))
+
+    # Action marker columns for Edit and Delete (clickable via active_cell)
+    full_daily_df["Edit"] = "\u270f"
+    full_daily_df["Del"] = "\u2716"
+
+    secret_table_records = full_daily_df.to_dict("records")
+    secret_all_columns = [c for c in full_daily_df.columns if c not in ("_row_id", "Edit", "Del")]
+    secret_table_columns = [{"name": c, "id": c} for c in secret_all_columns]
+
+    print(f"📋 Secret table loaded: {len(secret_table_records)} rows, {len(secret_table_columns)} columns")
+    print(f"   Columns: {secret_all_columns}")
+except Exception as e:
+    print(f"⚠️  Failed to load secret table data: {e}")
+    import traceback; traceback.print_exc()
+    secret_table_records = []
+    secret_all_columns = []
+    secret_table_columns = []
+
+SECRET_DEFAULT_VISIBLE = [
+    "#Day", "Date", "Balance (StoneX)", "Perc. Net",
+    "$PL", "NAV", "HWM", "Fee (20%)", "Deposit",
+]
+
+# Compute latest date from Daily Returns for status label
+def _get_latest_daily_date():
+    """Return latest date string from secret_table_records, or 'unavailable'."""
+    try:
+        dates = [r.get("Date") for r in secret_table_records if r.get("Date")]
+        if dates:
+            latest = max(dates)
+            return pd.to_datetime(latest).strftime("%B %d, %Y")
+    except Exception:
+        pass
+    return "unavailable"
+
+DAILY_RETURNS_LATEST_DATE = _get_latest_daily_date()
 
 # Make sure pandas named the second column correctly
 if NAV_df.columns[1] != "nav‑x1" and NAV_df.columns[1] != "nav-x1":
@@ -1460,8 +1612,13 @@ def serve_layout():
                                 [
                                     html.H6("Last Updated", className="text-end text-secondary mb-1"),
                                     html.H5(last_updated, className="text-end text-primary"),
+                                    html.Small(
+                                        f"Data current to {DAILY_RETURNS_LATEST_DATE} close",
+                                        className="text-end text-muted d-block",
+                                        style={"fontSize": "11px", "marginTop": "4px"},
+                                    ),
                                 ],
-                                className="d-none d-md-block",   # hide on small viewports
+                                className="d-none d-md-block",
                                 style={"paddingTop": "30px"}
                             ),
                             # mobile style (only on sm and down)
@@ -1476,6 +1633,11 @@ def serve_layout():
                                     html.Small(
                                         last_updated,
                                         className="d-block text-end text-primary",
+                                    ),
+                                    html.Small(
+                                        f"Data current to {DAILY_RETURNS_LATEST_DATE} close",
+                                        className="d-block text-end text-muted",
+                                        style={"fontSize": "10px", "marginTop": "2px"},
                                     ),
                                 ],
                                 className="d-block d-md-none",
@@ -2439,6 +2601,143 @@ dbc.Row(
                 className="mb-4",
             ),
 
+            # ── Secret Table (only visible when "e" clicked) ────────────────────────────────────
+            html.Div(
+                id="secret-table-container",
+                children=[
+                    # Live data store for CRUD (in-memory for this session)
+                    dcc.Store(id="secret-data-store", data=secret_table_records),
+                    dcc.Store(id="secret-edit-row-id", data=None),
+
+                    dbc.Row(
+                        dbc.Col(
+                            dbc.Card(
+                                [
+                                    dbc.CardHeader(html.H6("Daily Returns", className="mb-0")),
+                                    dbc.CardBody([
+                                        html.Label("Visible Columns", className="fw-bold small mb-1"),
+                                        dcc.Dropdown(
+                                            id="secret-col-picker",
+                                            options=[{"label": c, "value": c} for c in secret_all_columns],
+                                            value=[c for c in SECRET_DEFAULT_VISIBLE if c in secret_all_columns],
+                                            multi=True,
+                                            clearable=False,
+                                            placeholder="Select columns\u2026",
+                                            style={"marginBottom": "12px"},
+                                        ),
+                                        html.Div([
+                                            html.Div([
+                                                dbc.Button("Add Row", id="secret-add-btn", color="success", size="sm", className="me-2"),
+                                                html.Span("View per page:", className="me-2 small", style={"lineHeight": "31px"}),
+                                                dcc.Dropdown(
+                                                    id="secret-page-size-picker",
+                                                    options=[{"label": str(v), "value": v} for v in [50, 100, 150, 200, 250, 300, 350, 400]],
+                                                    value=50,
+                                                    clearable=False,
+                                                    style={"width": "80px", "display": "inline-block"},
+                                                ),
+                                            ], style={"display": "inline-flex", "alignItems": "center"}),
+                                            html.Div([
+                                                dbc.Button("Export Excel", id="secret-export-btn", color="secondary", size="sm"),
+                                                dcc.Download(id="secret-export-download"),
+                                            ], style={"float": "right"}),
+                                        ], className="mb-3", style={"display": "flex", "justifyContent": "space-between"}),
+                                        dash_table.DataTable(
+                                            id="secret-daily-table",
+                                            columns=(
+                                                [{"name": c, "id": c} for c in SECRET_DEFAULT_VISIBLE if c in secret_all_columns]
+                                                + [{"name": "Edit", "id": "Edit"}, {"name": "Del", "id": "Del"}]
+                                            ),
+                                            data=secret_table_records,
+                                            sort_action="native",
+                                            sort_mode="single",
+                                            sort_by=[{"column_id": "Date", "direction": "desc"}],
+                                            page_size=50,
+                                            row_selectable=False,
+                                            style_table={"overflowX": "auto"},
+                                            style_cell={
+                                                "textAlign": "right",
+                                                "padding": "4px 8px",
+                                                "fontSize": "12px",
+                                                "fontFamily": "monospace",
+                                                "whiteSpace": "nowrap",
+                                            },
+                                            style_cell_conditional=[
+                                                {"if": {"column_id": "Date"}, "textAlign": "left"},
+                                                {"if": {"column_id": "#Day"}, "textAlign": "center"},
+                                                {"if": {"column_id": "# Trades"}, "textAlign": "center"},
+                                                {"if": {"column_id": "Edit"}, "textAlign": "center", "fontFamily": "sans-serif", "cursor": "pointer", "width": "40px", "minWidth": "40px", "maxWidth": "40px"},
+                                                {"if": {"column_id": "Del"}, "textAlign": "center", "fontFamily": "sans-serif", "cursor": "pointer", "width": "40px", "minWidth": "40px", "maxWidth": "40px", "color": "#dc3545"},
+                                            ],
+                                            style_header={
+                                                "backgroundColor": "#1a2a3a",
+                                                "color": "white",
+                                                "fontWeight": "bold",
+                                                "fontSize": "11px",
+                                                "textAlign": "center",
+                                            },
+                                            style_data_conditional=[
+                                                {"if": {"row_index": "odd"}, "backgroundColor": "#f8f9fa"},
+                                            ],
+                                        ),
+                                    ]),
+                                ],
+                                outline=True,
+                                className="mb-4",
+                            ),
+                            width=12
+                        ),
+                        className="mb-4",
+                    ),
+
+                    # ── Add Row Modal ──
+                    dbc.Modal([
+                        dbc.ModalHeader("Add Row"),
+                        dbc.ModalBody([
+                            dbc.Label("Date"),
+                            dbc.Input(id="secret-add-date", type="date",
+                                      value=datetime.today().strftime("%Y-%m-%d")),
+                            dbc.Label("Balance (StoneX)", className="mt-2"),
+                            dbc.Input(id="secret-add-balance", type="number", value=0),
+                            dbc.Label("Deposit", className="mt-2"),
+                            dbc.Input(id="secret-add-deposit", type="number", value=0),
+                        ]),
+                        dbc.ModalFooter([
+                            dbc.Button("Save", id="secret-add-save", color="primary", size="sm"),
+                            dbc.Button("Cancel", id="secret-add-cancel", color="secondary", size="sm"),
+                        ]),
+                    ], id="secret-add-modal", is_open=False, centered=True, size="sm"),
+
+                    # ── Edit Row Modal ──
+                    dbc.Modal([
+                        dbc.ModalHeader("Edit Row"),
+                        dbc.ModalBody([
+                            dbc.Label("Date"),
+                            dbc.Input(id="secret-edit-date", type="date"),
+                            dbc.Label("Balance (StoneX)", className="mt-2"),
+                            dbc.Input(id="secret-edit-balance", type="number"),
+                            dbc.Label("Deposit", className="mt-2"),
+                            dbc.Input(id="secret-edit-deposit", type="number"),
+                        ]),
+                        dbc.ModalFooter([
+                            dbc.Button("Save", id="secret-edit-save", color="primary", size="sm"),
+                            dbc.Button("Cancel", id="secret-edit-cancel", color="secondary", size="sm"),
+                        ]),
+                    ], id="secret-edit-modal", is_open=False, centered=True, size="sm"),
+
+                    # ── Delete Confirm Modal ──
+                    dbc.Modal([
+                        dbc.ModalHeader("Confirm Delete"),
+                        dbc.ModalBody("Are you sure?"),
+                        dbc.ModalFooter([
+                            dbc.Button("Delete", id="secret-delete-confirm", color="danger", size="sm"),
+                            dbc.Button("Cancel", id="secret-delete-cancel", color="secondary", size="sm"),
+                        ]),
+                    ], id="secret-delete-modal", is_open=False, centered=True, size="sm"),
+                ],
+                style={"display": "none"}
+            ),
+
             # ── H&C Disclaimer ────────────────────────────────────────────────────
             dbc.Row(
                 dbc.Col(
@@ -2493,12 +2792,28 @@ dbc.Row(
     )
 
 dcc_store = dcc.Store(id="disclaimer-accepted", storage_type="session")
+# "standard" = Accept & Continue; "secret" = last letter of "Notice" (same UI for now; branch later via this store)
+access_mode_store = dcc.Store(id="access-mode", storage_type="session", data=None)
 
 disclaimer_screen = html.Div(
     id="disclaimer-screen",
     children=html.Div(
         children=[
-            html.H2("Important Notice", className="mb-4"),
+            html.H2(
+                [
+                    "Important Notic",
+                    html.Span(
+                        "e",
+                        id="secret-notice-e",
+                        n_clicks=0,
+                        style={
+                            "cursor": "default",
+                            "userSelect": "none",
+                        },
+                    ),
+                ],
+                className="mb-4",
+            ),
             html.P(
                 "By clicking “Accept,” you agree that the performance figures shown are strictly informational and do not amount to investment advice, a solicitation, or an offer to invest or participate in this strategy. This material is not intended to solicit funds.",
                 className="lead mb-5"
@@ -2518,6 +2833,7 @@ def dynamic_layout():
     """Generate layout with fresh data on each page load."""
     return html.Div([
         dcc_store,
+        access_mode_store,
         disclaimer_screen,
         html.Div(
             id="main-app",
@@ -2532,13 +2848,261 @@ app.layout = dynamic_layout
 @app.callback(
     Output("disclaimer-screen", "style"),
     Output("main-app", "style"),
-    Input("accept-button", "n_clicks")
+    Output("access-mode", "data"),
+    Input("accept-button", "n_clicks"),
+    Input("secret-notice-e", "n_clicks"),
 )
-def show_main(n_clicks):
-    if n_clicks and n_clicks > 0:
-        return {"display": "none"}, {"display": "block"}
-    return {"padding": "4rem", "textAlign": "center"}, {"display": "none"}
+def show_main(n_accept, n_secret):
+    ctx = dash.callback_context
+    if not ctx.triggered:
+        return {"padding": "4rem", "textAlign": "center"}, {"display": "none"}, None
+    prop_id = ctx.triggered[0]["prop_id"]
+    button_id = prop_id.split(".")[0]
+    if button_id == "accept-button" and (n_accept or 0) > 0:
+        return {"display": "none"}, {"display": "block"}, "standard"
+    if button_id == "secret-notice-e" and (n_secret or 0) > 0:
+        return {"display": "none"}, {"display": "block"}, "secret"
+    return {"padding": "4rem", "textAlign": "center"}, {"display": "none"}, None
 
+@app.callback(
+    Output("secret-table-container", "style"),
+    Input("access-mode", "data"),
+)
+def toggle_secret_table(access_mode):
+    if access_mode == "secret":
+        return {"display": "block"}
+    return {"display": "none"}
+
+# ── Column visibility ──────────────────────────────────────────────────────
+@app.callback(
+    Output("secret-daily-table", "columns"),
+    Input("secret-col-picker", "value"),
+)
+def update_secret_columns(selected):
+    if not selected:
+        selected = list(SECRET_DEFAULT_VISIBLE)
+    ordered = [c for c in SECRET_DEFAULT_VISIBLE if c in selected]
+    ordered += [c for c in secret_all_columns if c in selected and c not in ordered]
+    ordered += ["Edit", "Del"]
+    return [{"name": c, "id": c} for c in ordered]
+
+# ── Sync table data from store ─────────────────────────────────────────────
+@app.callback(
+    Output("secret-daily-table", "data"),
+    Input("secret-data-store", "data"),
+)
+def sync_table_data(store_data):
+    return store_data or []
+
+# ── Page size control ──────────────────────────────────────────────────────
+@app.callback(
+    Output("secret-daily-table", "page_size"),
+    Input("secret-page-size-picker", "value"),
+)
+def update_page_size(page_size):
+    return page_size or 50
+
+# ── Add Row: open / close modal ───────────────────────────────────────────
+@app.callback(
+    Output("secret-add-modal", "is_open"),
+    Input("secret-add-btn", "n_clicks"),
+    Input("secret-add-cancel", "n_clicks"),
+    Input("secret-add-save", "n_clicks"),
+    State("secret-add-modal", "is_open"),
+    prevent_initial_call=True,
+)
+def toggle_add_modal(n_open, n_cancel, n_save, is_open):
+    ctx = dash.callback_context
+    tid = ctx.triggered[0]["prop_id"].split(".")[0]
+    if tid == "secret-add-btn":
+        return True
+    return False
+
+# ── Add Row: save to store ────────────────────────────────────────────────
+@app.callback(
+    Output("secret-data-store", "data", allow_duplicate=True),
+    Input("secret-add-save", "n_clicks"),
+    State("secret-add-date", "value"),
+    State("secret-add-balance", "value"),
+    State("secret-add-deposit", "value"),
+    State("secret-data-store", "data"),
+    prevent_initial_call=True,
+)
+def add_row(n_clicks, date_val, balance_val, deposit_val, current_data):
+    if not n_clicks or not balance_val:
+        return dash.no_update
+    rows = list(current_data) if current_data else []
+    max_id  = max((r.get("_row_id", 0) for r in rows), default=-1) + 1
+    max_day = max((int(r["#Day"]) for r in rows if str(r.get("#Day", "")).isdigit()), default=0) + 1
+
+    new_balance = float(balance_val)
+    deposit     = float(deposit_val) if deposit_val else 0.0
+
+    sorted_rows = sorted(rows, key=lambda r: int(r["#Day"]) if str(r.get("#Day", "")).isdigit() else 0)
+    prev_row    = sorted_rows[-1] if sorted_rows else {}
+
+    computed = _compute_new_row(prev_row, new_balance, deposit)
+
+    new_row = {c: "" for c in secret_all_columns}
+    new_row.update(computed)
+    new_row["_row_id"]  = max_id
+    new_row["#Day"]     = str(max_day)
+    new_row["Date"]     = date_val or ""
+    new_row["# Trades"] = ""
+    new_row["Edit"]     = "\u270f"
+    new_row["Del"]      = "\u2716"
+    rows.append(new_row)
+    return rows
+
+# ── Actions dispatcher: route active_cell clicks to Edit or Delete ────────
+@app.callback(
+    Output("secret-edit-modal", "is_open"),
+    Output("secret-edit-date", "value"),
+    Output("secret-edit-balance", "value"),
+    Output("secret-edit-deposit", "value"),
+    Output("secret-edit-row-id", "data"),
+    Output("secret-delete-modal", "is_open"),
+    Input("secret-daily-table", "active_cell"),
+    Input("secret-edit-cancel", "n_clicks"),
+    Input("secret-edit-save", "n_clicks"),
+    Input("secret-delete-cancel", "n_clicks"),
+    Input("secret-delete-confirm", "n_clicks"),
+    State("secret-daily-table", "data"),
+    prevent_initial_call=True,
+)
+def dispatch_actions(active_cell, _ec, _es, _dc, _dconf, table_data):
+    ctx = dash.callback_context
+    tid = ctx.triggered[0]["prop_id"].split(".")[0]
+    no = dash.no_update
+    if tid in ("secret-edit-cancel", "secret-edit-save"):
+        return False, no, no, no, no, no
+    if tid in ("secret-delete-cancel", "secret-delete-confirm"):
+        return no, no, no, no, no, False
+    if tid == "secret-daily-table" and active_cell:
+        col_id = active_cell.get("column_id", "")
+        row_idx = active_cell["row"]
+        if not table_data or row_idx >= len(table_data):
+            return no, no, no, no, no, no
+        row = table_data[row_idx]
+        row_id = row.get("_row_id")
+        if col_id == "Edit":
+            bal_raw = str(row.get("Balance (StoneX)", "")).replace("$", "").replace(",", "")
+            dep_raw = str(row.get("Deposit", "")).replace("$", "").replace(",", "")
+            try:
+                bal_num = float(bal_raw) if bal_raw else 0
+            except ValueError:
+                bal_num = 0
+            try:
+                dep_num = float(dep_raw) if dep_raw else 0
+            except ValueError:
+                dep_num = 0
+            return True, row.get("Date", ""), bal_num, dep_num, row_id, no
+        if col_id == "Del":
+            return no, no, no, no, row_id, True
+    return no, no, no, no, no, no
+
+# ── Edit Row: save changes ────────────────────────────────────────────────
+@app.callback(
+    Output("secret-data-store", "data", allow_duplicate=True),
+    Input("secret-edit-save", "n_clicks"),
+    State("secret-edit-date", "value"),
+    State("secret-edit-balance", "value"),
+    State("secret-edit-deposit", "value"),
+    State("secret-edit-row-id", "data"),
+    State("secret-data-store", "data"),
+    prevent_initial_call=True,
+)
+def edit_row(n_clicks, date_val, balance_val, deposit_val, row_id, current_data):
+    if not n_clicks or row_id is None:
+        return dash.no_update
+    rows = list(current_data) if current_data else []
+    for row in rows:
+        if row.get("_row_id") == row_id:
+            row["Date"] = date_val or ""
+            row["Balance (StoneX)"] = f"${float(balance_val):,.2f}" if balance_val else ""
+            dep = float(deposit_val) if deposit_val else 0
+            row["Deposit"] = f"${dep:,.0f}" if dep != 0 else ""
+            break
+    return rows
+
+# ── Delete Row: confirm ──────────────────────────────────────────────────
+@app.callback(
+    Output("secret-data-store", "data", allow_duplicate=True),
+    Input("secret-delete-confirm", "n_clicks"),
+    State("secret-edit-row-id", "data"),
+    State("secret-data-store", "data"),
+    prevent_initial_call=True,
+)
+def delete_row(n_clicks, row_id, current_data):
+    if not n_clicks or row_id is None:
+        return dash.no_update
+    return [r for r in current_data if r.get("_row_id") != row_id]
+
+# ── Helper functions for auto-calculation (from CURSOR_PATCH.md) ──────────
+def _parse_money(s):
+    """'$1,234.56' → 1234.56; '' or None → 0.0"""
+    try:
+        return float(str(s).replace("$", "").replace(",", "").strip())
+    except (ValueError, TypeError):
+        return 0.0
+
+def _parse_pct(s):
+    """'1.2345%' → 0.012345; '' or None → 0.0"""
+    try:
+        return float(str(s).replace("%", "").strip()) / 100
+    except (ValueError, TypeError):
+        return 0.0
+
+def _compute_new_row(prev_row: dict, new_balance: float, deposit: float) -> dict:
+    prev_balance    = _parse_money(prev_row.get("Balance (StoneX)"))
+    prev_nav        = _parse_money(prev_row.get("NAV"))
+    prev_hwm_str    = str(prev_row.get("HWM", "")).replace(" *", "")
+    prev_hwm        = _parse_money(prev_hwm_str) if prev_hwm_str else prev_nav
+    prev_loss_carry = _parse_money(prev_row.get("Loss Carry"))
+    prev_cumm_fee   = _parse_money(prev_row.get("Cumm Fee"))
+    prev_cumm_pct   = _parse_pct(prev_row.get("Cumm Perc. Net"))
+
+    pl         = new_balance - prev_balance - deposit
+    fee        = max(0.0, (pl - prev_loss_carry) * 0.2) if pl > prev_loss_carry else 0.0
+    cumm_fee   = prev_cumm_fee + fee
+    net_pl     = pl - fee
+    nav        = prev_nav + net_pl
+    loss_carry = max(0.0, prev_hwm - nav)
+    pct_net    = net_pl / BASELINE_AMOUNT
+    cumm_pct   = prev_cumm_pct + pct_net
+    hwm        = max(prev_hwm, nav)
+    hwm_new_high = hwm > (prev_hwm + 0.01)
+
+    return {
+        "Balance (StoneX)": f"${new_balance:,.2f}",
+        "$PL":              f"${pl:,.2f}",
+        "Fee (20%)":        f"${fee:,.2f}",
+        "Cumm Fee":         f"${cumm_fee:,.2f}",
+        "Net P&L":          f"${net_pl:,.2f}",
+        "Net P&L / Unit":   f"${net_pl:,.2f}",
+        "NAV":              f"${nav:,.2f}",
+        "Loss Carry":       f"${loss_carry:,.2f}",
+        "Perc. Net":        f"{pct_net * 100:.4f}%",
+        "Cumm Perc. Net":   f"{cumm_pct * 100:.4f}%",
+        "HWM":              f"${hwm:,.2f}" + (" *" if hwm_new_high else ""),
+        "Deposit":          f"${deposit:,.0f}" if deposit != 0 else "",
+    }
+
+# ── Export to Excel ───────────────────────────────────────────────────────
+@app.callback(
+    Output("secret-export-download", "data"),
+    Input("secret-export-btn", "n_clicks"),
+    State("secret-data-store", "data"),
+    prevent_initial_call=True,
+)
+def export_excel(n_clicks, store_data):
+    if not n_clicks or not store_data:
+        return dash.no_update
+    export_df = pd.DataFrame(store_data)
+    drop_cols = [c for c in ("_row_id", "Actions") if c in export_df.columns]
+    if drop_cols:
+        export_df.drop(columns=drop_cols, inplace=True)
+    return dcc.send_data_frame(export_df.to_excel, "daily_returns.xlsx", index=False)
 
 
 if __name__ == "__main__":
