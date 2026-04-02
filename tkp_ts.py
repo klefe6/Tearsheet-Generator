@@ -1,7 +1,8 @@
 import os
+import json
 import base64
 import openpyxl
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pandas as pd
 from pandas.tseries.holiday import USFederalHolidayCalendar
@@ -12,6 +13,7 @@ import plotly.graph_objs as go
 
 import dash
 from dash import html, dcc, dash_table
+from dash.dash_table.Format import Format, Scheme, Symbol
 import dash_bootstrap_components as dbc
 from dash.dependencies import Input, Output, State
 
@@ -198,6 +200,87 @@ xlsx_path = (
     r"C:\Users\H&CDanHughes\Hughes & Company\Hughes & Company - Documents\3_Advisors Marketing (Tearsheets, PitchBooks, etc)\1. Tearsheet Project\TKP\VADI\Copy of tkp_alex_old1.xlsx"
 )
 
+# Persisted Daily Returns editor state (Add Row / Delete Last Row). Survives browser hard refresh.
+SECRET_EDITOR_STATE_FILENAME = "daily_returns_secret_state.json"
+
+
+def _secret_editor_state_path():
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), SECRET_EDITOR_STATE_FILENAME)
+
+
+def _save_secret_editor_state(rows):
+    """Write full secret table rows to JSON so they reload after app restart / hard refresh."""
+    if rows is None:
+        return
+    path = _secret_editor_state_path()
+    try:
+        serializable = []
+        for r in rows:
+            row_out = {}
+            for k, v in r.items():
+                if isinstance(v, float) and v != v:
+                    row_out[k] = None
+                elif isinstance(v, (np.integer,)):
+                    row_out[k] = int(v)
+                elif isinstance(v, (np.floating,)):
+                    row_out[k] = float(v)
+                else:
+                    row_out[k] = v
+            serializable.append(row_out)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(serializable, f, indent=2)
+    except OSError as e:
+        print(f"⚠️ Could not save daily returns editor state to {path}: {e}")
+
+
+def _load_secret_editor_state(expected_columns):
+    """Load saved rows if present; normalize keys to match current column layout.
+    
+    Handles column name mismatches between older saved JSON and current Excel headers
+    by trying both the canonical name and known aliases.
+    """
+    path = _secret_editor_state_path()
+    if not os.path.isfile(path):
+        return None
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+    except (json.JSONDecodeError, OSError) as e:
+        print(f"⚠️ Could not load saved daily returns state from {path}: {e}")
+        return None
+    if not isinstance(data, list) or len(data) == 0:
+        return None
+
+    # Map of canonical column name -> list of aliases that may appear in older JSON
+    _aliases = {
+        "Perc. Net":       ["Perc. Net", " Perc. Net", "%Net", "percNet"],
+        "Cumm Perc. Net":  ["Cumm Perc. Net", "S net cummulative Perc.", "S net cummulative %", "S net cummulative perc"],
+        "Net P&L":         ["Net P&L", "Net PL"],
+        "Net P&L / Unit":  ["Net P&L / Unit", "Net PL per unit", "Net P&L / unit"],
+        "Cumm Fee":        ["Cumm Fee", "cumm fee"],
+        "Fee (20%)":       ["Fee (20%)", "0.2"],
+    }
+
+    cols = list(expected_columns)
+    out = []
+    for row in data:
+        if not isinstance(row, dict):
+            continue
+        new_row = {}
+        for c in cols:
+            # Try canonical name first
+            val = row.get(c, "")
+            # If empty/missing and aliases exist, try them
+            if (val == "" or val is None) and c in _aliases:
+                for alias in _aliases[c]:
+                    candidate = row.get(alias, "")
+                    if candidate != "" and candidate is not None:
+                        val = candidate
+                        break
+            new_row[c] = "" if val is None else val
+        out.append(new_row)
+    return out if out else None
+
 # If Excel has blank rows or formula cells without cached values, pandas/openpyxl can
 # stop "early" when inferring the used range. Set this to the last Excel row you
 # want included (1-indexed, including header row). Set to None to disable.
@@ -287,6 +370,7 @@ except Exception as e:
 # ==============================================================================
 # 4b) LOAD FULL DAILY-RETURNS TABLE (Excel cols A–S) for secret "Daily Returns" view
 # ==============================================================================
+_secret_editor_restored_from_disk = False
 try:
     full_daily_df = pd.read_excel(
         xlsx_path,
@@ -312,28 +396,34 @@ try:
         "cash transfers": "Deposit",
         "trading date": "#Day",
         "Date": "Date",
-        "Balance (StoneX)": "Balance (StoneX)",
-        "Plus500 NL": "Plus500 NL",
+        "Balance (StoneX)": "StoneX",
+        "Plus500 NL": "Plus500",
         "StoneX NL": "StoneX NL",
         "#": "# Trades",
         "$PL": "$PL",
         "0.2": "Fee (20%)",
         "cumm fee": "Cumm Fee",
         "Net P&L": "Net P&L",
+        "Net PL": "Net P&L",
         "Net P&L / unit": "Net P&L / Unit",
+        "Net PL per unit": "Net P&L / Unit",
         "nav-x1": "NAV",
         "Loss Carry": "Loss Carry",
         "%Net": "Perc. Net",
-        "S net cummulative %": "Cumm Perc. Net",
+        " Perc. Net": "Perc. Net",
         "percNet": "Perc. Net",
+        "S net cummulative %": "Cumm Perc. Net",
         "S net cummulative perc": "Cumm Perc. Net",
+        "S net cummulative Perc.": "Cumm Perc. Net",
         "HWM": "HWM",
         "Cash": "Cash",
     }
+    # Strip leading/trailing whitespace from headers before renaming
+    full_daily_df.columns = [c.strip() if isinstance(c, str) else c for c in full_daily_df.columns]
     full_daily_df.rename(columns=col_map, inplace=True)
 
-    # Permanently remove excluded columns from this UI
-    SECRET_EXCLUDED = {"Cash", "Plus500 NL", "StoneX NL"}
+    # Permanently remove excluded columns from this UI (Plus500 is kept)
+    SECRET_EXCLUDED = {"Cash", "StoneX NL"}
     full_daily_df.drop(columns=[c for c in SECRET_EXCLUDED if c in full_daily_df.columns], inplace=True)
 
     # Final safety: drop any remaining None/NaN column names and deduplicate
@@ -365,22 +455,28 @@ try:
         deposit_col = full_daily_df.pop("Deposit")
         full_daily_df["Deposit"] = deposit_col
 
+    # Ensure Plus500 sits immediately left of StoneX
+    if "Plus500" in full_daily_df.columns and "StoneX" in full_daily_df.columns:
+        stonex_idx = full_daily_df.columns.get_loc("StoneX")
+        plus_col = full_daily_df.pop("Plus500")
+        full_daily_df.insert(stonex_idx, "Plus500", plus_col)
+
     # Format numeric columns for display
     money_cols = [
-        "Balance (StoneX)", "$PL", "Fee (20%)",
+        "Plus500", "StoneX", "$PL", "Fee (20%)",
         "Cumm Fee", "Net P&L", "Net P&L / Unit", "NAV", "Loss Carry",
     ]
-    pct_cols = ["Perc. Net", "Cumm Perc. Net"]
-
     for col in money_cols:
         if col in full_daily_df.columns:
             full_daily_df[col] = full_daily_df[col].apply(
                 lambda v: f"${v:,.2f}" if pd.notna(v) else ""
             )
-    for col in pct_cols:
+    # Perc. Net and Cumm Perc. Net stored as display-ready percentages (e.g. 1.2345 means 1.2345%).
+    # DataTable appends the % sign via Format — no further multiply needed at render.
+    for col in ["Perc. Net", "Cumm Perc. Net"]:
         if col in full_daily_df.columns:
-            full_daily_df[col] = full_daily_df[col].apply(
-                lambda v: f"{v * 100:.4f}%" if pd.notna(v) else ""
+            full_daily_df[col] = (
+                pd.to_numeric(full_daily_df[col], errors="coerce") * 100
             )
     if "Deposit" in full_daily_df.columns:
         full_daily_df["Deposit"] = full_daily_df["Deposit"].apply(
@@ -400,27 +496,53 @@ try:
     # Add stable row identifier for CRUD operations
     full_daily_df.insert(0, "_row_id", range(len(full_daily_df)))
 
-    # Action marker columns for Edit and Delete (clickable via active_cell)
-    full_daily_df["Edit"] = "\u270f"
-    full_daily_df["Del"] = "\u2716"
-
     secret_table_records = full_daily_df.to_dict("records")
     secret_all_columns = [c for c in full_daily_df.columns if c not in ("_row_id", "Edit", "Del")]
     secret_table_columns = [{"name": c, "id": c} for c in secret_all_columns]
+
+    _loaded_secret = _load_secret_editor_state(full_daily_df.columns)
+    if _loaded_secret is not None:
+        secret_table_records = _loaded_secret
+        _secret_editor_restored_from_disk = True
+        print(
+            f"📋 Restored {len(_loaded_secret)} daily return rows from saved editor state "
+            f"({SECRET_EDITOR_STATE_FILENAME})"
+        )
 
     print(f"📋 Secret table loaded: {len(secret_table_records)} rows, {len(secret_table_columns)} columns")
     print(f"   Columns: {secret_all_columns}")
 except Exception as e:
     print(f"⚠️  Failed to load secret table data: {e}")
     import traceback; traceback.print_exc()
+    _secret_editor_restored_from_disk = False
     secret_table_records = []
     secret_all_columns = []
     secret_table_columns = []
 
 SECRET_DEFAULT_VISIBLE = [
-    "#Day", "Date", "Balance (StoneX)", "Perc. Net",
+    "#Day", "Date", "Plus500", "StoneX", "Perc. Net",
     "$PL", "NAV", "HWM", "Fee (20%)", "Deposit",
 ]
+
+_PCT_COL_FORMAT = Format(precision=3, scheme=Scheme.fixed, symbol=Symbol.yes, symbol_suffix="%")
+
+def _secret_table_columns(col_names):
+    """Build DataTable column dicts; pct columns get numeric Format so sorting works."""
+    PCT_COLS = {"Perc. Net", "Cumm Perc. Net"}
+    cols = []
+    for c in col_names:
+        if c in PCT_COLS:
+            cols.append({"name": c, "id": c, "type": "numeric", "format": _PCT_COL_FORMAT})
+        else:
+            cols.append({"name": c, "id": c})
+    return cols
+
+def _default_add_row_date_str():
+    """Return previous business day (Mon -> Fri) as YYYY-MM-DD."""
+    d = datetime.today().date() - timedelta(days=1)
+    while d.weekday() >= 5:  # Saturday=5, Sunday=6
+        d -= timedelta(days=1)
+    return d.strftime("%Y-%m-%d")
 
 # Compute latest date from Daily Returns for status label
 def _get_latest_daily_date():
@@ -884,6 +1006,60 @@ else:
         )
 
 print(f"▶️ Using NAV column: {NAV_col}")
+
+
+def _canonical_records_from_secret_rows(rows):
+    """Build canonical Date/NAV records from persisted Daily Returns rows (same logic as live store)."""
+    if not rows:
+        return []
+    pairs = []
+    for r in rows:
+        date_str = r.get("Date", "")
+        nav_str = r.get("NAV", "")
+        if not date_str or not nav_str:
+            continue
+        try:
+            dt = pd.to_datetime(date_str)
+            nav_val = float(str(nav_str).replace("$", "").replace(",", "").strip())
+            if nav_val > 0:
+                pairs.append((dt, nav_val))
+        except Exception:
+            continue
+    if not pairs:
+        return []
+    df = pd.DataFrame(pairs, columns=["Date", "NAV"]).sort_values("Date")
+    df = df.drop_duplicates(subset="Date", keep="last")
+    return [
+        {"Date": d.strftime("%Y-%m-%d"), "NAV": float(v)}
+        for d, v in zip(df["Date"], df["NAV"])
+    ]
+
+
+def _build_canonical_nav_records(nav_df: pd.DataFrame, nav_column: str):
+    """Build clean shared Date/NAV rows for dashboard calculations."""
+    if nav_df is None or nav_df.empty or nav_column not in nav_df.columns:
+        return []
+    df = nav_df[[nav_column]].copy().reset_index()
+    # Date may be the index name ("Date") or a generic "index" after reset_index.
+    if "Date" not in df.columns and "index" in df.columns:
+        df = df.rename(columns={"index": "Date"})
+    if "Date" not in df.columns:
+        return []
+    df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
+    df[nav_column] = pd.to_numeric(df[nav_column], errors="coerce")
+    df = df.dropna(subset=["Date", nav_column]).sort_values("Date")
+    df = df.drop_duplicates(subset="Date", keep="last")
+    return [
+        {"Date": d.strftime("%Y-%m-%d"), "NAV": float(v)}
+        for d, v in zip(df["Date"], df[nav_column])
+        if float(v) > 0
+    ]
+
+CANONICAL_NAV_RECORDS_INITIAL = _build_canonical_nav_records(NAV_df, NAV_col)
+if _secret_editor_restored_from_disk:
+    _nav_from_secret = _canonical_records_from_secret_rows(secret_table_records)
+    if _nav_from_secret:
+        CANONICAL_NAV_RECORDS_INITIAL = _nav_from_secret
 
 
 # ==============================================================================
@@ -1571,8 +1747,6 @@ app = dash.Dash(
 )
 
 def serve_layout():
-    last_updated = NAV_df.index.max().strftime("%B %d, %Y")
-
     return dbc.Container(
         id="page-container",
         fluid=True,        # ⇒ always 100% on xs, sm; constrained on md+ breakpoints
@@ -1607,41 +1781,41 @@ def serve_layout():
                     dbc.Col(
                     html.Div(
                         [
-                            # desktop style (only on md and up)
+                            # desktop (md+): two-line “Data current to” / “{date} close”
                             html.Div(
-                                [
-                                    html.H6("Last Updated", className="text-end text-secondary mb-1"),
-                                    html.H5(last_updated, className="text-end text-primary"),
-                                    html.Small(
-                                        f"Data current to {DAILY_RETURNS_LATEST_DATE} close",
-                                        className="text-end text-muted d-block",
-                                        style={"fontSize": "11px", "marginTop": "4px"},
+                                id="data-current-label-desktop",
+                                className="d-none d-md-block text-end",
+                                style={"paddingTop": "30px", "color": PRIMARY_COLOR},
+                                children=[
+                                    html.Div(
+                                        "Data current to",
+                                        className="d-block",
+                                        style={"fontSize": "20px", "lineHeight": "1.2"},
+                                    ),
+                                    html.Div(
+                                        f"{DAILY_RETURNS_LATEST_DATE} close",
+                                        className="d-block",
+                                        style={"fontSize": "20px", "lineHeight": "1.2", "marginTop": "2px"},
                                     ),
                                 ],
-                                className="d-none d-md-block",
-                                style={"paddingTop": "30px"}
                             ),
-                            # mobile style (only on sm and down)
+                            # mobile: same copy, tighter type
                             html.Div(
-                                [
-                                    # re-add “Last Updated” label
-                                    html.Small(
-                                        "Last Updated",
-                                        className="d-block text-end text-primary mb-1",
+                                id="data-current-label-mobile",
+                                className="d-block d-md-none text-end",
+                                style={"paddingTop": "20px", "color": PRIMARY_COLOR},
+                                children=[
+                                    html.Div(
+                                        "Data current to",
+                                        className="d-block",
+                                        style={"fontSize": "16px", "lineHeight": "1.2"},
                                     ),
-                                    # show the date underneath in one line
-                                    html.Small(
-                                        last_updated,
-                                        className="d-block text-end text-primary",
-                                    ),
-                                    html.Small(
-                                        f"Data current to {DAILY_RETURNS_LATEST_DATE} close",
-                                        className="d-block text-end text-muted",
-                                        style={"fontSize": "10px", "marginTop": "2px"},
+                                    html.Div(
+                                        f"{DAILY_RETURNS_LATEST_DATE} close",
+                                        className="d-block",
+                                        style={"fontSize": "16px", "lineHeight": "1.2", "marginTop": "2px"},
                                     ),
                                 ],
-                                className="d-block d-md-none",
-                                style={"paddingTop": "20px"}
                             ),
                         ]
                     ),
@@ -1698,24 +1872,27 @@ def serve_layout():
 
             # ── Performance Summary ────────────────────────────────────────────
             html.H5("Performance Summary", className="text-center mb-2"),
-            dbc.Table(
-                [
-                    html.Thead(
-                        html.Tr([
-                            html.Th(col, style={"backgroundColor": GREY_BG, "color": "#000"})
-                            for col in monthly_df.columns
+            html.Div(
+                id="monthly-calendar-container",
+                children=dbc.Table(
+                    [
+                        html.Thead(
+                            html.Tr([
+                                html.Th(col, style={"backgroundColor": GREY_BG, "color": "#000"})
+                                for col in monthly_df.columns
+                            ])
+                        ),
+                        html.Tbody([
+                            html.Tr([html.Td(monthly_df.iloc[i][col]) for col in monthly_df.columns])
+                            for i in range(len(monthly_df))
                         ])
-                    ),
-                    html.Tbody([
-                        html.Tr([html.Td(monthly_df.iloc[i][col]) for col in monthly_df.columns])
-                        for i in range(len(monthly_df))
-                    ])
-                ],
-                bordered=True,
-                hover=True,
-                size="sm",
-                className="table-responsive mb-5",
-                style={"width": "95%", "margin": "0 auto", "pageBreakInside": "avoid"},
+                    ],
+                    bordered=True,
+                    hover=True,
+                    size="sm",
+                    className="table-responsive mb-5",
+                    style={"width": "95%", "margin": "0 auto", "pageBreakInside": "avoid"},
+                ),
             ),
 
             # ── General and Sector Information Tables ──────────────────────────
@@ -2242,22 +2419,25 @@ dbc.Row(
                     dbc.Col(
                         [
                             # Performance Metrics
-                            dbc.Card(
-                                [
-                                    dbc.CardHeader(html.H6("Performance Metrics", className="mb-0")),
-                                    dbc.CardBody(
-                                        dbc.Table.from_dataframe(
-                                            daily_perf_df,
-                                            striped=False,
-                                            bordered=True,
-                                            hover=True,
-                                            size="sm",
-                                            className="fixed-cols",
-                                        )
-                                    ),
-                                ],
-                                outline=True,
-                                className="mb-4",
+                            html.Div(
+                                id="daily-perf-container",
+                                children=dbc.Card(
+                                    [
+                                        dbc.CardHeader(html.H6("Performance Metrics", className="mb-0")),
+                                        dbc.CardBody(
+                                            dbc.Table.from_dataframe(
+                                                daily_perf_df,
+                                                striped=False,
+                                                bordered=True,
+                                                hover=True,
+                                                size="sm",
+                                                className="fixed-cols",
+                                            )
+                                        ),
+                                    ],
+                                    outline=True,
+                                    className="mb-4",
+                                ),
                             ),
 
                             # Maximum Drawdown Profile
@@ -2395,22 +2575,25 @@ dbc.Row(
                     dbc.Col(
                         [
                             # Performance Metrics
-                            dbc.Card(
-                                [
-                                    dbc.CardHeader(html.H6("Performance Metrics", className="mb-0")),
-                                    dbc.CardBody(
-                                        dbc.Table.from_dataframe(
-                                            daily_perf_df,
-                                            striped=False,
-                                            bordered=True,
-                                            hover=True,
-                                            size="sm",
-                                            className="fixed-cols",
-                                        )
-                                    ),
-                                ],
-                                outline=True,
-                                className="mb-4",
+                            html.Div(
+                                id="daily-perf-container",
+                                children=dbc.Card(
+                                    [
+                                        dbc.CardHeader(html.H6("Performance Metrics", className="mb-0")),
+                                        dbc.CardBody(
+                                            dbc.Table.from_dataframe(
+                                                daily_perf_df,
+                                                striped=False,
+                                                bordered=True,
+                                                hover=True,
+                                                size="sm",
+                                                className="fixed-cols",
+                                            )
+                                        ),
+                                    ],
+                                    outline=True,
+                                    className="mb-4",
+                                ),
                             ),
 
                             # Maximum Drawdown Profile
@@ -2605,9 +2788,8 @@ dbc.Row(
             html.Div(
                 id="secret-table-container",
                 children=[
-                    # Live data store for CRUD (in-memory for this session)
+                    # Daily Returns rows; initial data from Excel, overridden by JSON if saved after edits
                     dcc.Store(id="secret-data-store", data=secret_table_records),
-                    dcc.Store(id="secret-edit-row-id", data=None),
 
                     dbc.Row(
                         dbc.Col(
@@ -2628,6 +2810,8 @@ dbc.Row(
                                         html.Div([
                                             html.Div([
                                                 dbc.Button("Add Row", id="secret-add-btn", color="success", size="sm", className="me-2"),
+                                                dbc.Button("Delete Last Row", id="secret-delete-last-btn", color="danger", size="sm", className="me-2"),
+                                                dbc.Button("Show Calculations", id="secret-calc-btn", color="info", size="sm", className="me-2"),
                                                 html.Span("View per page:", className="me-2 small", style={"lineHeight": "31px"}),
                                                 dcc.Dropdown(
                                                     id="secret-page-size-picker",
@@ -2644,9 +2828,8 @@ dbc.Row(
                                         ], className="mb-3", style={"display": "flex", "justifyContent": "space-between"}),
                                         dash_table.DataTable(
                                             id="secret-daily-table",
-                                            columns=(
-                                                [{"name": c, "id": c} for c in SECRET_DEFAULT_VISIBLE if c in secret_all_columns]
-                                                + [{"name": "Edit", "id": "Edit"}, {"name": "Del", "id": "Del"}]
+                                            columns=_secret_table_columns(
+                                                [c for c in SECRET_DEFAULT_VISIBLE if c in secret_all_columns]
                                             ),
                                             data=secret_table_records,
                                             sort_action="native",
@@ -2666,8 +2849,6 @@ dbc.Row(
                                                 {"if": {"column_id": "Date"}, "textAlign": "left"},
                                                 {"if": {"column_id": "#Day"}, "textAlign": "center"},
                                                 {"if": {"column_id": "# Trades"}, "textAlign": "center"},
-                                                {"if": {"column_id": "Edit"}, "textAlign": "center", "fontFamily": "sans-serif", "cursor": "pointer", "width": "40px", "minWidth": "40px", "maxWidth": "40px"},
-                                                {"if": {"column_id": "Del"}, "textAlign": "center", "fontFamily": "sans-serif", "cursor": "pointer", "width": "40px", "minWidth": "40px", "maxWidth": "40px", "color": "#dc3545"},
                                             ],
                                             style_header={
                                                 "backgroundColor": "#1a2a3a",
@@ -2678,6 +2859,10 @@ dbc.Row(
                                             },
                                             style_data_conditional=[
                                                 {"if": {"row_index": "odd"}, "backgroundColor": "#f8f9fa"},
+                                                {"if": {"filter_query": "{Perc. Net} > 0", "column_id": "Perc. Net"}, "color": "#198754"},
+                                                {"if": {"filter_query": "{Perc. Net} < 0", "column_id": "Perc. Net"}, "color": "#dc3545"},
+                                                {"if": {"filter_query": "{Cumm Perc. Net} > 0", "column_id": "Cumm Perc. Net"}, "color": "#198754"},
+                                                {"if": {"filter_query": "{Cumm Perc. Net} < 0", "column_id": "Cumm Perc. Net"}, "color": "#dc3545"},
                                             ],
                                         ),
                                     ]),
@@ -2696,10 +2881,12 @@ dbc.Row(
                         dbc.ModalBody([
                             dbc.Label("Date"),
                             dbc.Input(id="secret-add-date", type="date",
-                                      value=datetime.today().strftime("%Y-%m-%d")),
-                            dbc.Label("Balance (StoneX)", className="mt-2"),
+                                      value=_default_add_row_date_str()),
+                            dbc.Label("Plus500 Balance", className="mt-2"),
+                            dbc.Input(id="secret-add-plus500", type="number", value=0),
+                            dbc.Label("StoneX Balance", className="mt-2"),
                             dbc.Input(id="secret-add-balance", type="number", value=0),
-                            dbc.Label("Deposit", className="mt-2"),
+                            dbc.Label("StoneX Deposit", className="mt-2"),
                             dbc.Input(id="secret-add-deposit", type="number", value=0),
                         ]),
                         dbc.ModalFooter([
@@ -2708,32 +2895,94 @@ dbc.Row(
                         ]),
                     ], id="secret-add-modal", is_open=False, centered=True, size="sm"),
 
-                    # ── Edit Row Modal ──
+                    # ── Delete Confirm Modal ──────────────────────────────────
                     dbc.Modal([
-                        dbc.ModalHeader("Edit Row"),
-                        dbc.ModalBody([
-                            dbc.Label("Date"),
-                            dbc.Input(id="secret-edit-date", type="date"),
-                            dbc.Label("Balance (StoneX)", className="mt-2"),
-                            dbc.Input(id="secret-edit-balance", type="number"),
-                            dbc.Label("Deposit", className="mt-2"),
-                            dbc.Input(id="secret-edit-deposit", type="number"),
-                        ]),
+                        dbc.ModalHeader(dbc.ModalTitle("Confirm Delete")),
+                        dbc.ModalBody(
+                            html.P(id="secret-delete-confirm-body",
+                                   className="mb-0")
+                        ),
                         dbc.ModalFooter([
-                            dbc.Button("Save", id="secret-edit-save", color="primary", size="sm"),
-                            dbc.Button("Cancel", id="secret-edit-cancel", color="secondary", size="sm"),
+                            dbc.Button("Delete", id="secret-delete-confirm-btn",
+                                       color="danger", size="sm", className="me-2"),
+                            dbc.Button("Cancel", id="secret-delete-cancel-btn",
+                                       color="secondary", size="sm"),
                         ]),
-                    ], id="secret-edit-modal", is_open=False, centered=True, size="sm"),
+                    ], id="secret-delete-confirm-modal", is_open=False, centered=True, size="sm"),
 
-                    # ── Delete Confirm Modal ──
+                    # ── Show Calculations Modal ──
                     dbc.Modal([
-                        dbc.ModalHeader("Confirm Delete"),
-                        dbc.ModalBody("Are you sure?"),
-                        dbc.ModalFooter([
-                            dbc.Button("Delete", id="secret-delete-confirm", color="danger", size="sm"),
-                            dbc.Button("Cancel", id="secret-delete-cancel", color="secondary", size="sm"),
+                        dbc.ModalHeader("Monthly Calculation Inspector"),
+                        dbc.ModalBody([
+                            # SECTION 1: inputs
+                            dbc.Row([
+                                dbc.Col([
+                                    dbc.Label("Month", className="small fw-bold"),
+                                    dcc.Dropdown(
+                                        id="calc-month-picker",
+                                        options=[{"label": m, "value": i} for i, m in enumerate(
+                                            ["Jan","Feb","Mar","Apr","May","Jun",
+                                             "Jul","Aug","Sep","Oct","Nov","Dec"], start=1)],
+                                        value=datetime.today().month,
+                                        clearable=False,
+                                    ),
+                                ], width=5),
+                                dbc.Col([
+                                    dbc.Label("Year", className="small fw-bold"),
+                                    dbc.Input(id="calc-year-input", type="number",
+                                              value=datetime.today().year, min=2020, max=2040),
+                                ], width=4),
+                                dbc.Col([
+                                    dbc.Button("Show", id="calc-show-btn", color="primary",
+                                               size="sm", className="mt-4"),
+                                ], width=3),
+                            ], className="mb-3"),
+                            html.Hr(),
+                            # SECTION 2: static formulas
+                            html.H6("Formulas", className="fw-bold small"),
+                            dbc.Row([
+                                dbc.Col([
+                                    html.Small("NAV-Based (Net)", className="fw-bold text-primary d-block mb-1"),
+                                    html.Pre(
+                                        "(month_end_NAV - prior_month_end_NAV)\n/ BASELINE * 100",
+                                        className="bg-light p-2 rounded",
+                                        style={"fontFamily": "monospace", "fontSize": "11px", "whiteSpace": "pre-wrap"},
+                                    ),
+                                ], width=4),
+                                dbc.Col([
+                                    html.Small("StoneX Gross (excl fees)", className="fw-bold d-block mb-1",
+                                               style={"color": "#4a86c8"}),
+                                    html.Pre(
+                                        "(end_StoneX - start_StoneX - deposits)\n/ BASELINE * 100",
+                                        className="bg-light p-2 rounded",
+                                        style={"fontFamily": "monospace", "fontSize": "11px", "whiteSpace": "pre-wrap"},
+                                    ),
+                                ], width=4),
+                                dbc.Col([
+                                    html.Small("StoneX Net (incl fees)", className="fw-bold d-block mb-1",
+                                               style={"color": "#2e7d32"}),
+                                    html.Pre(
+                                        "(end_StoneX - start_StoneX - deposits - fees)\n/ BASELINE * 100",
+                                        className="bg-light p-2 rounded",
+                                        style={"fontFamily": "monospace", "fontSize": "11px", "whiteSpace": "pre-wrap"},
+                                    ),
+                                ], width=4),
+                            ], className="mb-1"),
+                            html.Small(
+                                "prior_month_end = last value before the 1st of the selected month "
+                                "(or BASELINE if none). NAV result may be overridden. "
+                                "StoneX balances are pre-fee; fees are applied separately to derive net performance.",
+                                className="text-muted d-block mb-3",
+                            ),
+                            html.Hr(),
+                            # SECTION 3 + 4: dynamic (populated by callback)
+                            html.Div(id="calc-results-container"),
                         ]),
-                    ], id="secret-delete-modal", is_open=False, centered=True, size="sm"),
+                        dbc.ModalFooter(
+                            dbc.Button("Close", id="calc-close-btn", color="secondary", size="sm"),
+                        ),
+                    ], id="secret-calc-modal", is_open=False, centered=True, size="lg"),
+
                 ],
                 style={"display": "none"}
             ),
@@ -2834,6 +3083,7 @@ def dynamic_layout():
     return html.Div([
         dcc_store,
         access_mode_store,
+        dcc.Store(id="canonical-nav-store", storage_type="session", data=CANONICAL_NAV_RECORDS_INITIAL),
         disclaimer_screen,
         html.Div(
             id="main-app",
@@ -2883,8 +3133,7 @@ def update_secret_columns(selected):
         selected = list(SECRET_DEFAULT_VISIBLE)
     ordered = [c for c in SECRET_DEFAULT_VISIBLE if c in selected]
     ordered += [c for c in secret_all_columns if c in selected and c not in ordered]
-    ordered += ["Edit", "Del"]
-    return [{"name": c, "id": c} for c in ordered]
+    return _secret_table_columns(ordered)
 
 # ── Sync table data from store ─────────────────────────────────────────────
 @app.callback(
@@ -2923,12 +3172,13 @@ def toggle_add_modal(n_open, n_cancel, n_save, is_open):
     Output("secret-data-store", "data", allow_duplicate=True),
     Input("secret-add-save", "n_clicks"),
     State("secret-add-date", "value"),
+    State("secret-add-plus500", "value"),
     State("secret-add-balance", "value"),
     State("secret-add-deposit", "value"),
     State("secret-data-store", "data"),
     prevent_initial_call=True,
 )
-def add_row(n_clicks, date_val, balance_val, deposit_val, current_data):
+def add_row(n_clicks, date_val, plus500_val, balance_val, deposit_val, current_data):
     if not n_clicks or not balance_val:
         return dash.no_update
     rows = list(current_data) if current_data else []
@@ -2937,6 +3187,7 @@ def add_row(n_clicks, date_val, balance_val, deposit_val, current_data):
 
     new_balance = float(balance_val)
     deposit     = float(deposit_val) if deposit_val else 0.0
+    plus500     = float(plus500_val) if plus500_val else 0.0
 
     sorted_rows = sorted(rows, key=lambda r: int(r["#Day"]) if str(r.get("#Day", "")).isdigit() else 0)
     prev_row    = sorted_rows[-1] if sorted_rows else {}
@@ -2945,98 +3196,266 @@ def add_row(n_clicks, date_val, balance_val, deposit_val, current_data):
 
     new_row = {c: "" for c in secret_all_columns}
     new_row.update(computed)
-    new_row["_row_id"]  = max_id
-    new_row["#Day"]     = str(max_day)
-    new_row["Date"]     = date_val or ""
-    new_row["# Trades"] = ""
-    new_row["Edit"]     = "\u270f"
-    new_row["Del"]      = "\u2716"
+    new_row["_row_id"]    = max_id
+    new_row["#Day"]       = str(max_day)
+    new_row["Date"]       = date_val or ""
+    new_row["Plus500"]    = f"${plus500:,.2f}" if plus500 != 0 else ""
+    new_row["# Trades"]   = ""
     rows.append(new_row)
+    _save_secret_editor_state(rows)
     return rows
 
-# ── Actions dispatcher: route active_cell clicks to Edit or Delete ────────
+# ── Delete Last Row: open confirm modal ───────────────────────────────────
 @app.callback(
-    Output("secret-edit-modal", "is_open"),
-    Output("secret-edit-date", "value"),
-    Output("secret-edit-balance", "value"),
-    Output("secret-edit-deposit", "value"),
-    Output("secret-edit-row-id", "data"),
-    Output("secret-delete-modal", "is_open"),
-    Input("secret-daily-table", "active_cell"),
-    Input("secret-edit-cancel", "n_clicks"),
-    Input("secret-edit-save", "n_clicks"),
-    Input("secret-delete-cancel", "n_clicks"),
-    Input("secret-delete-confirm", "n_clicks"),
-    State("secret-daily-table", "data"),
+    Output("secret-delete-confirm-modal", "is_open"),
+    Output("secret-delete-confirm-body", "children"),
+    Input("secret-delete-last-btn", "n_clicks"),
+    Input("secret-delete-cancel-btn", "n_clicks"),
+    Input("secret-delete-confirm-btn", "n_clicks"),
+    State("secret-data-store", "data"),
+    State("secret-delete-confirm-modal", "is_open"),
     prevent_initial_call=True,
 )
-def dispatch_actions(active_cell, _ec, _es, _dc, _dconf, table_data):
+def toggle_delete_confirm_modal(n_open, n_cancel, n_confirm, current_data, is_open):
     ctx = dash.callback_context
     tid = ctx.triggered[0]["prop_id"].split(".")[0]
-    no = dash.no_update
-    if tid in ("secret-edit-cancel", "secret-edit-save"):
-        return False, no, no, no, no, no
-    if tid in ("secret-delete-cancel", "secret-delete-confirm"):
-        return no, no, no, no, no, False
-    if tid == "secret-daily-table" and active_cell:
-        col_id = active_cell.get("column_id", "")
-        row_idx = active_cell["row"]
-        if not table_data or row_idx >= len(table_data):
-            return no, no, no, no, no, no
-        row = table_data[row_idx]
-        row_id = row.get("_row_id")
-        if col_id == "Edit":
-            bal_raw = str(row.get("Balance (StoneX)", "")).replace("$", "").replace(",", "")
-            dep_raw = str(row.get("Deposit", "")).replace("$", "").replace(",", "")
-            try:
-                bal_num = float(bal_raw) if bal_raw else 0
-            except ValueError:
-                bal_num = 0
-            try:
-                dep_num = float(dep_raw) if dep_raw else 0
-            except ValueError:
-                dep_num = 0
-            return True, row.get("Date", ""), bal_num, dep_num, row_id, no
-        if col_id == "Del":
-            return no, no, no, no, row_id, True
-    return no, no, no, no, no, no
+    if tid == "secret-delete-last-btn":
+        # Build a description of the row about to be deleted
+        body = "Are you sure you want to delete the last row?"
+        if current_data:
+            valid = [r for r in current_data if r.get("Date")]
+            if valid:
+                latest = max(valid, key=lambda r: r["Date"])
+                date = latest.get("Date", "?")
+                nav  = latest.get("NAV", "?")
+                body = f"Delete row for {date} (NAV: {nav})? This cannot be undone."
+        return True, body
+    return False, dash.no_update
 
-# ── Edit Row: save changes ────────────────────────────────────────────────
+
+# ── Delete Last Row: execute on confirmation ───────────────────────────────
 @app.callback(
     Output("secret-data-store", "data", allow_duplicate=True),
-    Input("secret-edit-save", "n_clicks"),
-    State("secret-edit-date", "value"),
-    State("secret-edit-balance", "value"),
-    State("secret-edit-deposit", "value"),
-    State("secret-edit-row-id", "data"),
+    Input("secret-delete-confirm-btn", "n_clicks"),
     State("secret-data-store", "data"),
     prevent_initial_call=True,
 )
-def edit_row(n_clicks, date_val, balance_val, deposit_val, row_id, current_data):
-    if not n_clicks or row_id is None:
+def delete_last_row(n_clicks, current_data):
+    if not n_clicks or not current_data:
         return dash.no_update
-    rows = list(current_data) if current_data else []
-    for row in rows:
-        if row.get("_row_id") == row_id:
-            row["Date"] = date_val or ""
-            row["Balance (StoneX)"] = f"${float(balance_val):,.2f}" if balance_val else ""
-            dep = float(deposit_val) if deposit_val else 0
-            row["Deposit"] = f"${dep:,.0f}" if dep != 0 else ""
-            break
-    return rows
+    rows = list(current_data)
+    valid = [r for r in rows if r.get("Date")]
+    if not valid:
+        return dash.no_update
+    latest_id = max(valid, key=lambda r: r["Date"]).get("_row_id")
+    updated = [r for r in rows if r.get("_row_id") != latest_id]
+    _save_secret_editor_state(updated)
+    return updated
 
-# ── Delete Row: confirm ──────────────────────────────────────────────────
+# ── Show Calculations: open / close modal ─────────────────────────────────
 @app.callback(
-    Output("secret-data-store", "data", allow_duplicate=True),
-    Input("secret-delete-confirm", "n_clicks"),
-    State("secret-edit-row-id", "data"),
+    Output("secret-calc-modal", "is_open"),
+    Input("secret-calc-btn", "n_clicks"),
+    Input("calc-close-btn", "n_clicks"),
+    State("secret-calc-modal", "is_open"),
+    prevent_initial_call=True,
+)
+def toggle_calc_modal(n_open, n_close, is_open):
+    ctx = dash.callback_context
+    tid = ctx.triggered[0]["prop_id"].split(".")[0]
+    if tid == "secret-calc-btn":
+        return True
+    return False
+
+# ── Show Calculations: compute and display ────────────────────────────────
+@app.callback(
+    Output("calc-results-container", "children"),
+    Input("calc-show-btn", "n_clicks"),
+    State("calc-month-picker", "value"),
+    State("calc-year-input", "value"),
+    State("canonical-nav-store", "data"),
     State("secret-data-store", "data"),
     prevent_initial_call=True,
 )
-def delete_row(n_clicks, row_id, current_data):
-    if not n_clicks or row_id is None:
+def show_monthly_calc(n_clicks, month, year, canonical_rows, secret_rows):
+    if not n_clicks or not month or not year or not canonical_rows:
         return dash.no_update
-    return [r for r in current_data if r.get("_row_id") != row_id]
+
+    month_names = ["Jan","Feb","Mar","Apr","May","Jun",
+                   "Jul","Aug","Sep","Oct","Nov","Dec"]
+    period_label = f"{month_names[int(month)-1]} {int(year)}"
+    target_period = pd.Period(f"{int(year)}-{int(month):02d}", freq="M")
+    bl = BASELINE_AMOUNT
+
+    # ── NAV section ───────────────────────────────────────────────────────
+    nav_s = _rebuild_nav_series(canonical_rows)
+    if nav_s.empty:
+        return html.P("No NAV data available.", className="text-danger")
+
+    in_month_nav = nav_s[(nav_s.index >= target_period.start_time) &
+                         (nav_s.index <= target_period.end_time)]
+    if in_month_nav.empty:
+        return html.P(f"No data found for {period_label}.", className="text-warning")
+
+    month_end_nav = in_month_nav.iloc[-1]
+    before_nav = nav_s[nav_s.index < target_period.start_time]
+    prior_nav = before_nav.iloc[-1] if len(before_nav) > 0 else bl
+    nav_computed = (month_end_nav - prior_nav) / bl * 100
+
+    is_overridden = target_period in override_months
+    nav_final = override_months[target_period] if is_overridden else nav_computed
+
+    nav_values = dbc.Table([html.Tbody([
+        html.Tr([html.Td("Period", className="fw-bold"), html.Td(period_label)]),
+        html.Tr([html.Td("BASELINE", className="fw-bold"), html.Td(f"${bl:,.2f}")]),
+        html.Tr([html.Td("Prior month end NAV", className="fw-bold"),
+                  html.Td(f"${prior_nav:,.2f}  ({before_nav.index[-1].strftime('%Y-%m-%d') if len(before_nav) > 0 else 'N/A — using baseline'})")]),
+        html.Tr([html.Td("Month end NAV", className="fw-bold"),
+                  html.Td(f"${month_end_nav:,.2f}  ({in_month_nav.index[-1].strftime('%Y-%m-%d')})")]),
+        html.Tr([html.Td("Data points", className="fw-bold"), html.Td(str(len(in_month_nav)))]),
+    ])], bordered=True, size="sm", className="mb-2",
+        style={"fontFamily": "monospace", "fontSize": "12px"})
+
+    nav_calc = html.Pre(
+        f"({month_end_nav:,.1f} - {prior_nav:,.1f}) / {bl:,.1f} * 100 = {nav_computed:.4f}%",
+        className="bg-light p-2 rounded mb-1",
+        style={"fontFamily": "monospace", "fontSize": "12px"})
+
+    nav_override = html.P(
+        f"Override active: forced to {nav_final:.4f}% (computed {nav_computed:.4f}%)",
+        className="text-info small fw-bold") if is_overridden else None
+
+    nav_result = dbc.Alert(
+        f"NAV Result:  {nav_final:.4f}%",
+        color="success" if nav_final >= 0 else "danger",
+        className="text-center fw-bold mb-0")
+
+    # ── StoneX sections (Gross and Net) ─────────────────────────────────────
+    sx_s, dep_s, fee_s = _extract_stonex_deposit_fee_series(secret_rows)
+    sx_gross_section = []
+    sx_net_section = []
+
+    if not sx_s.empty:
+        in_month_sx = sx_s[(sx_s.index >= target_period.start_time) &
+                           (sx_s.index <= target_period.end_time)]
+        in_month_dep = dep_s[(dep_s.index >= target_period.start_time) &
+                             (dep_s.index <= target_period.end_time)]
+        in_month_fee = fee_s[(fee_s.index >= target_period.start_time) &
+                             (fee_s.index <= target_period.end_time)]
+        before_sx = sx_s[sx_s.index < target_period.start_time]
+
+        if not in_month_sx.empty:
+            sx_end = in_month_sx.iloc[-1]
+            sx_start = before_sx.iloc[-1] if len(before_sx) > 0 else bl
+            net_dep = in_month_dep.sum() if not in_month_dep.empty else 0.0
+            total_fee = in_month_fee.sum() if not in_month_fee.empty else 0.0
+            gross_pnl = sx_end - sx_start - net_dep
+            net_pnl = gross_pnl - total_fee
+            sx_gross = gross_pnl / bl * 100
+            sx_net_val = net_pnl / bl * 100
+
+            # Shared values table
+            sx_values = dbc.Table([html.Tbody([
+                html.Tr([html.Td("Prior month end StoneX", className="fw-bold"),
+                          html.Td(f"${sx_start:,.2f}  ({before_sx.index[-1].strftime('%Y-%m-%d') if len(before_sx) > 0 else 'N/A — using baseline'})")]),
+                html.Tr([html.Td("Month end StoneX", className="fw-bold"),
+                          html.Td(f"${sx_end:,.2f}  ({in_month_sx.index[-1].strftime('%Y-%m-%d')})")]),
+                html.Tr([html.Td("Net deposits in month", className="fw-bold"),
+                          html.Td(f"${net_dep:,.2f}")]),
+                html.Tr([html.Td("Fees in month", className="fw-bold"),
+                          html.Td(f"${total_fee:,.2f}")]),
+                html.Tr([html.Td("Data points", className="fw-bold"),
+                          html.Td(str(len(in_month_sx)))]),
+            ])], bordered=True, size="sm", className="mb-2",
+                style={"fontFamily": "monospace", "fontSize": "12px"})
+
+            # Gross (excl fees) — 1 decimal place for cleaner display
+            sx_gross_calc = html.Pre(
+                f"Gross P&L = {sx_end:,.1f} - {sx_start:,.1f} - {net_dep:,.1f} = ${gross_pnl:,.1f}\n"
+                f"Gross % = {gross_pnl:,.1f} / {bl:,.1f} * 100 = {sx_gross:.4f}%",
+                className="bg-light p-2 rounded mb-1",
+                style={"fontFamily": "monospace", "fontSize": "11px"})
+
+            sx_gross_result = dbc.Alert(
+                f"StoneX Gross (excl fees):  {sx_gross:.4f}%",
+                color="success" if sx_gross >= 0 else "danger",
+                className="text-center fw-bold mb-1", style={"fontSize": "13px"})
+
+            # Net (incl fees)
+            sx_net_calc = html.Pre(
+                f"Net P&L = {gross_pnl:,.1f} - {total_fee:,.1f} = ${net_pnl:,.1f}\n"
+                f"Net % = {net_pnl:,.1f} / {bl:,.1f} * 100 = {sx_net_val:.4f}%",
+                className="bg-light p-2 rounded mb-1",
+                style={"fontFamily": "monospace", "fontSize": "11px"})
+
+            sx_net_result = dbc.Alert(
+                f"StoneX Net (incl fees):  {sx_net_val:.4f}%",
+                color="success" if sx_net_val >= 0 else "danger",
+                className="text-center fw-bold mb-1", style={"fontSize": "13px"})
+
+            # Difference line vs NAV — flags reconciliation issues immediately
+            diff = abs(nav_final - sx_net_val)
+            MATCH_THRESHOLD = 0.05  # within 0.05% is considered a match
+            if diff <= MATCH_THRESHOLD:
+                diff_label = f"Difference (NAV vs StoneX Net):  {nav_final - sx_net_val:+.4f}%  ✓ Matches NAV"
+                diff_color = "success"
+            else:
+                diff_label = f"Difference (NAV vs StoneX Net):  {nav_final - sx_net_val:+.4f}%  ⚠ Divergence detected"
+                diff_color = "danger"
+            diff_badge = dbc.Alert(
+                diff_label,
+                color=diff_color,
+                className="text-center small mb-0",
+                style={"fontSize": "11px", "opacity": "0.85"})
+
+            sx_shared_values = sx_values
+            sx_gross_section = [sx_gross_calc, sx_gross_result]
+            sx_net_section = [sx_net_calc, sx_net_result, diff_badge]
+        else:
+            sx_shared_values = None
+            sx_gross_section = [html.P(f"No StoneX data for {period_label}.", className="text-muted small")]
+            sx_net_section = []
+    else:
+        sx_shared_values = None
+        sx_gross_section = [html.P("StoneX data not available.", className="text-muted small")]
+        sx_net_section = []
+
+    # ── Assemble in 3 equal columns ─────────────────────────────────────────
+    # Left: NAV-Based (Net)
+    nav_col_children = [
+        html.H6("NAV-Based (Net)", className="fw-bold small text-primary"),
+        nav_values, nav_calc,
+    ]
+    if nav_override:
+        nav_col_children.append(nav_override)
+    nav_col_children.append(nav_result)
+
+    # Center: StoneX Net (incl fees)
+    sx_net_col_children = [
+        html.H6("StoneX Net (incl fees)", className="fw-bold small", style={"color": "#2e7d32"}),
+    ] + sx_net_section
+
+    # Right: StoneX Gross (excl fees)
+    sx_gross_col_children = [
+        html.H6("StoneX Gross (excl fees)", className="fw-bold small", style={"color": "#4a86c8"}),
+    ] + sx_gross_section
+
+    # Shared StoneX values table above the 3 columns (if available)
+    shared_row = []
+    if sx_shared_values is not None:
+        shared_row = [
+            html.H6("StoneX Data for Period", className="fw-bold small text-secondary mt-2"),
+            sx_shared_values,
+            html.Hr(className="my-2"),
+        ]
+
+    return html.Div(shared_row + [
+        dbc.Row([
+            dbc.Col(nav_col_children, md=4, className="mb-3"),
+            dbc.Col(sx_net_col_children, md=4, className="mb-3"),
+            dbc.Col(sx_gross_col_children, md=4, className="mb-3"),
+        ])
+    ])
 
 # ── Helper functions for auto-calculation (from CURSOR_PATCH.md) ──────────
 def _parse_money(s):
@@ -3047,14 +3466,19 @@ def _parse_money(s):
         return 0.0
 
 def _parse_pct(s):
-    """'1.2345%' → 0.012345; '' or None → 0.0"""
+    """Stored as display % (e.g. 1.2345) → return decimal 0.012345 for calculations."""
+    if isinstance(s, (int, float)) and not (s != s):  # excludes NaN
+        return float(s) / 100
     try:
-        return float(str(s).replace("%", "").strip()) / 100
+        cleaned = str(s).replace("%", "").strip()
+        if not cleaned:
+            return 0.0
+        return float(cleaned) / 100
     except (ValueError, TypeError):
         return 0.0
 
 def _compute_new_row(prev_row: dict, new_balance: float, deposit: float) -> dict:
-    prev_balance    = _parse_money(prev_row.get("Balance (StoneX)"))
+    prev_balance    = _parse_money(prev_row.get("StoneX"))
     prev_nav        = _parse_money(prev_row.get("NAV"))
     prev_hwm_str    = str(prev_row.get("HWM", "")).replace(" *", "")
     prev_hwm        = _parse_money(prev_hwm_str) if prev_hwm_str else prev_nav
@@ -3074,7 +3498,7 @@ def _compute_new_row(prev_row: dict, new_balance: float, deposit: float) -> dict
     hwm_new_high = hwm > (prev_hwm + 0.01)
 
     return {
-        "Balance (StoneX)": f"${new_balance:,.2f}",
+        "StoneX": f"${new_balance:,.2f}",
         "$PL":              f"${pl:,.2f}",
         "Fee (20%)":        f"${fee:,.2f}",
         "Cumm Fee":         f"${cumm_fee:,.2f}",
@@ -3082,11 +3506,224 @@ def _compute_new_row(prev_row: dict, new_balance: float, deposit: float) -> dict
         "Net P&L / Unit":   f"${net_pl:,.2f}",
         "NAV":              f"${nav:,.2f}",
         "Loss Carry":       f"${loss_carry:,.2f}",
-        "Perc. Net":        f"{pct_net * 100:.4f}%",
-        "Cumm Perc. Net":   f"{cumm_pct * 100:.4f}%",
+        "Perc. Net":        round(pct_net * 100, 6),
+        "Cumm Perc. Net":   round(cumm_pct * 100, 6),
         "HWM":              f"${hwm:,.2f}" + (" *" if hwm_new_high else ""),
         "Deposit":          f"${deposit:,.0f}" if deposit != 0 else "",
     }
+
+# ══════════════════════════════════════════════════════════════════════════
+# RECALCULATION ENGINE — rebuild dashboard metrics from Daily Returns store
+# ══════════════════════════════════════════════════════════════════════════
+
+def _rebuild_nav_series(rows):
+    """Extract (Date, NAV) pairs from store rows and return a date-indexed pd.Series."""
+    pairs = []
+    for r in rows:
+        date_str = r.get("Date", "")
+        nav_str = r.get("NAV", "")
+        if not date_str or not nav_str:
+            continue
+        try:
+            dt = pd.to_datetime(date_str)
+            nav_val = _parse_money(nav_str)
+            if nav_val > 0:
+                pairs.append((dt, nav_val))
+        except Exception:
+            continue
+    if not pairs:
+        return pd.Series(dtype=float)
+    df = pd.DataFrame(pairs, columns=["Date", "NAV"]).sort_values("Date")
+    df = df.drop_duplicates(subset="Date", keep="last")
+    return df.set_index("Date")["NAV"]
+
+@app.callback(
+    Output("canonical-nav-store", "data"),
+    Input("secret-data-store", "data"),
+    prevent_initial_call=True,
+)
+def sync_canonical_nav_store(secret_store_rows):
+    if not secret_store_rows:
+        return dash.no_update
+    nav_s = _rebuild_nav_series(secret_store_rows)
+    if nav_s.empty:
+        return []
+    return [
+        {"Date": dt.strftime("%Y-%m-%d"), "NAV": float(v)}
+        for dt, v in nav_s.items()
+    ]
+
+
+def _extract_stonex_deposit_fee_series(store_rows):
+    """Extract date-indexed StoneX balance, Deposit, and Fee series from secret-data-store rows.
+    
+    Data model notes:
+    - StoneX = actual brokerage balance (GROSS — does not reflect advisor fees)
+    - Fee (20%) = performance fee charged that day (stored separately)
+    - Deposit = cash transfer that day
+    - NAV = net asset value (reflects fees already deducted)
+    
+    Therefore:
+    - StoneX Excl. Fees (gross) = StoneX change minus deposits
+    - StoneX Incl. Fees (net) = StoneX change minus deposits minus fees
+    """
+    if not store_rows:
+        return pd.Series(dtype=float), pd.Series(dtype=float), pd.Series(dtype=float)
+    rows = []
+    for r in store_rows:
+        d = r.get("Date", "")
+        sx = r.get("StoneX", "")
+        dep = r.get("Deposit", "")
+        fee = r.get("Fee (20%)", "")
+        if not d or not sx:
+            continue
+        try:
+            dt = pd.to_datetime(d)
+            sx_val = _parse_money(sx)
+            dep_val = _parse_money(dep) if dep else 0.0
+            fee_val = _parse_money(fee) if fee else 0.0
+            rows.append((dt, sx_val, dep_val, fee_val))
+        except Exception:
+            continue
+    if not rows:
+        return pd.Series(dtype=float), pd.Series(dtype=float), pd.Series(dtype=float)
+    df = pd.DataFrame(rows, columns=["Date", "StoneX", "Deposit", "Fee"]).sort_values("Date")
+    df = df.drop_duplicates(subset="Date", keep="last").set_index("Date")
+    return df["StoneX"], df["Deposit"], df["Fee"]
+
+
+def _compute_stonex_monthly_gross_net(stonex_s, deposit_s, fee_s, bl):
+    """Compute monthly returns from StoneX balances, returning both gross and net.
+    
+    Gross (Excl. Fees):
+        (month_end_StoneX - prior_month_end_StoneX - net_deposits) / BASELINE * 100
+        
+    Net (Incl. Fees):
+        (month_end_StoneX - prior_month_end_StoneX - net_deposits - fees_in_month) / BASELINE * 100
+    
+    Returns: (gross_series, net_series) — both indexed by Period
+    """
+    if stonex_s.empty or bl == 0:
+        return pd.Series(dtype=float), pd.Series(dtype=float)
+    mp = stonex_s.index.to_period("M")
+    m_last = stonex_s.groupby(mp).last()
+    m_first = pd.Series(index=m_last.index, dtype=float)
+    m_dep = pd.Series(index=m_last.index, dtype=float)
+    m_fee = pd.Series(index=m_last.index, dtype=float)
+    for period in m_last.index:
+        before = stonex_s[stonex_s.index < period.start_time]
+        m_first.loc[period] = before.iloc[-1] if len(before) > 0 else bl
+        in_month_dep = deposit_s[(deposit_s.index >= period.start_time) &
+                                  (deposit_s.index <= period.end_time)]
+        in_month_fee = fee_s[(fee_s.index >= period.start_time) &
+                              (fee_s.index <= period.end_time)]
+        m_dep.loc[period] = in_month_dep.sum()
+        m_fee.loc[period] = in_month_fee.sum()
+    gross = (m_last - m_first - m_dep) / bl * 100
+    net = (m_last - m_first - m_dep - m_fee) / bl * 100
+    return gross, net
+
+
+def _recompute_monthly_records(nav_series, bl):
+    """Rebuild monthly calendar records from a NAV series.
+    
+    Produces 1 row per year with official NAV-based results only.
+    StoneX comparison is available in Show Calculations modal, not in main table.
+    """
+    if nav_series.empty or bl == 0:
+        return []
+    mp = nav_series.index.to_period("M")
+    m_last = nav_series.groupby(mp).last()
+    m_first = pd.Series(index=m_last.index, dtype=float)
+    for period in m_last.index:
+        before = nav_series[nav_series.index < period.start_time]
+        m_first.loc[period] = before.iloc[-1] if len(before) > 0 else bl
+    m_simple = (m_last - m_first) / bl * 100
+
+    for op, ov in override_months.items():
+        if op in m_simple.index:
+            m_simple.loc[op] = ov
+
+    yr_simple = m_simple.groupby(m_simple.index.year).sum()
+    years = sorted(m_simple.index.year.unique())
+    month_names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+    rows = []
+    for y in years:
+        row = {"Year": str(y)}
+        for idx, m in enumerate(month_names, start=1):
+            p = pd.Period(f"{y}-{idx:02d}")
+            row[m] = f"{m_simple.get(p, 0):.4f}%" if p in m_simple.index else ""
+        row["Year Total"] = f"{yr_simple.get(y, 0):.4f}%"
+        rows.append(row)
+    return rows
+
+
+def _recompute_daily_perf_records(nav_series, bl):
+    """Rebuild daily performance metrics table from a NAV series. Returns list[dict]."""
+    if nav_series.empty or bl == 0:
+        return []
+    d_returns = nav_series.diff().div(bl).dropna()
+    i_start = nav_series.index.min()
+    ttm = nav_series.index.max() - pd.DateOffset(years=1)
+    oy_ret = d_returns.loc[ttm:].dropna()
+    inc_ret = d_returns.copy()
+    oy_met = calculate_period_metrics(oy_ret, ttm)
+    inc_met = calculate_period_metrics(inc_ret, i_start)
+    rows = []
+    for m in metric_labels:
+        rows.append({
+            "Metric": m,
+            f"{STRATEGY_NAME} (1 Year/TTM)": oy_met[m],
+            f"{STRATEGY_NAME} (Inception)": inc_met[m],
+        })
+    return rows
+
+
+def _rebuild_nav_figure(nav_series):
+    """Rebuild the NAV Plotly figure from a live NAV series."""
+    if nav_series.empty:
+        fig = go.Figure()
+        fig.add_annotation(text="No data", xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False)
+        return fig
+    fig = go.Figure(
+        go.Scatter(x=nav_series.index, y=nav_series.values,
+                   mode="lines", line={"color": PRIMARY_COLOR}, name="NAV")
+    )
+    cfg = {
+        "title": {"text": "<u>Non-Compounded NAV Since Inception</u>", "x": 0.5, "xanchor": "center"},
+        "template": "ggplot2",
+        "plot_bgcolor": GREY_BG,
+        "paper_bgcolor": WHITE_BG,
+        "xaxis_title": "Date",
+        "yaxis_title": "NAV",
+        "autosize": True,
+    }
+    if SHOW_PERCENTAGE_AXIS:
+        nav_min, nav_max = nav_series.min(), nav_series.max()
+        pct_min = ((nav_min - BASELINE_AMOUNT) / BASELINE_AMOUNT) * 100
+        pct_max = ((nav_max - BASELINE_AMOUNT) / BASELINE_AMOUNT) * 100
+        pct_range = pct_max - pct_min
+        step = 10 if pct_range > 50 else (5 if pct_range > 20 else (2 if pct_range > 10 else 1))
+        ps = (int(pct_min / step) - 1) * step
+        pe = (int(pct_max / step) + 2) * step
+        ticks = list(range(int(ps), int(pe) + step, step))
+        cfg["yaxis2"] = {
+            "title": "Return (%)", "overlaying": "y", "side": "right",
+            "tickmode": "array",
+            "tickvals": [BASELINE_AMOUNT * (1 + p / 100) for p in ticks],
+            "ticktext": [f"{p:.0f}%" for p in ticks],
+            "showgrid": False, "zeroline": False,
+        }
+        cfg["margin"] = {"l": 40, "r": 70, "t": 40, "b": 40}
+    else:
+        cfg["margin"] = {"l": 40, "r": 10, "t": 40, "b": 40}
+    fig.update_layout(**cfg)
+    fig.update_xaxes(showgrid=True)
+    fig.update_yaxes(showgrid=True)
+    return fig
+
 
 # ── Export to Excel ───────────────────────────────────────────────────────
 @app.callback(
@@ -3103,6 +3740,115 @@ def export_excel(n_clicks, store_data):
     if drop_cols:
         export_df.drop(columns=drop_cols, inplace=True)
     return dcc.send_data_frame(export_df.to_excel, "daily_returns.xlsx", index=False)
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# MASTER PROPAGATION — rebuild all downstream dashboard outputs from store
+# ══════════════════════════════════════════════════════════════════════════
+
+def _build_perf_card(perf_records):
+    """Build a Performance Metrics dbc.Card from records."""
+    df = pd.DataFrame(perf_records)
+    return dbc.Card(
+        [
+            dbc.CardHeader(html.H6("Performance Metrics", className="mb-0")),
+            dbc.CardBody(
+                dbc.Table.from_dataframe(df, striped=False, bordered=True, hover=True, size="sm", className="fixed-cols")
+            ),
+        ],
+        outline=True,
+        className="mb-4",
+    )
+
+def _build_monthly_table(monthly_records):
+    """Build a monthly calendar dbc.Table from records — one row per year, official results only."""
+    df = pd.DataFrame(monthly_records)
+    if df.empty:
+        return html.P("No data available", className="text-muted")
+
+    header = html.Thead(
+        html.Tr([html.Th(col, style={"backgroundColor": GREY_BG, "color": "#000"}) for col in df.columns])
+    )
+
+    body_rows = []
+    for i in range(len(df)):
+        cells = [html.Td(df.iloc[i][col]) for col in df.columns]
+        body_rows.append(html.Tr(cells))
+
+    return dbc.Table(
+        [header, html.Tbody(body_rows)],
+        bordered=True, hover=True, size="sm",
+        className="table-responsive mb-5",
+        style={"width": "95%", "margin": "0 auto", "pageBreakInside": "avoid"},
+    )
+
+@app.callback(
+    Output("monthly-calendar-container", "children"),
+    Output("daily-perf-container", "children"),
+    Output("NAV-graph", "figure"),
+    Output("data-current-label-desktop", "children"),
+    Output("data-current-label-mobile", "children"),
+    Input("canonical-nav-store", "data"),
+    State("secret-data-store", "data"),
+)
+def propagate_dashboard(canonical_nav_rows, secret_store_rows):
+    if not canonical_nav_rows:
+        return (dash.no_update,) * 5
+
+    nav_s = _rebuild_nav_series(canonical_nav_rows)
+    if nav_s.empty:
+        return (dash.no_update,) * 5
+
+    bl = BASELINE_AMOUNT
+
+    monthly_recs = _recompute_monthly_records(nav_s, bl)
+    perf_recs = _recompute_daily_perf_records(nav_s, bl)
+    nav_fig = _rebuild_nav_figure(nav_s)
+
+    # Use the most recent date from the Daily Returns store (the last actual entry),
+    # not the canonical NAV series which is forward-filled through asfreq and may overshoot.
+    latest = "unavailable"
+    if secret_store_rows:
+        dates = [r.get("Date", "") for r in secret_store_rows if r.get("Date")]
+        if dates:
+            try:
+                latest = max(pd.to_datetime(dates)).strftime("%B %d, %Y")
+            except Exception:
+                pass
+    if latest == "unavailable" and len(nav_s) > 0:
+        latest = nav_s.index.max().strftime("%B %d, %Y")
+    desktop_label_children = [
+        html.Div(
+            "Data current to",
+            className="d-block",
+            style={"fontSize": "20px", "lineHeight": "1.2"},
+        ),
+        html.Div(
+            f"{latest} close",
+            className="d-block",
+            style={"fontSize": "20px", "lineHeight": "1.2", "marginTop": "2px"},
+        ),
+    ]
+    mobile_label_children = [
+        html.Div(
+            "Data current to",
+            className="d-block",
+            style={"fontSize": "16px", "lineHeight": "1.2"},
+        ),
+        html.Div(
+            f"{latest} close",
+            className="d-block",
+            style={"fontSize": "16px", "lineHeight": "1.2", "marginTop": "2px"},
+        ),
+    ]
+
+    return (
+        _build_monthly_table(monthly_recs),
+        _build_perf_card(perf_recs),
+        nav_fig,
+        desktop_label_children,
+        mobile_label_children,
+    )
 
 
 if __name__ == "__main__":
