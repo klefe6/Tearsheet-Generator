@@ -208,8 +208,15 @@ def _secret_editor_state_path():
     return os.path.join(os.path.dirname(os.path.abspath(__file__)), SECRET_EDITOR_STATE_FILENAME)
 
 
+_PCT_JSON_COLS = {"Perc. Net", "Cumm Perc. Net"}
+
 def _save_secret_editor_state(rows):
-    """Write full secret table rows to JSON so they reload after app restart / hard refresh."""
+    """Write full secret table rows to JSON so they reload after app restart / hard refresh.
+
+    Pct columns (Perc. Net, Cumm Perc. Net) are stored as raw decimals (÷100) regardless
+    of whether the in-memory value is already in display-% form (×100).  _load normalises
+    them back to ×100 on the way in, giving a stable round-trip contract.
+    """
     if rows is None:
         return
     path = _secret_editor_state_path()
@@ -223,12 +230,24 @@ def _save_secret_editor_state(rows):
                 elif isinstance(v, (np.integer,)):
                     row_out[k] = int(v)
                 elif isinstance(v, (np.floating,)):
-                    row_out[k] = float(v)
+                    fv = float(v)
+                    # Normalise pct cols to raw-decimal form so load always gets consistent values
+                    if k in _PCT_JSON_COLS:
+                        fv = fv / 100.0
+                    row_out[k] = fv
+                elif isinstance(v, float) and k in _PCT_JSON_COLS:
+                    row_out[k] = v / 100.0
                 else:
                     row_out[k] = v
             serializable.append(row_out)
         with open(path, "w", encoding="utf-8") as f:
             json.dump(serializable, f, indent=2)
+        last_date = ""
+        for r in reversed(serializable):
+            if r.get("Date"):
+                last_date = r["Date"]
+                break
+        print(f"💾 Saved {len(serializable)} rows to {SECRET_EDITOR_STATE_FILENAME} (last date: {last_date})")
     except OSError as e:
         print(f"⚠️ Could not save daily returns editor state to {path}: {e}")
 
@@ -502,6 +521,13 @@ try:
 
     _loaded_secret = _load_secret_editor_state(full_daily_df.columns)
     if _loaded_secret is not None:
+        # Pct columns are always saved as raw decimals by _save_secret_editor_state.
+        # Multiply ×100 here to restore display-ready values expected by DataTable Format.
+        for _row in _loaded_secret:
+            for _col in _PCT_JSON_COLS:
+                _v = _row.get(_col)
+                if isinstance(_v, (int, float)):
+                    _row[_col] = round(_v * 100, 6)
         secret_table_records = _loaded_secret
         _secret_editor_restored_from_disk = True
         print(
@@ -524,10 +550,14 @@ SECRET_DEFAULT_VISIBLE = [
     "$PL", "NAV", "HWM", "Fee (20%)", "Deposit",
 ]
 
-_PCT_COL_FORMAT = Format(precision=3, scheme=Scheme.fixed, symbol=Symbol.yes, symbol_suffix="%")
+PUBLIC_DAILY_COLUMNS = ["#Day", "Date", "NAV", "Perc. Net", "$PL", "HWM", "Fee (20%)"]
 
-def _secret_table_columns(col_names):
-    """Build DataTable column dicts; pct columns get numeric Format so sorting works."""
+_PCT_COL_FORMAT = Format(precision=4, scheme=Scheme.fixed, symbol=Symbol.yes, symbol_suffix="%")
+
+
+def _build_table_columns(col_names):
+    """Build DataTable column dicts; pct columns get numeric Format so sorting works.
+    Shared by both admin and public Daily Returns tables."""
     PCT_COLS = {"Perc. Net", "Cumm Perc. Net"}
     cols = []
     for c in col_names:
@@ -536,6 +566,10 @@ def _secret_table_columns(col_names):
         else:
             cols.append({"name": c, "id": c})
     return cols
+
+
+def _secret_table_columns(col_names):
+    return _build_table_columns(col_names)
 
 def _default_add_row_date_str():
     """Return previous business day (Mon -> Fri) as YYYY-MM-DD."""
@@ -2987,6 +3021,96 @@ dbc.Row(
                 style={"display": "none"}
             ),
 
+            # ── Public Daily Returns Table (collapsed by default, expand via header) ──
+            dbc.Row(
+                dbc.Col(
+                    dbc.Card([
+                        dbc.CardHeader(
+                            html.Div([
+                                html.H6("Daily Returns", className="mb-0 d-inline"),
+                                dbc.Button(
+                                    "Show ▾",
+                                    id="public-daily-toggle-btn",
+                                    color="link",
+                                    size="sm",
+                                    className="float-end p-0 text-decoration-none fw-bold",
+                                    n_clicks=0,
+                                ),
+                            ]),
+                        ),
+                        dbc.Collapse(
+                            id="public-daily-collapse",
+                            is_open=False,
+                            children=dbc.CardBody([
+                                html.Div([
+                                    html.Div([
+                                        html.Span("View per page:", className="me-2 small",
+                                                  style={"lineHeight": "31px"}),
+                                        dcc.Dropdown(
+                                            id="public-page-size-picker",
+                                            options=[{"label": str(v), "value": v}
+                                                     for v in [50, 100, 150, 200, 250, 300, 350, 400]],
+                                            value=50,
+                                            clearable=False,
+                                            style={"width": "80px", "display": "inline-block"},
+                                        ),
+                                    ], style={"display": "inline-flex", "alignItems": "center"}),
+                                    html.Div([
+                                        dbc.Button("Export Excel", id="public-export-btn",
+                                                   color="secondary", size="sm"),
+                                        dcc.Download(id="public-export-download"),
+                                    ], style={"float": "right"}),
+                                ], className="mb-3",
+                                   style={"display": "flex", "justifyContent": "space-between"}),
+                                dash_table.DataTable(
+                                    id="public-daily-table",
+                                    columns=_build_table_columns(PUBLIC_DAILY_COLUMNS),
+                                    data=[
+                                        {c: r.get(c, "") for c in PUBLIC_DAILY_COLUMNS}
+                                        for r in secret_table_records
+                                    ],
+                                    sort_action="native",
+                                    sort_mode="single",
+                                    sort_by=[{"column_id": "Date", "direction": "desc"}],
+                                    page_size=50,
+                                    row_selectable=False,
+                                    editable=False,
+                                    style_table={"overflowX": "auto"},
+                                    style_cell={
+                                        "textAlign": "right",
+                                        "padding": "4px 8px",
+                                        "fontSize": "12px",
+                                        "fontFamily": "monospace",
+                                        "whiteSpace": "nowrap",
+                                    },
+                                    style_cell_conditional=[
+                                        {"if": {"column_id": "Date"}, "textAlign": "left"},
+                                        {"if": {"column_id": "#Day"}, "textAlign": "center"},
+                                    ],
+                                    style_header={
+                                        "backgroundColor": "#1a2a3a",
+                                        "color": "white",
+                                        "fontWeight": "bold",
+                                        "fontSize": "11px",
+                                        "textAlign": "center",
+                                    },
+                                    style_data_conditional=[
+                                        {"if": {"filter_query": "{Perc. Net} > 0",
+                                                "column_id": "Perc. Net"},
+                                         "color": "green"},
+                                        {"if": {"filter_query": "{Perc. Net} < 0",
+                                                "column_id": "Perc. Net"},
+                                         "color": "red"},
+                                    ],
+                                ),
+                            ]),
+                        ),
+                    ]),
+                    width=12,
+                ),
+                className="mb-4",
+            ),
+
             # ── H&C Disclaimer ────────────────────────────────────────────────────
             dbc.Row(
                 dbc.Col(
@@ -3083,7 +3207,7 @@ def dynamic_layout():
     return html.Div([
         dcc_store,
         access_mode_store,
-        dcc.Store(id="canonical-nav-store", storage_type="session", data=CANONICAL_NAV_RECORDS_INITIAL),
+        dcc.Store(id="canonical-nav-store", storage_type="memory", data=CANONICAL_NAV_RECORDS_INITIAL),
         disclaimer_screen,
         html.Div(
             id="main-app",
@@ -3122,6 +3246,54 @@ def toggle_secret_table(access_mode):
     if access_mode == "secret":
         return {"display": "block"}
     return {"display": "none"}
+
+# ── Public Daily Returns: sync data from admin store ──────────────────────
+@app.callback(
+    Output("public-daily-table", "data"),
+    Input("secret-data-store", "data"),
+)
+def sync_public_table(store_data):
+    if not store_data:
+        return []
+    return [{c: r.get(c, "") for c in PUBLIC_DAILY_COLUMNS} for r in store_data]
+
+
+# ── Public Daily Returns: page size ───────────────────────────────────────
+@app.callback(
+    Output("public-daily-table", "page_size"),
+    Input("public-page-size-picker", "value"),
+)
+def update_public_page_size(page_size):
+    return page_size or 50
+
+
+# ── Public Daily Returns: toggle expand/collapse ──────────────────────────
+@app.callback(
+    Output("public-daily-collapse", "is_open"),
+    Output("public-daily-toggle-btn", "children"),
+    Input("public-daily-toggle-btn", "n_clicks"),
+    State("public-daily-collapse", "is_open"),
+    prevent_initial_call=True,
+)
+def toggle_public_daily(n_clicks, is_open):
+    new_open = not is_open
+    label = "Hide ▴" if new_open else "Show ▾"
+    return new_open, label
+
+
+# ── Public Daily Returns: export Excel ────────────────────────────────────
+@app.callback(
+    Output("public-export-download", "data"),
+    Input("public-export-btn", "n_clicks"),
+    State("public-daily-table", "data"),
+    prevent_initial_call=True,
+)
+def export_public_excel(n_clicks, table_data):
+    if not n_clicks or not table_data:
+        return dash.no_update
+    export_df = pd.DataFrame(table_data)
+    return dcc.send_data_frame(export_df.to_excel, "daily_returns.xlsx", index=False)
+
 
 # ── Column visibility ──────────────────────────────────────────────────────
 @app.callback(
