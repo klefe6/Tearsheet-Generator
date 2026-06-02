@@ -1601,33 +1601,6 @@ def serve_layout():
                         },
                     ),
 
-                    # ── Important Disclosure ──────────────────────────────────
-                    dbc.Row(
-                        dbc.Col(
-                            html.Div(
-                                [
-                                    html.Strong("Important Disclosure: ", className="text-dark"),
-                                    "This tear sheet is provided for informational purposes only and should not "
-                                    "be interpreted as an offer, solicitation, or recommendation to invest. "
-                                    "Performance information, if shown, may be unaudited and should be reviewed "
-                                    "together with the applicable offering documents, advisory agreement, and risk "
-                                    "disclosures. For more information about this strategy, please contact Hughes "
-                                    "and Company at ",
-                                    html.A("info@hughesandco.ltd", href="mailto:info@hughesandco.ltd"),
-                                    " or 954 500 0500.",
-                                ],
-                                className="p-3 border rounded",
-                                style={
-                                    "backgroundColor": "#f8f9fa",
-                                    "borderLeft": "4px solid #6c757d",
-                                    "fontSize": "0.875rem",
-                                },
-                            ),
-                            width=12,
-                        ),
-                        className="mb-4",
-                    ),
-
                     html.Hr(className="my-4"),
 
                     # ── Footer / disclaimers  (identical to Y&Q) ───────────────
@@ -1652,8 +1625,36 @@ def serve_layout():
                                 className="text-center small text-muted mb-0",
                             ),
                         ],
-                        className="pt-3 pb-5 mb-0",
+                        className="pt-3 pb-3 mb-0",
                         style={"marginTop": "0.5rem"},
+                    ),
+
+                    # ── Important Disclosure (Momentum Pacer / port 8304) ───────
+                    dbc.Row(
+                        dbc.Col(
+                            html.Div(
+                                id="important-disclosure",
+                                children=[
+                                    html.Strong("Important Disclosure: ", className="text-dark"),
+                                    "This tear sheet is provided for informational purposes only and should not "
+                                    "be interpreted as an offer, solicitation, or recommendation to invest. "
+                                    "Performance information, if shown, may be unaudited and should be reviewed "
+                                    "together with the applicable offering documents, advisory agreement, and risk "
+                                    "disclosures. For more information about this strategy, please contact Hughes "
+                                    "and Company at ",
+                                    html.A("info@hughesandco.ltd", href="mailto:info@hughesandco.ltd"),
+                                    " or 954 500 0500.",
+                                ],
+                                className="p-3 border rounded",
+                                style={
+                                    "backgroundColor": "#f8f9fa",
+                                    "borderLeft": "4px solid #6c757d",
+                                    "fontSize": "0.875rem",
+                                },
+                            ),
+                            width=12,
+                        ),
+                        className="mb-5 pb-4",
                     ),
 
                 ],  # end main-app children
