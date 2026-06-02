@@ -10,7 +10,7 @@ Data source: Momentum Fee Calculation.xlsx  (Summary + Sris Fee Calc Detail tabs
 HOW TO RUN
 ----------
     python mp_ts.py
-Then open: http://127.0.0.1:8079
+Then open: http://127.0.0.1:8304
 
 Production (Cloudflare / reboot_mp_ts.bat): set MP_TS_PRODUCTION=1 so the server runs
 without Dash debug/reloader (avoids unstable behavior behind a reverse proxy).
@@ -453,7 +453,7 @@ def _pct_change_vs_prior(y_vals: list[float]) -> list[str]:
 _NAV_HOVER = (
     "<b>%{fullData.name}</b><br>"
     "%{x|%b %d, %Y}<br>"
-    "$%{y:,.0f}<br>"
+    "$%{y:,.2f}<br>"
     "Δ vs prior: %{customdata[0]}<br>"
     "Cumulative % Chg: %{customdata[1]}<extra></extra>"
 )
@@ -730,6 +730,11 @@ def build_drawdown_figure() -> go.Figure:
         mode="lines", fill="tozeroy",
         line={"color": ACCENT_RED, "width": 1.5},
         name="Momentum Pacer Drawdown",
+        hovertemplate=(
+            "<b>%{fullData.name}</b><br>"
+            "%{x|%b %d, %Y}<br>"
+            "%{y:.2f}%<extra></extra>"
+        ),
     ))
 
     fig.update_layout(
@@ -1596,6 +1601,33 @@ def serve_layout():
                         },
                     ),
 
+                    # ── Important Disclosure ──────────────────────────────────
+                    dbc.Row(
+                        dbc.Col(
+                            html.Div(
+                                [
+                                    html.Strong("Important Disclosure: ", className="text-dark"),
+                                    "This tear sheet is provided for informational purposes only and should not "
+                                    "be interpreted as an offer, solicitation, or recommendation to invest. "
+                                    "Performance information, if shown, may be unaudited and should be reviewed "
+                                    "together with the applicable offering documents, advisory agreement, and risk "
+                                    "disclosures. For more information about this strategy, please contact Hughes "
+                                    "and Company at ",
+                                    html.A("info@hughesandco.ltd", href="mailto:info@hughesandco.ltd"),
+                                    " or 954 500 0500.",
+                                ],
+                                className="p-3 border rounded",
+                                style={
+                                    "backgroundColor": "#f8f9fa",
+                                    "borderLeft": "4px solid #6c757d",
+                                    "fontSize": "0.875rem",
+                                },
+                            ),
+                            width=12,
+                        ),
+                        className="mb-4",
+                    ),
+
                     html.Hr(className="my-4"),
 
                     # ── Footer / disclaimers  (identical to Y&Q) ───────────────
@@ -1652,10 +1684,10 @@ if __name__ == "__main__":
     _debug = not _prod
     print(f"[mp_ts] Momentum Pacer tearsheet starting...")
     print(f"[mp_ts] Data: {EXCEL_PATH.name}")
-    print(f"[mp_ts] Open: http://127.0.0.1:8079  (production={_prod})")
+    print(f"[mp_ts] Open: http://127.0.0.1:8304  (production={_prod})")
     app.run(
         debug=_debug,
         use_reloader=_debug,
-        port=8079,
+        port=8304,
         host="127.0.0.1",
     )

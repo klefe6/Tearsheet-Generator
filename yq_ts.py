@@ -1725,7 +1725,7 @@ dbc.Row(
                                     ),
                                     dbc.CardFooter(
                                         html.Small(
-                                            "Statistics calculated from actual monthly return data from April 2011 to September 2025.",
+                                            "Statistics calculated from actual monthly return data from April 2011 to April 2026.",
                                             className="text-muted fst-italic"
                                         )
                                     ),
@@ -1918,6 +1918,33 @@ dbc.Row(
             ),
 
 
+            # ── Important Disclosure ──────────────────────────────────────────────────
+            dbc.Row(
+                dbc.Col(
+                    html.Div(
+                        [
+                            html.Strong("Important Disclosure: ", className="text-dark"),
+                            "This tear sheet is provided for informational purposes only and should not "
+                            "be interpreted as an offer, solicitation, or recommendation to invest. "
+                            "Performance information, if shown, may be unaudited and should be reviewed "
+                            "together with the applicable offering documents, advisory agreement, and risk "
+                            "disclosures. For more information about this strategy, please contact Hughes "
+                            "and Company at ",
+                            html.A("info@hughesandco.ltd", href="mailto:info@hughesandco.ltd"),
+                            " or 954 500 0500.",
+                        ],
+                        className="p-3 border rounded",
+                        style={
+                            "backgroundColor": "#f8f9fa",
+                            "borderLeft": "4px solid #6c757d",
+                            "fontSize": "0.875rem",
+                        },
+                    ),
+                    width=12,
+                ),
+                className="mb-4",
+            ),
+
             # ── Toggle & Footer ───────────────────────────────────────────────
             dbc.Row(
                 dbc.Col(html.P(footer_contact, className="text-center small text-muted"), width=12),
@@ -1971,4 +1998,4 @@ def show_main(n_clicks):
     return {"padding": "4rem", "textAlign": "center"}, {"display": "none"}
 
 if __name__ == "__main__":
-    app.run(debug=True, port=8071)
+    app.run(debug=True, port=8303)

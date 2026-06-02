@@ -1,4 +1,16 @@
 import os
+import sys
+
+# Windows consoles often default to cp1252; emoji in print() would raise UnicodeEncodeError and kill startup.
+if sys.platform == "win32":
+    try:
+        if hasattr(sys.stdout, "reconfigure"):
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        if hasattr(sys.stderr, "reconfigure"):
+            sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 import json
 import base64
 import openpyxl
@@ -300,6 +312,27 @@ def _load_secret_editor_state(expected_columns):
         out.append(new_row)
     return out if out else None
 
+
+def _load_fresh_secret_records():
+    """Re-read JSON on every call so page refreshes always see the latest saved rows.
+
+    Falls back to the module-level secret_table_records (from server startup) if the
+    JSON file is missing or unreadable.
+    """
+    try:
+        loaded = _load_secret_editor_state(full_daily_df.columns)
+    except Exception:
+        loaded = None
+    if loaded is not None:
+        for _row in loaded:
+            for _col in _PCT_JSON_COLS:
+                _v = _row.get(_col)
+                if isinstance(_v, (int, float)):
+                    _row[_col] = round(_v * 100, 6)
+        return loaded
+    return secret_table_records
+
+
 # If Excel has blank rows or formula cells without cached values, pandas/openpyxl can
 # stop "early" when inferring the used range. Set this to the last Excel row you
 # want included (1-indexed, including header row). Set to None to disable.
@@ -308,7 +341,6 @@ FORCE_LAST_EXCEL_ROW = 715
 # ============================================================================== 
 # 4) LOAD & VALIDATE NAV DATA (Excel cols C=Date, N=nav‑x1)
 # ==============================================================================
-import sys
 
 # Validate file exists and is accessible before attempting to read
 if not os.path.exists(xlsx_path):
@@ -1780,7 +1812,9 @@ app = dash.Dash(
     title="H&C – TKP",
 )
 
-def serve_layout():
+def serve_layout(records=None):
+    if records is None:
+        records = secret_table_records
     return dbc.Container(
         id="page-container",
         fluid=True,        # ⇒ always 100% on xs, sm; constrained on md+ breakpoints
@@ -2822,8 +2856,8 @@ dbc.Row(
             html.Div(
                 id="secret-table-container",
                 children=[
-                    # Daily Returns rows; initial data from Excel, overridden by JSON if saved after edits
-                    dcc.Store(id="secret-data-store", data=secret_table_records),
+                    # Daily Returns rows; fresh from JSON on every page load
+                    dcc.Store(id="secret-data-store", data=records),
 
                     dbc.Row(
                         dbc.Col(
@@ -2865,7 +2899,7 @@ dbc.Row(
                                             columns=_secret_table_columns(
                                                 [c for c in SECRET_DEFAULT_VISIBLE if c in secret_all_columns]
                                             ),
-                                            data=secret_table_records,
+                                            data=records,
                                             sort_action="native",
                                             sort_mode="single",
                                             sort_by=[{"column_id": "Date", "direction": "desc"}],
@@ -3067,7 +3101,7 @@ dbc.Row(
                                     columns=_build_table_columns(PUBLIC_DAILY_COLUMNS),
                                     data=[
                                         {c: r.get(c, "") for c in PUBLIC_DAILY_COLUMNS}
-                                        for r in secret_table_records
+                                        for r in records
                                     ],
                                     sort_action="native",
                                     sort_mode="single",
@@ -3156,6 +3190,30 @@ dbc.Row(
                 ),
             ]),
 
+            # ── Important Disclosure ──────────────────────────────────────────────────
+            dbc.Row(
+                dbc.Col(
+                    html.Div(
+                        [
+                            html.Strong("Important Disclosure: ", className="text-dark"),
+                            "This tear sheet is provided for informational purposes only. "
+                            "The TKP program is not currently available for investor participation. "
+                            "Performance information, if shown, is presented for informational and "
+                            "reporting purposes only and should not be interpreted as an offer, "
+                            "solicitation, or recommendation to invest.",
+                        ],
+                        className="p-3 border rounded",
+                        style={
+                            "backgroundColor": "#f8f9fa",
+                            "borderLeft": "4px solid #6c757d",
+                            "fontSize": "0.875rem",
+                        },
+                    ),
+                    width=12,
+                ),
+                className="mb-4",
+            ),
+
             # ── Toggle & Footer ───────────────────────────────────────────────
             dbc.Row(
                 dbc.Col(html.P(footer_contact, className="text-center small text-muted"), width=12),
@@ -3203,16 +3261,22 @@ disclaimer_screen = html.Div(
 # Make layout dynamic - this function is called on every page load
 # This ensures fresh data is loaded when the app restarts
 def dynamic_layout():
-    """Generate layout with fresh data on each page load."""
+    """Generate layout with fresh data on each page load.
+
+    Reads the JSON persistence file every time so that rows added/deleted since
+    server startup are immediately visible after a browser refresh.
+    """
+    fresh_records = _load_fresh_secret_records()
+    fresh_canonical = _canonical_records_from_secret_rows(fresh_records) or CANONICAL_NAV_RECORDS_INITIAL
     return html.Div([
         dcc_store,
         access_mode_store,
-        dcc.Store(id="canonical-nav-store", storage_type="memory", data=CANONICAL_NAV_RECORDS_INITIAL),
+        dcc.Store(id="canonical-nav-store", storage_type="memory", data=fresh_canonical),
         disclaimer_screen,
         html.Div(
             id="main-app",
             style={"display": "none"},
-            children=serve_layout()
+            children=serve_layout(records=fresh_records)
         )
     ])
 
@@ -4024,4 +4088,4 @@ def propagate_dashboard(canonical_nav_rows, secret_store_rows):
 
 
 if __name__ == "__main__":
-    app.run(debug=True, port=8076)
+    app.run(debug=True, port=8301)
