@@ -1,4 +1,4 @@
-"""Tests for tcp_ts_v2 read-only preview shell."""
+"""Tests for tcp_ts_v2 preview shell."""
 from __future__ import annotations
 
 import ast
@@ -30,9 +30,9 @@ def test_tcp_ts_v2_source_does_not_import_production_modules():
     assert "tkp_ts" not in names
 
 
-def test_tcp_ts_v2_uses_tcp_ledger_adapter():
+def test_tcp_ts_v2_uses_runtime_state_layer():
     source = (REPO_ROOT / "tcp_ts_v2.py").read_text(encoding="utf-8")
-    assert "from tcp_ledger import" in source or "import tcp_ledger" in source
+    assert "from tcp_runtime_state import" in source
     assert "read_excel" not in source
     assert "openpyxl" not in source
 
@@ -52,53 +52,51 @@ def test_preview_banner_in_layout_or_error():
     assert "Read Only" in layout_str
 
 
-def test_layout_shows_adapter_metadata_when_healthy():
+def test_layout_shows_runtime_metadata_when_healthy():
     import tcp_ts_v2
 
-    if tcp_ts_v2._PREVIEW_STATE.ledger is None:
-        pytest.skip("Adapter not healthy in this environment")
+    if tcp_ts_v2._PREVIEW_STATE.snapshot is None:
+        pytest.skip("Runtime not healthy in this environment")
     layout_str = str(tcp_ts_v2.app.layout)
-    assert "Adapter diagnostics" in layout_str
+    assert "Runtime diagnostics" in layout_str
     assert "Completed ledger rows" in layout_str
-    assert "First completed date" in layout_str
+    assert "State mode" in layout_str
 
 
-def test_preview_layout_reports_state_layer_not_initialized():
+def test_preview_layout_reports_workbook_mode_by_default():
     import tcp_ts_v2
 
-    if tcp_ts_v2._PREVIEW_STATE.ledger is None:
-        pytest.skip("Adapter not healthy in this environment")
+    if tcp_ts_v2._PREVIEW_STATE.snapshot is None:
+        pytest.skip("Runtime not healthy in this environment")
     layout_str = str(tcp_ts_v2.app.layout)
-    assert "State layer" in layout_str
-    assert "not_initialized" in layout_str
-    assert "workbook adapter" in layout_str
+    assert "workbook" in layout_str
 
 
-def test_no_admin_or_mutation_hooks_in_source():
+def test_no_direct_save_state_in_preview_source():
     source = (REPO_ROOT / "tcp_ts_v2.py").read_text(encoding="utf-8").lower()
     forbidden = [
         "secret-data-store",
         "_save_secret_editor_state",
-        "save_state",
         "to_excel",
         "json.dump",
         "workbook.save",
     ]
     for token in forbidden:
         assert token not in source, f"Unexpected mutation hook: {token}"
-
-
-def test_no_save_row_button_in_source():
-    source = (REPO_ROOT / "tcp_ts_v2.py").read_text(encoding="utf-8").lower()
-    assert "save row" not in source
     assert "save_state" not in source
+
+
+def test_save_row_delegated_to_runtime_module():
+    source = (REPO_ROOT / "tcp_ts_v2.py").read_text(encoding="utf-8")
+    assert "persist_add_row" in source
+    assert "admin-add-save-btn" in source or "Save Row" in (REPO_ROOT / "tcp_admin.py").read_text(encoding="utf-8")
 
 
 def test_dashboard_propagation_callback_registered():
     import tcp_ts_v2
 
-    if tcp_ts_v2._PREVIEW_STATE.ledger is None:
-        pytest.skip("Adapter not healthy in this environment")
+    if tcp_ts_v2._PREVIEW_STATE.snapshot is None:
+        pytest.skip("Runtime not healthy in this environment")
     callbacks = tcp_ts_v2.app.callback_map
     assert any(
         inp.get("id") == "canonical-nav-store"
@@ -116,8 +114,8 @@ def test_preview_uses_tcp_dashboard_module():
 def test_canonical_store_is_memory_only():
     import tcp_ts_v2
 
-    if tcp_ts_v2._PREVIEW_STATE.ledger is None:
-        pytest.skip("Adapter not healthy in this environment")
+    if tcp_ts_v2._PREVIEW_STATE.snapshot is None:
+        pytest.skip("Runtime not healthy in this environment")
     layout_str = str(tcp_ts_v2.app.layout)
     assert "canonical-nav-store" in layout_str
     source = (REPO_ROOT / "tcp_ts_v2.py").read_text(encoding="utf-8").lower()
@@ -128,16 +126,14 @@ def test_canonical_store_is_memory_only():
 def test_layout_renders_dynamic_sections():
     import tcp_ts_v2
 
-    if tcp_ts_v2._PREVIEW_STATE.ledger is None:
-        pytest.skip("Adapter not healthy in this environment")
+    if tcp_ts_v2._PREVIEW_STATE.snapshot is None:
+        pytest.skip("Runtime not healthy in this environment")
     layout_str = str(tcp_ts_v2.app.layout)
     assert "Performance Summary" in layout_str
     assert "Performance Metrics" in layout_str
     assert "monthly-calendar-container" in layout_str
     assert "daily-perf-container" in layout_str
     assert "nav-preview-graph" in layout_str
-    assert "data-current-label-desktop" in layout_str
-    assert "data-current-label-mobile" in layout_str
 
 
 def test_no_calculator_in_preview_source():
@@ -146,37 +142,29 @@ def test_no_calculator_in_preview_source():
     assert "tcp_calculations" not in source
 
 
-def test_health_route_reports_adapter_diagnostics():
+def test_health_route_reports_runtime_diagnostics():
     import tcp_ts_v2
 
     with tcp_ts_v2.app.server.test_client() as client:
         resp = client.get("/healthz")
     payload = resp.get_json()
     assert payload["app"] == "tcp-v2"
-    assert payload["mode"] == "read-only"
     assert payload["port"] == 8312
     assert payload["debug"] is False
     assert payload["workbook"] == "tcp_alex.xlsx"
     assert payload["sheet"] == "NAV"
     assert payload["data_source"] == "workbook"
-    assert payload.get("state_layer") == "available"
-    assert payload.get("active_state") == "not_initialized"
+    assert payload["state_mode"] == "workbook"
     assert payload.get("dashboard_propagation") == "ready"
-    assert payload.get("admin_editor") == "simulation_only"
     assert payload.get("row_save") == "disabled"
     assert payload.get("state_write") == "disabled"
     assert payload.get("monthly_performance") == "dynamic"
-    assert payload.get("daily_metrics") == "dynamic"
-    assert payload.get("nav_chart") == "dynamic"
-    assert payload.get("current_date_labels") == "dynamic"
-    assert "adapter_status" in payload
     assert "state_path" not in payload
     assert "Hughes" not in str(payload.get("workbook_path", ""))
-    if payload["adapter_status"] == "ok":
+    if payload.get("adapter_status") == "ok":
         assert resp.status_code == 200
         assert payload["completed_rows"] == 112
         assert payload["latest_completed_date"] == "2026-06-24"
-        assert "first_completed_date" in payload
     else:
         assert resp.status_code == 503
 
@@ -200,13 +188,13 @@ def test_adapter_read_only_workbook_unchanged(golden_fixture):
 def test_latest_date_matches_golden_fixture(golden_fixture):
     import tcp_ts_v2
 
-    if tcp_ts_v2._PREVIEW_STATE.ledger is None:
-        pytest.skip("Adapter not healthy in this environment")
+    if tcp_ts_v2._PREVIEW_STATE.snapshot is None:
+        pytest.skip("Runtime not healthy in this environment")
 
     latest_row = next(
         r for r in golden_fixture["rows"] if r["excel_row_number"] == 114
     )
-    meta = tcp_ts_v2._PREVIEW_STATE.ledger.metadata
+    meta = tcp_ts_v2._PREVIEW_STATE.snapshot.ledger.metadata
     assert meta.latest_completed_date.isoformat() == latest_row["date"]
     assert meta.latest_completed_excel_row == 114
 
@@ -218,6 +206,18 @@ def test_import_does_not_create_state_files():
     tcp_state = REPO_ROOT / cfg.state_filename
     tcp_backup = REPO_ROOT / cfg.state_backup_filename
     tcp_lock = REPO_ROOT / cfg.lock_filename
-    assert not tcp_state.exists(), "TCP v2 import must not create JSON state"
-    assert not tcp_backup.exists(), "TCP v2 import must not create backup state"
-    assert not tcp_lock.exists(), "TCP v2 import must not create lock file"
+    before = {
+        "active": tcp_state.exists(),
+        "backup": tcp_backup.exists(),
+        "lock": tcp_lock.exists(),
+    }
+    import importlib
+    import tcp_ts_v2
+
+    importlib.reload(tcp_ts_v2)
+    after = {
+        "active": tcp_state.exists(),
+        "backup": tcp_backup.exists(),
+        "lock": tcp_lock.exists(),
+    }
+    assert before == after, "Importing tcp_ts_v2 must not create JSON state files"

@@ -35,10 +35,13 @@ from tcp_ledger import CURRENCY_HEADERS, INTEGER_HEADERS, PERCENTAGE_HEADERS, RE
 
 SESSION_KEY = "tcp_v2_admin_authenticated"
 SIMULATION_BANNER_TEXT = "TCP v2 Admin — Simulation Only"
+ACTIVE_BANNER_TEXT = "TCP v2 Admin — JSON Active"
 SIMULATION_WARNING = "No changes will be saved"
 ADD_ROW_CONFIRM_LABEL = "Calculation Verified"
+ADD_ROW_SAVE_LABEL = "Save Row"
 DELETE_CONFIRM_MESSAGE = "Deletion simulation complete — no data was changed"
-EXPORT_DISABLED_LABEL = "Export will be enabled after state activation"
+DELETE_PERSIST_MESSAGE = "Row deleted — state saved"
+EXPORT_DISABLED_LABEL = "Export will be enabled after persistence parity validation"
 
 LEDGER_TABLE_COLUMNS: List[str] = list(REQUIRED_HEADERS)
 DEFAULT_PAGE_SIZE = 15
@@ -238,7 +241,13 @@ def ledger_table_style_conditional(rows: List[Dict[str, Any]]) -> List[Dict[str,
     return styles
 
 
-def build_simulation_banner() -> dbc.Alert:
+def build_simulation_banner(*, persistence_enabled: bool = False) -> dbc.Alert:
+    if persistence_enabled:
+        return dbc.Alert(
+            [html.Strong(ACTIVE_BANNER_TEXT), html.Br(), "Authenticated changes persist to JSON state."],
+            color="success",
+            className="text-center fw-bold",
+        )
     return dbc.Alert(
         [html.Strong(SIMULATION_BANNER_TEXT), html.Br(), SIMULATION_WARNING],
         color="warning",
@@ -246,19 +255,31 @@ def build_simulation_banner() -> dbc.Alert:
     )
 
 
-def build_admin_status_card(*, completed_rows: int, latest_date: Optional[str], data_source: str) -> dbc.Card:
+def build_admin_status_card(
+    *,
+    completed_rows: int,
+    latest_date: Optional[str],
+    data_source: str,
+    state_revision: Optional[int] = None,
+    persistence_enabled: bool = False,
+    writable: bool = False,
+    warning: Optional[str] = None,
+) -> dbc.Card:
+    persistence_label = "enabled" if persistence_enabled and writable else "disabled"
+    body: List[Any] = [
+        html.P([html.Strong("Mode: "), "admin_active" if persistence_enabled else "admin_simulation"], className="mb-1"),
+        html.P([html.Strong("Completed rows: "), str(completed_rows)], className="mb-1"),
+        html.P([html.Strong("Latest completed date: "), latest_date or "—"], className="mb-1"),
+        html.P([html.Strong("Data source: "), data_source], className="mb-1"),
+        html.P([html.Strong("State revision: "), str(state_revision) if state_revision is not None else "—"], className="mb-1"),
+        html.P([html.Strong("Persistence: "), persistence_label], className="mb-0"),
+    ]
+    if warning:
+        body.insert(0, dbc.Alert(warning, color="warning", className="mb-2"))
     return dbc.Card(
         [
-            dbc.CardHeader("Simulation status"),
-            dbc.CardBody(
-                [
-                    html.P([html.Strong("Mode: "), "admin_simulation"], className="mb-1"),
-                    html.P([html.Strong("Completed rows: "), str(completed_rows)], className="mb-1"),
-                    html.P([html.Strong("Latest completed date: "), latest_date or "—"], className="mb-1"),
-                    html.P([html.Strong("Data source: "), data_source], className="mb-1"),
-                    html.P([html.Strong("Persistence: "), "disabled"], className="mb-0"),
-                ]
-            ),
+            dbc.CardHeader("Admin status"),
+            dbc.CardBody(body),
         ],
         className="mb-3",
     )
@@ -380,22 +401,30 @@ def build_add_row_modal() -> dbc.Modal:
     )
 
 
-def build_add_row_preview_modal() -> dbc.Modal:
+def build_add_row_preview_modal(*, persistence_enabled: bool = False) -> dbc.Modal:
+    footer_buttons = [
+        dbc.Button(ADD_ROW_CONFIRM_LABEL, id="admin-add-confirm-btn", color="secondary", outline=True),
+        dbc.Button("Close", id="admin-add-preview-close-btn", color="secondary"),
+    ]
+    if persistence_enabled:
+        footer_buttons.insert(
+            0,
+            dbc.Button(ADD_ROW_SAVE_LABEL, id="admin-add-save-btn", color="success"),
+        )
     return dbc.Modal(
         [
-            dbc.ModalHeader("Calculation preview — simulation only"),
+            dbc.ModalHeader("Calculation preview"),
             dbc.ModalBody(
                 [
-                    dbc.Alert("Simulation only — not saved", color="info"),
+                    dbc.Alert(
+                        "Simulation only — not saved" if not persistence_enabled else "Review the computed row before saving.",
+                        color="info",
+                    ),
                     html.Div(id="admin-add-preview-table"),
+                    dbc.Alert(id="admin-add-save-result", color="success", is_open=False, className="mt-3"),
                 ]
             ),
-            dbc.ModalFooter(
-                [
-                    dbc.Button(ADD_ROW_CONFIRM_LABEL, id="admin-add-confirm-btn", color="success"),
-                    dbc.Button("Close", id="admin-add-preview-close-btn", color="secondary"),
-                ]
-            ),
+            dbc.ModalFooter(footer_buttons),
         ],
         id="admin-add-preview-modal",
         is_open=False,
@@ -404,20 +433,25 @@ def build_add_row_preview_modal() -> dbc.Modal:
     )
 
 
-def build_delete_modal() -> dbc.Modal:
+def build_delete_modal(*, persistence_enabled: bool = False) -> dbc.Modal:
+    confirm_label = "Delete Last Row" if persistence_enabled else "Confirm Simulation"
     return dbc.Modal(
         [
-            dbc.ModalHeader("Delete Last Row — Simulation"),
+            dbc.ModalHeader("Delete Last Row"),
             dbc.ModalBody(
                 [
-                    html.P("Review the final completed row. No deletion will occur."),
+                    html.P(
+                        "Review the final completed row."
+                        if persistence_enabled
+                        else "Review the final completed row. No deletion will occur."
+                    ),
                     html.Div(id="admin-delete-preview-content"),
                     dbc.Alert(id="admin-delete-result", color="info", is_open=False, className="mt-3"),
                 ]
             ),
             dbc.ModalFooter(
                 [
-                    dbc.Button("Confirm Simulation", id="admin-delete-confirm-btn", color="danger", outline=True),
+                    dbc.Button(confirm_label, id="admin-delete-confirm-btn", color="danger", outline=not persistence_enabled),
                     dbc.Button("Close", id="admin-delete-close-btn", color="secondary"),
                 ]
             ),
@@ -488,16 +522,25 @@ def build_admin_editor_layout(
     rows: List[Dict[str, Any]],
     completed_rows: int,
     latest_date: Optional[str],
+    data_source: str,
+    state_revision: Optional[int] = None,
+    persistence_enabled: bool = False,
+    writable: bool = False,
+    warning: Optional[str] = None,
 ) -> html.Div:
     table = build_ledger_datatable(rows, LEDGER_TABLE_COLUMNS)
     table.style_data_conditional = ledger_table_style_conditional(rows)
     return html.Div(
         [
-            build_simulation_banner(),
+            build_simulation_banner(persistence_enabled=persistence_enabled and writable),
             build_admin_status_card(
                 completed_rows=completed_rows,
                 latest_date=latest_date,
-                data_source="workbook",
+                data_source=data_source,
+                state_revision=state_revision,
+                persistence_enabled=persistence_enabled,
+                writable=writable,
+                warning=warning,
             ),
             dbc.Row(
                 [
@@ -523,9 +566,11 @@ def build_admin_editor_layout(
             build_column_selector(),
             html.Div(table, id="admin-ledger-table-container"),
             build_add_row_modal(),
-            build_add_row_preview_modal(),
-            build_delete_modal(),
+            build_add_row_preview_modal(persistence_enabled=persistence_enabled and writable),
+            build_delete_modal(persistence_enabled=persistence_enabled and writable),
             dcc.Store(id="admin-proposed-row-store", storage_type="memory", data=None),
+            dcc.Store(id="admin-state-revision-store", storage_type="memory", data=state_revision),
+            dcc.Store(id="admin-delete-final-date-store", storage_type="memory", data=latest_date),
         ]
     )
 

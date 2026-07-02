@@ -117,37 +117,37 @@ def test_logout_clears_authorization(auth_manager):
 
 
 def test_token_absent_from_healthz(client, app_bundle):
-    _app, _cfg, _state, _auth = app_bundle
+    _app, _cfg, state, _auth, _holder = app_bundle
     payload = client.get("/healthz").get_json()
     assert TEST_TOKEN not in json.dumps(payload)
     assert TEST_SECRET not in json.dumps(payload)
     assert payload["admin_auth"] == "configured"
-    assert payload["admin_editor"] == "simulation_only"
+    assert payload["state_mode"] == "workbook"
     assert payload["row_save"] == "disabled"
 
 
 def test_token_absent_from_layout_serialization(app_bundle):
-    app, _cfg, state, _auth = app_bundle
-    if state.ledger is None:
-        pytest.skip("ledger unavailable")
+    app, _cfg, state, _auth, _holder = app_bundle
+    if state.snapshot is None:
+        pytest.skip("runtime unavailable")
     layout = str(app.layout)
     assert TEST_TOKEN not in layout
     assert TEST_SECRET not in layout
 
 
 def test_unauthenticated_admin_editor_hidden(client, app_bundle):
-    _app, _cfg, state, _auth = app_bundle
-    if state.ledger is None:
-        pytest.skip("ledger unavailable")
+    _app, _cfg, state, _auth, _holder = app_bundle
+    if state.snapshot is None:
+        pytest.skip("runtime unavailable")
     response = client.get("/")
     assert response.status_code == 200
     assert SIMULATION_BANNER_TEXT not in response.get_data(as_text=True)
 
 
 def test_authenticated_admin_editor_available(client, app_bundle):
-    _app, _cfg, state, _auth = app_bundle
-    if state.ledger is None:
-        pytest.skip("ledger unavailable")
+    _app, _cfg, state, _auth, _holder = app_bundle
+    if state.snapshot is None:
+        pytest.skip("runtime unavailable")
     with client.session_transaction() as sess:
         sess[SESSION_KEY] = True
     response = client.get("/")
@@ -278,7 +278,7 @@ def test_delete_simulation_prior_row(ledger):
 def test_simulation_banner_copy():
     assert "Simulation Only" in SIMULATION_BANNER_TEXT
     assert ADD_ROW_CONFIRM_LABEL == "Calculation Verified"
-    assert "enabled after state activation" in EXPORT_DISABLED_LABEL
+    assert "persistence parity validation" in EXPORT_DISABLED_LABEL
 
 
 def test_canonical_store_unchanged_by_simulation(ledger):
@@ -312,8 +312,13 @@ def test_dashboard_unchanged_by_simulation(ledger):
     assert before.nav_point_count == after.nav_point_count
 
 
-def test_no_state_files_created(ledger):
+def test_no_state_files_created_by_simulation(ledger):
     active, backup, lock = resolve_state_paths(load_config(), REPO_ROOT)
+    before = {
+        "active": active.exists(),
+        "backup": backup.exists(),
+        "lock": lock.exists(),
+    }
     prior = ledger.completed_records[-1].fields
     simulate_add_row(
         prior,
@@ -322,9 +327,12 @@ def test_no_state_files_created(ledger):
         cash_transfers=0,
         tranche_count=int(prior["#"]),
     )
-    assert not active.exists()
-    assert not backup.exists()
-    assert not lock.exists()
+    after = {
+        "active": active.exists(),
+        "backup": backup.exists(),
+        "lock": lock.exists(),
+    }
+    assert before == after
 
 
 @pytest.mark.local_workbook
@@ -360,8 +368,8 @@ def test_public_route_returns_200(client):
     assert client.get("/").status_code == 200
 
 
-def test_health_reports_simulation_capabilities(client):
+def test_health_reports_workbook_capabilities(client):
     payload = client.get("/healthz").get_json()
     assert payload["data_source"] == "workbook"
-    assert payload["active_state"] == "not_initialized"
+    assert payload["state_mode"] == "workbook"
     assert payload["state_write"] == "disabled"

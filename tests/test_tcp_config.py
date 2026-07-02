@@ -27,6 +27,7 @@ def test_default_config_values():
     assert cfg.preview_port == 8312
     assert cfg.production_port == 8302
     assert cfg.debug is False
+    assert cfg.state_mode == "workbook"
     assert cfg.read_only is True
 
 
@@ -45,7 +46,7 @@ def test_validate_default_config_passes():
         (lambda c: _replace(c, preview_port=8302), "8302"),
         (lambda c: _replace(c, preview_port=8200), "outside"),
         (lambda c: _replace(c, debug=True), "debug"),
-        (lambda c: _replace(c, read_only=False), "read_only"),
+        (lambda c: _replace(c, state_mode="invalid"), "state_mode"),
     ],
 )
 def test_validate_rejects_invalid_config(mutator, expected_substring):

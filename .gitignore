@@ -30,6 +30,12 @@ Thumbs.db
 # Logs
 *.log
 
-# Temporary files
-*.tmp
-*.temp
+# TCP v2 runtime JSON state (preview)
+tcp_daily_returns_secret_state.json
+tcp_daily_returns_secret_state.backup.json
+tcp_daily_returns_secret_state.lock
+_runtime/
+tests/_tmp_state/
+tests/_canary_state/
+*.json.tmp
+

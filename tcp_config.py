@@ -21,6 +21,9 @@ TKP_SHEET_NAME = "Sheet1"
 TCP_PREVIEW_PORT_MIN = 8301
 TCP_PREVIEW_PORT_MAX = 8312
 
+SUPPORTED_STATE_MODES = frozenset({"workbook", "json_active"})
+DEFAULT_STATE_MODE = "workbook"
+
 
 @dataclass(frozen=True)
 class AdminAuthSettings:
@@ -49,13 +52,42 @@ class TCPConfig:
     preview_port: int = 8312
     production_port: int = 8302
     debug: bool = False
-    read_only: bool = True
+    state_mode: str = DEFAULT_STATE_MODE
+    state_active_path: Optional[str] = None
+    state_backup_path: Optional[str] = None
+    state_lock_path: Optional[str] = None
+    allow_workbook_fallback: bool = True
+
+    @property
+    def read_only(self) -> bool:
+        return self.state_mode != "json_active"
+
+    @property
+    def persistence_enabled(self) -> bool:
+        return self.state_mode == "json_active"
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def load_config() -> TCPConfig:
     """Build config from defaults and optional environment overrides."""
     workbook_path = os.environ.get("TCP_V2_WORKBOOK_PATH", DEFAULT_WORKBOOK_PATH)
-    return TCPConfig(workbook_path=workbook_path)
+    state_mode = os.environ.get("TCP_V2_STATE_MODE", DEFAULT_STATE_MODE).strip().lower()
+    if state_mode not in SUPPORTED_STATE_MODES:
+        state_mode = DEFAULT_STATE_MODE
+    return TCPConfig(
+        workbook_path=workbook_path,
+        state_mode=state_mode,
+        state_active_path=os.environ.get("TCP_V2_STATE_PATH"),
+        state_backup_path=os.environ.get("TCP_V2_STATE_BACKUP_PATH"),
+        state_lock_path=os.environ.get("TCP_V2_STATE_LOCK_PATH"),
+        allow_workbook_fallback=_env_bool("TCP_V2_ALLOW_WORKBOOK_FALLBACK", True),
+    )
 
 
 def load_admin_auth_settings() -> AdminAuthSettings:
@@ -68,14 +100,39 @@ def load_admin_auth_settings() -> AdminAuthSettings:
     )
 
 
+def _resolve_path(base: Path, override: Optional[str], default_name: str) -> Path:
+    if override:
+        candidate = Path(override)
+        if not candidate.is_absolute():
+            candidate = base / candidate
+        return candidate
+    return base / default_name
+
+
 def resolve_state_paths(cfg: TCPConfig, base_dir: str | Path) -> Tuple[Path, Path, Path]:
-    """Resolve active, backup, and lock paths under base_dir. Does not create directories."""
+    """Resolve active, backup, and lock paths. Does not create directories."""
     base = Path(base_dir)
     return (
-        base / cfg.state_filename,
-        base / cfg.state_backup_filename,
-        base / cfg.lock_filename,
+        _resolve_path(base, cfg.state_active_path, cfg.state_filename),
+        _resolve_path(base, cfg.state_backup_path, cfg.state_backup_filename),
+        _resolve_path(base, cfg.state_lock_path, cfg.lock_filename),
     )
+
+
+def _path_is_safe_state_target(path: Path, cfg: TCPConfig) -> Tuple[bool, str]:
+    normalized = str(path).replace("\\", "/").lower()
+    if normalized.endswith(".xlsx") or normalized.endswith(".xls"):
+        return False, "state path must not point at a workbook"
+    if "_runtime" in normalized and "tests" not in normalized:
+        return False, "state path must not point into _runtime"
+    if path.name == TKP_STATE_FILENAME:
+        return False, "state path collides with TKP JSON state"
+    if "tkp" in path.name.lower() and "tcp" not in path.name.lower():
+        return False, "state path must not reference TKP"
+    workbook_name = Path(cfg.workbook_path).name.lower()
+    if path.name.lower() == workbook_name:
+        return False, "state path must not point at the workbook"
+    return True, "ok"
 
 
 def validate_config(cfg: TCPConfig) -> Tuple[bool, str]:
@@ -85,6 +142,8 @@ def validate_config(cfg: TCPConfig) -> Tuple[bool, str]:
     """
     if cfg.app_code != "tcp":
         return False, f"app_code must be 'tcp', got {cfg.app_code!r}"
+    if cfg.state_mode not in SUPPORTED_STATE_MODES:
+        return False, f"state_mode must be one of {sorted(SUPPORTED_STATE_MODES)}, got {cfg.state_mode!r}"
     if "tkp" in cfg.workbook_filename.lower():
         return False, "workbook_filename must not reference TKP"
     if cfg.workbook_filename != "tcp_alex.xlsx":
@@ -126,6 +185,16 @@ def validate_config(cfg: TCPConfig) -> Tuple[bool, str]:
         )
     if cfg.debug:
         return False, "debug must be False for this milestone"
-    if not cfg.read_only:
-        return False, "read_only must be True for this milestone"
+    for label, override, default_name in (
+        ("active", cfg.state_active_path, cfg.state_filename),
+        ("backup", cfg.state_backup_path, cfg.state_backup_filename),
+        ("lock", cfg.state_lock_path, cfg.lock_filename),
+    ):
+        path = _resolve_path(Path("."), override, default_name)
+        ok, msg = _path_is_safe_state_target(path, cfg)
+        if not ok:
+            return False, f"{label} state path: {msg}"
+    active, backup, lock = resolve_state_paths(cfg, Path("."))
+    if active == backup or active == lock or backup == lock:
+        return False, "active, backup, and lock paths must be distinct"
     return True, "ok"

@@ -1,7 +1,7 @@
 """
-TCP v2 read-only preview shell (port 8312).
+TCP v2 preview shell (port 8312).
 
-Does not import tcp_ts.py or tkp_ts.py. Does not write JSON or Excel.
+Does not import tcp_ts.py or tkp_ts.py. Does not write Excel.
 Server starts only under if __name__ == "__main__".
 """
 from __future__ import annotations
@@ -9,7 +9,6 @@ from __future__ import annotations
 import logging
 import sys
 from dataclasses import dataclass
-from datetime import date
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -20,6 +19,8 @@ from dash import Input, Output, State, dcc, html, no_update
 from flask import jsonify, redirect, render_template_string, request, session
 
 from tcp_admin import (
+    DELETE_CONFIRM_MESSAGE,
+    DELETE_PERSIST_MESSAGE,
     LOGIN_FORM_HTML,
     AdminAuthManager,
     build_admin_editor_layout,
@@ -36,12 +37,18 @@ from tcp_admin import (
 from tcp_config import AdminAuthSettings, TCPConfig, load_admin_auth_settings, load_config, resolve_state_paths, validate_config
 from tcp_dashboard import (
     GREY_BG,
-    PRIMARY_COLOR,
-    canonical_nav_records_from_ledger,
     propagate_tcp_dashboard,
 )
-from tcp_ledger import LedgerLoadResult, TCPLedgerError, load_ledger
-from tcp_state import StatePaths, state_layer_status
+from tcp_ledger import TCPLedgerError
+from tcp_runtime_state import (
+    RuntimeSnapshot,
+    health_fields_from_snapshot,
+    load_runtime_snapshot,
+    persist_add_row,
+    persist_delete_last_row,
+    state_record_to_fields,
+)
+from tcp_state import StatePaths
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("tcp_ts_v2")
@@ -57,11 +64,9 @@ LOGO_PATH = (
 
 @dataclass
 class PreviewState:
-    ledger: Optional[LedgerLoadResult] = None
+    snapshot: Optional[RuntimeSnapshot] = None
     error: Optional[str] = None
     error_type: Optional[str] = None
-    state_diagnostics: Optional[dict] = None
-    canonical_nav: Optional[List[Dict[str, Any]]] = None
 
 
 def _configured_state_paths(cfg: TCPConfig) -> StatePaths:
@@ -80,22 +85,22 @@ def _logo_src() -> str:
         return ""
 
 
-def load_preview_ledger(cfg: TCPConfig) -> PreviewState:
-    state_paths = _configured_state_paths(cfg)
-    diagnostics = state_layer_status(state_paths)
+def load_preview_state(cfg: TCPConfig) -> PreviewState:
+    paths = _configured_state_paths(cfg)
     try:
-        ledger = load_ledger(cfg.workbook_path, cfg.sheet_name)
-        canonical_nav = canonical_nav_records_from_ledger(ledger.completed_records)
+        snapshot = load_runtime_snapshot(cfg, paths)
+        meta = snapshot.ledger.metadata
         logger.info(
-            "TCP v2 adapter loaded %s completed rows (%s candidates); latest %s",
-            ledger.metadata.completed_row_count,
-            ledger.metadata.total_candidate_rows,
-            ledger.metadata.latest_completed_date,
+            "TCP v2 loaded %s rows from %s; latest %s; revision %s",
+            meta.completed_row_count,
+            snapshot.data_source,
+            meta.latest_completed_date,
+            snapshot.state_revision,
         )
-        return PreviewState(ledger=ledger, state_diagnostics=diagnostics, canonical_nav=canonical_nav)
-    except TCPLedgerError as exc:
-        logger.error("TCP v2 adapter failed for %s: %s", cfg.workbook_path, exc)
-        return PreviewState(error=str(exc), error_type=type(exc).__name__, state_diagnostics=diagnostics)
+        return PreviewState(snapshot=snapshot)
+    except (TCPLedgerError, Exception) as exc:
+        logger.error("TCP v2 runtime load failed: %s", exc)
+        return PreviewState(error=str(exc), error_type=type(exc).__name__)
 
 
 def _monthly_table_component(monthly_df: pd.DataFrame) -> html.Div:
@@ -141,7 +146,7 @@ def _mobile_label_children(header: str, date_line: str) -> List[Any]:
 
 
 def build_error_layout(cfg: TCPConfig, state: PreviewState) -> html.Div:
-    message = state.error or "Unknown adapter error"
+    message = state.error or "Unknown runtime error"
     return html.Div(
         [
             dbc.Alert(cfg.preview_label, color="warning", className="text-center fw-bold"),
@@ -151,10 +156,9 @@ def build_error_layout(cfg: TCPConfig, state: PreviewState) -> html.Div:
                 children=[
                     dbc.Alert(
                         [
-                            html.H4("Read-only preview error", className="alert-heading"),
+                            html.H4("Preview error", className="alert-heading"),
                             html.P(message, className="mb-0"),
-                            html.P(f"Adapter status: {state.error_type or 'error'}", className="small text-muted mt-2"),
-                            html.P(f"Workbook: {cfg.workbook_filename} · Sheet: {cfg.sheet_name}", className="small text-muted"),
+                            html.P(f"Status: {state.error_type or 'error'}", className="small text-muted mt-2"),
                         ],
                         color="danger",
                     )
@@ -165,17 +169,22 @@ def build_error_layout(cfg: TCPConfig, state: PreviewState) -> html.Div:
 
 
 def build_preview_layout(cfg: TCPConfig, state: PreviewState) -> html.Div:
-    ledger = state.ledger
-    assert ledger is not None
-    meta = ledger.metadata
+    snapshot = state.snapshot
+    assert snapshot is not None
+    meta = snapshot.ledger.metadata
     first_completed = meta.first_completed_date.strftime("%B %d, %Y") if meta.first_completed_date else "—"
-    state_diag = state.state_diagnostics or {}
-    canonical_nav = state.canonical_nav or []
-    propagation = propagate_tcp_dashboard(canonical_nav)
+    propagation = propagate_tcp_dashboard(snapshot.canonical_nav)
+    mode_alert = (
+        "JSON state is authoritative. Authenticated Add/Delete persist to preview JSON."
+        if cfg.persistence_enabled and snapshot.data_source == "json"
+        else "Workbook is authoritative. JSON persistence is disabled in this mode."
+    )
+    if snapshot.warning:
+        mode_alert = snapshot.warning
 
     return html.Div(
         [
-            dcc.Store(id="canonical-nav-store", storage_type="memory", data=canonical_nav),
+            dcc.Store(id="canonical-nav-store", storage_type="memory", data=snapshot.canonical_nav),
             dcc.Location(id="url", refresh=False),
             dbc.Container(
                 fluid=True,
@@ -222,11 +231,7 @@ def build_preview_layout(cfg: TCPConfig, state: PreviewState) -> html.Div:
                         ],
                         className="mb-3",
                     ),
-                    dbc.Alert(
-                        "Editing is disabled in this read-only preview. "
-                        "JSON persistence and website row entry are not yet available.",
-                        color="info",
-                    ),
+                    dbc.Alert(mode_alert, color="info"),
                     dcc.Graph(
                         id="nav-preview-graph",
                         figure=propagation.nav_figure,
@@ -252,16 +257,14 @@ def build_preview_layout(cfg: TCPConfig, state: PreviewState) -> html.Div:
                     html.Div(id="admin-editor-container", style={"display": "none"}),
                     dbc.Card(
                         [
-                            dbc.CardHeader("Adapter diagnostics (preview only)"),
+                            dbc.CardHeader("Runtime diagnostics (preview only)"),
                             dbc.CardBody(
                                 [
-                                    html.P([html.Strong("Data source: "), "workbook adapter"], className="mb-1"),
-                                    html.P([html.Strong("Adapter status: "), "ok"], className="mb-1"),
-                                    html.P([html.Strong("Read-only mode: "), "enabled"], className="mb-1"),
-                                    html.P([html.Strong("State layer: "), state_diag.get("state_layer", "available")], className="mb-1"),
-                                    html.P([html.Strong("Active state: "), state_diag.get("active_state", "not_initialized")], className="mb-1"),
+                                    html.P([html.Strong("State mode: "), cfg.state_mode], className="mb-1"),
+                                    html.P([html.Strong("Data source: "), snapshot.data_source], className="mb-1"),
+                                    html.P([html.Strong("Recovery status: "), snapshot.recovery_status], className="mb-1"),
+                                    html.P([html.Strong("State revision: "), str(snapshot.state_revision or "—")], className="mb-1"),
                                     html.P([html.Strong("Completed ledger rows: "), str(meta.completed_row_count)], className="mb-1"),
-                                    html.P([html.Strong("Candidate rows: "), str(meta.total_candidate_rows)], className="mb-1"),
                                     html.P([html.Strong("First completed date: "), first_completed], className="mb-1"),
                                     html.P([html.Strong("Latest completed date: "), propagation.desktop_label.date_line], className="mb-1"),
                                     html.P([html.Strong("Workbook: "), cfg.workbook_filename, " · Sheet: ", cfg.sheet_name], className="mb-1 small text-muted"),
@@ -278,35 +281,24 @@ def build_preview_layout(cfg: TCPConfig, state: PreviewState) -> html.Div:
 
 
 def _health_payload(cfg: TCPConfig, state: PreviewState, auth_manager: AdminAuthManager) -> dict:
-    base = {
+    base: Dict[str, Any] = {
         "app": "tcp-v2",
-        "mode": "read-only",
+        "mode": "read-only" if cfg.read_only else "json-active",
         "port": cfg.preview_port,
         "debug": cfg.debug,
         "workbook": cfg.workbook_filename,
         "sheet": cfg.sheet_name,
-        "data_source": "workbook",
-        "active_state": "not_initialized",
         "dashboard_propagation": "ready",
         "monthly_performance": "dynamic",
         "daily_metrics": "dynamic",
         "nav_chart": "dynamic",
         "current_date_labels": "dynamic",
-        "admin_editor": "simulation_only",
         "admin_auth": auth_manager.auth_status_label(),
-        "row_save": "disabled",
-        "row_delete": "disabled",
-        "state_write": "disabled",
     }
-    if state.state_diagnostics:
-        base.update(
-            {
-                "state_layer": state.state_diagnostics.get("state_layer", "available"),
-                "active_state": state.state_diagnostics.get("active_state", "not_initialized"),
-            }
-        )
-    if state.ledger is not None:
-        meta = state.ledger.metadata
+    if state.snapshot is not None:
+        snap = state.snapshot
+        meta = snap.ledger.metadata
+        base.update(health_fields_from_snapshot(snap, auth_configured=auth_manager.is_configured))
         base.update(
             {
                 "adapter_status": "ok",
@@ -342,35 +334,67 @@ def _register_dashboard_callback(app: dash.Dash) -> None:
         )
 
 
-def _register_admin_callbacks(app: dash.Dash, state: PreviewState, auth_manager: AdminAuthManager) -> None:
-    ledger = state.ledger
-    assert ledger is not None
-    rows = ledger_records_to_rows(ledger.completed_records)
-    latest_record = ledger.completed_records[-1].fields
-    latest_date = ledger.metadata.latest_completed_date.isoformat() if ledger.metadata.latest_completed_date else None
+def _register_admin_callbacks(
+    app: dash.Dash,
+    cfg: TCPConfig,
+    paths: StatePaths,
+    runtime_holder: Dict[str, Any],
+    auth_manager: AdminAuthManager,
+) -> None:
+    def current_snapshot() -> RuntimeSnapshot:
+        return runtime_holder["snapshot"]
+
+    def set_snapshot(snapshot: RuntimeSnapshot) -> None:
+        runtime_holder["snapshot"] = snapshot
 
     @app.callback(
         Output("admin-editor-container", "children"),
         Output("admin-editor-container", "style"),
         Input("url", "pathname"),
+        Input("admin-state-revision-store", "data"),
     )
-    def _render_admin_editor(_pathname):
+    def _render_admin_editor(_pathname, _revision):
         if not auth_manager.is_authenticated(session):
             return [], {"display": "none"}
-        editor = build_admin_editor_layout(rows=rows, completed_rows=len(rows), latest_date=latest_date)
+        snap = current_snapshot()
+        rows = ledger_records_to_rows(snap.records)
+        latest_date = snap.ledger.metadata.latest_completed_date
+        latest_iso = latest_date.isoformat() if latest_date else None
+        editor = build_admin_editor_layout(
+            rows=rows,
+            completed_rows=len(rows),
+            latest_date=latest_iso,
+            data_source=snap.data_source,
+            state_revision=snap.state_revision,
+            persistence_enabled=cfg.persistence_enabled,
+            writable=snap.writable,
+            warning=snap.warning,
+        )
         return editor, {"display": "block"}
 
     @app.callback(
-        Output("admin-ledger-table", "columns"),
+        Output("admin-ledger-table", "data"),
         Output("admin-ledger-table", "style_data_conditional"),
+        Input("admin-state-revision-store", "data"),
+        prevent_initial_call=False,
+    )
+    def _refresh_ledger_table(_revision):
+        if not auth_manager.is_authenticated(session):
+            return no_update, no_update
+        rows = ledger_records_to_rows(current_snapshot().records)
+        display_rows = [{k: v for k, v in row.items() if k != "_highlight"} for row in rows]
+        return display_rows, ledger_table_style_conditional(rows)
+
+    @app.callback(
+        Output("admin-ledger-table", "columns"),
         Input("admin-column-selector", "value"),
         prevent_initial_call=False,
     )
     def _update_visible_columns(visible_columns):
         if not auth_manager.is_authenticated(session):
-            return no_update, no_update
+            return no_update
         visible = visible_columns or []
-        return datatable_column_defs(visible), ledger_table_style_conditional(rows)
+        return datatable_column_defs(visible)
 
     @app.callback(
         Output("admin-add-modal", "is_open"),
@@ -389,6 +413,7 @@ def _register_admin_callbacks(app: dash.Dash, state: PreviewState, auth_manager:
         triggered = dash.callback_context.triggered_id
         if triggered == "admin-add-cancel-btn":
             return False, no_update, no_update, no_update, no_update
+        latest_record = state_record_to_fields(current_snapshot().records[-1].fields)
         defaults = default_add_row_values(latest_record)
         return True, defaults["date"], defaults["cash_balance"], defaults["cash_transfers"], defaults["tranche_count"]
 
@@ -412,8 +437,9 @@ def _register_admin_callbacks(app: dash.Dash, state: PreviewState, auth_manager:
     def _preview_add_row(_n_clicks, row_date, cash_balance, cash_transfers, tranche_count):
         if not auth_manager.is_authenticated(session):
             return (no_update,) * 9
+        prior = state_record_to_fields(current_snapshot().records[-1].fields)
         result = simulate_add_row(
-            latest_record,
+            prior,
             row_date=row_date,
             cash_balance=cash_balance,
             cash_transfers=cash_transfers,
@@ -423,7 +449,7 @@ def _register_admin_callbacks(app: dash.Dash, state: PreviewState, auth_manager:
             return (
                 False,
                 no_update,
-                result.error_message or "Unable to simulate row.",
+                result.error_message or "Unable to preview row.",
                 bool(result.error_message),
                 result.field_errors.get("date", ""),
                 result.field_errors.get("cash_balance", ""),
@@ -432,7 +458,12 @@ def _register_admin_callbacks(app: dash.Dash, state: PreviewState, auth_manager:
                 None,
             )
         table = proposed_row_table(result.proposed_row or {}, result.prior_row)
-        return True, table, "", False, "", "", "", "", result.proposed_row
+        return True, table, "", False, "", "", "", "", {
+            "row_date": row_date,
+            "cash_balance": cash_balance,
+            "cash_transfers": cash_transfers,
+            "tranche_count": tranche_count,
+        }
 
     @app.callback(
         Output("admin-add-preview-modal", "is_open", allow_duplicate=True),
@@ -446,27 +477,92 @@ def _register_admin_callbacks(app: dash.Dash, state: PreviewState, auth_manager:
         return False
 
     @app.callback(
+        Output("canonical-nav-store", "data"),
+        Output("admin-state-revision-store", "data"),
+        Output("admin-add-save-result", "children"),
+        Output("admin-add-save-result", "is_open"),
+        Output("admin-add-preview-modal", "is_open", allow_duplicate=True),
+        Input("admin-add-save-btn", "n_clicks"),
+        State("admin-proposed-row-store", "data"),
+        State("admin-state-revision-store", "data"),
+        prevent_initial_call=True,
+    )
+    def _save_add_row(_n_clicks, proposed_inputs, expected_revision):
+        if not auth_manager.is_authenticated(session):
+            return no_update, no_update, no_update, no_update, no_update
+        if not proposed_inputs or expected_revision is None:
+            return no_update, no_update, "Missing preview inputs or revision.", True, no_update
+        result = persist_add_row(
+            cfg,
+            paths,
+            expected_revision=int(expected_revision),
+            row_date=proposed_inputs.get("row_date"),
+            cash_balance=proposed_inputs.get("cash_balance"),
+            cash_transfers=proposed_inputs.get("cash_transfers"),
+            tranche_count=proposed_inputs.get("tranche_count"),
+            authenticated=True,
+        )
+        if not result.success or result.snapshot is None:
+            return no_update, no_update, result.error_message or "Save failed.", True, True
+        set_snapshot(result.snapshot)
+        message = f"Saved row {result.saved_date} · NAV {result.saved_nav:.3f} · revision {result.revision}"
+        return result.snapshot.canonical_nav, result.revision, message, True, False
+
+    @app.callback(
         Output("admin-delete-modal", "is_open"),
         Output("admin-delete-preview-content", "children"),
         Output("admin-delete-result", "is_open"),
         Output("admin-delete-result", "children"),
+        Output("admin-delete-final-date-store", "data"),
+        Output("canonical-nav-store", "data", allow_duplicate=True),
+        Output("admin-state-revision-store", "data", allow_duplicate=True),
         Input("admin-open-delete-modal", "n_clicks"),
         Input("admin-delete-close-btn", "n_clicks"),
         Input("admin-delete-confirm-btn", "n_clicks"),
         State("admin-delete-modal", "is_open"),
+        State("admin-state-revision-store", "data"),
+        State("admin-delete-final-date-store", "data"),
         prevent_initial_call=True,
     )
-    def _delete_simulation(open_clicks, close_clicks, confirm_clicks, is_open):
+    def _delete_row(open_clicks, close_clicks, confirm_clicks, is_open, expected_revision, final_date):
         if not auth_manager.is_authenticated(session):
-            return no_update, no_update, no_update, no_update
+            return (no_update,) * 7
         triggered = dash.callback_context.triggered_id
+        snap = current_snapshot()
         if triggered == "admin-open-delete-modal":
-            preview = simulate_delete_last_row(ledger.completed_records)
-            return True, delete_preview_content(preview), False, ""
+            preview = simulate_delete_last_row(snap.records)
+            deleted_date = None
+            if preview.deleted_row:
+                raw = preview.deleted_row.get("Date")
+                deleted_date = raw.isoformat() if hasattr(raw, "isoformat") else str(raw)
+            return True, delete_preview_content(preview), False, "", deleted_date, no_update, no_update
+        if triggered == "admin-delete-close-btn":
+            return False, no_update, False, "", no_update, no_update, no_update
         if triggered == "admin-delete-confirm-btn":
-            preview = simulate_delete_last_row(ledger.completed_records)
-            return True, delete_preview_content(preview), True, preview.message
-        return False, no_update, False, ""
+            if cfg.persistence_enabled and snap.writable and expected_revision is not None and final_date:
+                result = persist_delete_last_row(
+                    cfg,
+                    paths,
+                    expected_revision=int(expected_revision),
+                    expected_final_date=str(final_date),
+                    authenticated=True,
+                )
+                if result.success and result.snapshot is not None:
+                    set_snapshot(result.snapshot)
+                    msg = f"{DELETE_PERSIST_MESSAGE} · revision {result.revision}"
+                    return (
+                        True,
+                        delete_preview_content(simulate_delete_last_row(result.snapshot.records)),
+                        True,
+                        msg,
+                        result.saved_date,
+                        result.snapshot.canonical_nav,
+                        result.revision,
+                    )
+                return True, no_update, True, result.error_message or "Delete failed.", no_update, no_update, no_update
+            preview = simulate_delete_last_row(snap.records)
+            return True, delete_preview_content(preview), True, DELETE_CONFIRM_MESSAGE, no_update, no_update, no_update
+        return False, no_update, False, "", no_update, no_update, no_update
 
 
 def _register_auth_routes(app: dash.Dash, auth_manager: AdminAuthManager) -> None:
@@ -489,7 +585,8 @@ def _register_auth_routes(app: dash.Dash, auth_manager: AdminAuthManager) -> Non
 def create_app(
     cfg: Optional[TCPConfig] = None,
     auth_settings: Optional[AdminAuthSettings] = None,
-) -> Tuple[dash.Dash, TCPConfig, PreviewState, AdminAuthManager]:
+    runtime_holder: Optional[Dict[str, Any]] = None,
+) -> Tuple[dash.Dash, TCPConfig, PreviewState, AdminAuthManager, Dict[str, Any]]:
     """Construct Dash app and attach health/auth routes. Does not start the server."""
     cfg = cfg or load_config()
     ok, msg = validate_config(cfg)
@@ -498,7 +595,13 @@ def create_app(
 
     auth_settings = auth_settings or load_admin_auth_settings()
     auth_manager = AdminAuthManager(auth_settings)
-    state = load_preview_ledger(cfg)
+    state = load_preview_state(cfg)
+    paths = _configured_state_paths(cfg)
+
+    if runtime_holder is None:
+        runtime_holder = {}
+    if state.snapshot is not None:
+        runtime_holder["snapshot"] = state.snapshot
 
     app = dash.Dash(
         __name__,
@@ -509,23 +612,25 @@ def create_app(
     configure_flask_session_secret(app.server, auth_settings)
     _register_auth_routes(app, auth_manager)
 
-    if state.ledger is not None:
+    if state.snapshot is not None:
         app.layout = build_preview_layout(cfg, state)
         _register_dashboard_callback(app)
-        _register_admin_callbacks(app, state, auth_manager)
+        _register_admin_callbacks(app, cfg, paths, runtime_holder, auth_manager)
     else:
         app.layout = build_error_layout(cfg, state)
 
     @app.server.route("/healthz")
     def healthz():
-        payload = _health_payload(cfg, state, auth_manager)
-        status = 200 if state.ledger is not None else 503
+        live_state = PreviewState(snapshot=runtime_holder.get("snapshot")) if runtime_holder.get("snapshot") else state
+        payload = _health_payload(cfg, live_state if live_state.snapshot else state, auth_manager)
+        status = 200 if (live_state.snapshot or state.snapshot) is not None else 503
         return jsonify(payload), status
 
-    return app, cfg, state, auth_manager
+    return app, cfg, state, auth_manager, runtime_holder
 
 
-app, _CONFIG, _PREVIEW_STATE, _AUTH_MANAGER = create_app()
+_RUNTIME_HOLDER: Dict[str, Any] = {}
+app, _CONFIG, _PREVIEW_STATE, _AUTH_MANAGER, _RUNTIME_HOLDER = create_app(runtime_holder=_RUNTIME_HOLDER)
 
 
 def main() -> None:
