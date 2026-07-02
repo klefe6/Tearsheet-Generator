@@ -64,10 +64,27 @@ def _load_golden_fixture() -> dict:
 
 
 def _ledger():
-    cfg = load_config()
-    if not Path(cfg.workbook_path).is_file():
-        pytest.skip("TCP workbook not available")
-    return load_ledger(cfg.workbook_path, cfg.sheet_name)
+    """Load the audited workbook once per test session (read-only adapter)."""
+    return _get_session_ledger()
+
+
+_SESSION_LEDGER = None
+
+
+def _get_session_ledger():
+    global _SESSION_LEDGER
+    if _SESSION_LEDGER is None:
+        cfg = load_config()
+        if not Path(cfg.workbook_path).is_file():
+            pytest.skip("TCP workbook not available")
+        _SESSION_LEDGER = load_ledger(cfg.workbook_path, cfg.sheet_name)
+    return _SESSION_LEDGER
+
+
+@pytest.fixture(scope="session")
+def ledger():
+    """Session-scoped read-only ledger for calculator tests."""
+    return _get_session_ledger()
 
 
 def _record_by_excel_row(ledger, excel_row: int):
