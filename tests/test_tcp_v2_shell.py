@@ -89,10 +89,56 @@ def test_no_admin_or_mutation_hooks_in_source():
         assert token not in source, f"Unexpected mutation hook: {token}"
 
 
-def test_no_dash_callbacks_registered():
+def test_dashboard_propagation_callback_registered():
     import tcp_ts_v2
 
-    assert tcp_ts_v2.app.callback_map == {}
+    if tcp_ts_v2._PREVIEW_STATE.ledger is None:
+        pytest.skip("Adapter not healthy in this environment")
+    callbacks = tcp_ts_v2.app.callback_map
+    assert any(
+        inp.get("id") == "canonical-nav-store"
+        for cb in callbacks.values()
+        for inp in cb.get("inputs", [])
+    )
+
+
+def test_preview_uses_tcp_dashboard_module():
+    source = (REPO_ROOT / "tcp_ts_v2.py").read_text(encoding="utf-8")
+    assert "from tcp_dashboard import" in source
+    assert "propagate_tcp_dashboard" in source
+
+
+def test_canonical_store_is_memory_only():
+    import tcp_ts_v2
+
+    if tcp_ts_v2._PREVIEW_STATE.ledger is None:
+        pytest.skip("Adapter not healthy in this environment")
+    layout_str = str(tcp_ts_v2.app.layout)
+    assert "canonical-nav-store" in layout_str
+    source = (REPO_ROOT / "tcp_ts_v2.py").read_text(encoding="utf-8").lower()
+    assert "localstorage" not in source
+    assert "sessionstorage" not in source
+
+
+def test_layout_renders_dynamic_sections():
+    import tcp_ts_v2
+
+    if tcp_ts_v2._PREVIEW_STATE.ledger is None:
+        pytest.skip("Adapter not healthy in this environment")
+    layout_str = str(tcp_ts_v2.app.layout)
+    assert "Performance Summary" in layout_str
+    assert "Performance Metrics" in layout_str
+    assert "monthly-calendar-container" in layout_str
+    assert "daily-perf-container" in layout_str
+    assert "nav-preview-graph" in layout_str
+    assert "data-current-label-desktop" in layout_str
+    assert "data-current-label-mobile" in layout_str
+
+
+def test_no_calculator_in_preview_source():
+    source = (REPO_ROOT / "tcp_ts_v2.py").read_text(encoding="utf-8")
+    assert "compute_tcp_row" not in source
+    assert "tcp_calculations" not in source
 
 
 def test_health_route_reports_adapter_diagnostics():
@@ -110,6 +156,11 @@ def test_health_route_reports_adapter_diagnostics():
     assert payload["data_source"] == "workbook"
     assert payload.get("state_layer") == "available"
     assert payload.get("active_state") == "not_initialized"
+    assert payload.get("dashboard_propagation") == "ready"
+    assert payload.get("monthly_performance") == "dynamic"
+    assert payload.get("daily_metrics") == "dynamic"
+    assert payload.get("nav_chart") == "dynamic"
+    assert payload.get("current_date_labels") == "dynamic"
     assert "adapter_status" in payload
     assert "state_path" not in payload
     assert "Hughes" not in str(payload.get("workbook_path", ""))
