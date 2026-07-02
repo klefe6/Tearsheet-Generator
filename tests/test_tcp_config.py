@@ -22,6 +22,7 @@ def test_default_config_values():
     assert cfg.nav_column == "nav-x1"
     assert cfg.state_filename == "tcp_daily_returns_secret_state.json"
     assert cfg.state_backup_filename == "tcp_daily_returns_secret_state.backup.json"
+    assert cfg.lock_filename == "tcp_daily_returns_secret_state.lock"
     assert cfg.export_filename == "tcp_daily_returns_export.xlsx"
     assert cfg.preview_port == 8312
     assert cfg.production_port == 8302

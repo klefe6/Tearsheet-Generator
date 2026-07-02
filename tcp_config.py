@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Tuple
 
 # Audited absolute path (Step 1 ledger contract). Override via TCP_V2_WORKBOOK_PATH.
@@ -33,6 +34,7 @@ class TCPConfig:
     nav_column: str = "nav-x1"
     state_filename: str = "tcp_daily_returns_secret_state.json"
     state_backup_filename: str = "tcp_daily_returns_secret_state.backup.json"
+    lock_filename: str = "tcp_daily_returns_secret_state.lock"
     export_filename: str = "tcp_daily_returns_export.xlsx"
     preview_port: int = 8312
     production_port: int = 8302
@@ -44,6 +46,16 @@ def load_config() -> TCPConfig:
     """Build config from defaults and optional environment overrides."""
     workbook_path = os.environ.get("TCP_V2_WORKBOOK_PATH", DEFAULT_WORKBOOK_PATH)
     return TCPConfig(workbook_path=workbook_path)
+
+
+def resolve_state_paths(cfg: TCPConfig, base_dir: str | Path) -> Tuple[Path, Path, Path]:
+    """Resolve active, backup, and lock paths under base_dir. Does not create directories."""
+    base = Path(base_dir)
+    return (
+        base / cfg.state_filename,
+        base / cfg.state_backup_filename,
+        base / cfg.lock_filename,
+    )
 
 
 def validate_config(cfg: TCPConfig) -> Tuple[bool, str]:
@@ -67,6 +79,22 @@ def validate_config(cfg: TCPConfig) -> Tuple[bool, str]:
         return False, "state_filename must not reference TKP"
     if cfg.state_backup_filename == TKP_STATE_FILENAME:
         return False, "state_backup_filename collides with TKP JSON state"
+    if cfg.state_filename == cfg.state_backup_filename:
+        return False, "state_filename and state_backup_filename must differ"
+    if cfg.lock_filename == cfg.state_filename:
+        return False, "lock_filename must differ from state_filename"
+    if cfg.lock_filename == cfg.state_backup_filename:
+        return False, "lock_filename must differ from state_backup_filename"
+    if cfg.lock_filename == TKP_STATE_FILENAME:
+        return False, "lock_filename collides with TKP JSON state"
+    if "tkp" in cfg.lock_filename.lower():
+        return False, "lock_filename must not reference TKP"
+    if cfg.state_filename.lower().endswith(".xlsx"):
+        return False, "state_filename must not point at a workbook"
+    if "_runtime" in cfg.state_filename.replace("\\", "/").lower():
+        return False, "state_filename must not point into _runtime"
+    if "_runtime" in cfg.state_backup_filename.replace("\\", "/").lower():
+        return False, "state_backup_filename must not point into _runtime"
     if cfg.preview_port == cfg.production_port:
         return False, "preview_port must differ from production_port (8302)"
     if cfg.preview_port == 8302:
