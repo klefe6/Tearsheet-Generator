@@ -1,0 +1,1101 @@
+{
+  "metadata": {
+    "workbook_path": "C:\\Users\\H&CDanHughes\\Hughes & Company\\Hughes & Company - Documents\\3_Advisors Marketing (Tearsheets, PitchBooks, etc)\\1. Tearsheet Project\\TCP\\tcp_alex.xlsx",
+    "workbook_filename": "tcp_alex.xlsx",
+    "sheet_name": "NAV",
+    "workbook_size_bytes": 482279,
+    "workbook_last_write_time": "2026-07-01T17:42:14+00:00",
+    "fixture_extraction_timestamp": "2026-07-02T13:32:09.407510+00:00",
+    "header_mapping": {
+      "A": "Cash Transfers",
+      "B": "Trading Days",
+      "C": "Date",
+      "D": "\u2014",
+      "E": "Cash Balance",
+      "F": "NLV",
+      "G": "#",
+      "H": "$PL",
+      "I": "Inc. Fee",
+      "J": "cumm fee",
+      "K": "Day PnL",
+      "L": "nav-x1",
+      "N": "Loss Carry",
+      "O": "%Net",
+      "P": "S net cummulative %",
+      "Q": "HWM"
+    },
+    "golden_excel_rows": [
+      3,
+      4,
+      6,
+      7,
+      8,
+      10,
+      16,
+      17,
+      114
+    ],
+    "hidden_parameter_cells": {
+      "U6": 50000,
+      "U10": 0.2
+    }
+  },
+  "rows": [
+    {
+      "excel_row_number": 3,
+      "dataframe_index": 1,
+      "prior_excel_row_number": 2,
+      "date": "2026-01-20",
+      "scenarios": [
+        "first_trading_day"
+      ],
+      "columns": {
+        "Cash Transfers": {
+          "excel_column": "A",
+          "observed_value": null,
+          "excel_formula": null,
+          "number_format": "General",
+          "confidence": "confirmed"
+        },
+        "Trading Days": {
+          "excel_column": "B",
+          "observed_value": 1,
+          "excel_formula": null,
+          "number_format": "General",
+          "confidence": "confirmed"
+        },
+        "Date": {
+          "excel_column": "C",
+          "observed_value": "2026-01-20",
+          "excel_formula": null,
+          "number_format": "mm-dd-yy",
+          "confidence": "confirmed"
+        },
+        "Cash Balance": {
+          "excel_column": "E",
+          "observed_value": 24996.76,
+          "excel_formula": null,
+          "number_format": "_(\"$\"* #,##0.00_);_(\"$\"* \\(#,##0.00\\);_(\"$\"* \"-\"??_);_(@_)",
+          "confidence": "confirmed"
+        },
+        "NLV": {
+          "excel_column": "F",
+          "observed_value": 24996.76,
+          "excel_formula": "=F2+H3+A3",
+          "number_format": "_(\"$\"* #,##0.00_);_(\"$\"* \\(#,##0.00\\);_(\"$\"* \"-\"??_);_(@_)",
+          "confidence": "confirmed"
+        },
+        "#": {
+          "excel_column": "G",
+          "observed_value": 1,
+          "excel_formula": null,
+          "number_format": "_(* #,##0_);_(* \\(#,##0\\);_(* \"-\"??_);_(@_)",
+          "confidence": "confirmed"
+        },
+        "$PL": {
+          "excel_column": "H",
+          "observed_value": -3.2400000000016007,
+          "excel_formula": "=IF(E3=\"\",0,(E3-E2-R3)-A2)",
+          "number_format": "0.00",
+          "confidence": "confirmed"
+        },
+        "Inc. Fee": {
+          "excel_column": "I",
+          "observed_value": 0,
+          "excel_formula": "=IF(F3=\"\",0,IF(H3>N1,(H3-N1)*I$1,0))",
+          "number_format": "General",
+          "confidence": "confirmed"
+        },
+        "cumm fee": {
+          "excel_column": "J",
+          "observed_value": 0,
+          "excel_formula": "=I3",
+          "number_format": "0.00",
+          "confidence": "confirmed"
+        },
+        "Day PnL": {
+          "excel_column": "K",
+          "observed_value": 0,
+          "excel_formula": null,
+          "number_format": "General",
+          "confidence": "confirmed"
+        },
+        "nav-x1": {
+          "excel_column": "L",
+          "observed_value": 50000,
+          "excel_formula": "=U6",
+          "number_format": "_(\"$\"* #,##0.00_);_(\"$\"* \\(#,##0.00\\);_(\"$\"* \"-\"??_);_(@_)",
+          "confidence": "confirmed"
+        },
+        "Loss Carry": {
+          "excel_column": "N",
+          "observed_value": 0,
+          "excel_formula": "=MAX(0,Q2-L3)",
+          "number_format": "_(\"$\"* #,##0.00_);_(\"$\"* \\(#,##0.00\\);_(\"$\"* \"-\"??_);_(@_)",
+          "confidence": "confirmed"
+        },
+        "%Net": {
+          "excel_column": "O",
+          "observed_value": -6.480000000003201e-05,
+          "excel_formula": "=(H3-I3)/L$3",
+          "number_format": "0.000%",
+          "confidence": "confirmed"
+        },
+        "S net cummulative %": {
+          "excel_column": "P",
+          "observed_value": -6.480000000003201e-05,
+          "excel_formula": "=O3",
+          "number_format": "0.00000%",
+          "confidence": "confirmed"
+        },
+        "HWM": {
+          "excel_column": "Q",
+          "observed_value": 50000,
+          "excel_formula": "=MAX(L$3:L3)",
+          "number_format": "_(\"$\"* #,##0.00_);_(\"$\"* \\(#,##0.00\\);_(\"$\"* \"-\"??_);_(@_)",
+          "confidence": "confirmed"
+        }
+      },
+      "notes": "First trading day: Day PnL=0; nav-x1 seeded from U6 (=50000). Medium uncertainty per audit."
+    },
+    {
+      "excel_row_number": 4,
+      "dataframe_index": 2,
+      "prior_excel_row_number": 3,
+      "date": "2026-01-21",
+      "scenarios": [
+        "profitable_day",
+        "fee"
+      ],
+      "columns": {
+        "Cash Transfers": {
+          "excel_column": "A",
+          "observed_value": null,
+          "excel_formula": null,
+          "number_format": "General",
+          "confidence": "confirmed"
+        },
+        "Trading Days": {
+          "excel_column": "B",
+          "observed_value": 2,
+          "excel_formula": null,
+          "number_format": "General",
+          "confidence": "confirmed"
+        },
+        "Date": {
+          "excel_column": "C",
+          "observed_value": "2026-01-21",
+          "excel_formula": null,
+          "number_format": "mm-dd-yy",
+          "confidence": "confirmed"
+        },
+        "Cash Balance": {
+          "excel_column": "E",
+          "observed_value": 25013.6,
+          "excel_formula": null,
+          "number_format": "_(\"$\"* #,##0.00_);_(\"$\"* \\(#,##0.00\\);_(\"$\"* \"-\"??_);_(@_)",
+          "confidence": "confirmed"
+        },
+        "NLV": {
+          "excel_column": "F",
+          "observed_value": 25013.6,
+          "excel_formula": "=F3+H4+A4",
+          "number_format": "_(\"$\"* #,##0.00_);_(\"$\"* \\(#,##0.00\\);_(\"$\"* \"-\"??_);_(@_)",
+          "confidence": "confirmed"
+        },
+        "#": {
+          "excel_column": "G",
+          "observed_value": 1,
+          "excel_formula": null,
+          "number_format": "_(* #,##0_);_(* \\(#,##0\\);_(* \"-\"??_);_(@_)",
+          "confidence": "confirmed"
+        },
+        "$PL": {
+          "excel_column": "H",
+          "observed_value": 16.840000000000146,
+          "excel_formula": "=IF(E4=\"\",0,(E4-E3-R4)-A4)",
+          "number_format": "0.00",
+          "confidence": "confirmed"
+        },
+        "Inc. Fee": {
+          "excel_column": "I",
+          "observed_value": 3.368000000000029,
+          "excel_formula": "=IF(F4=\"\",0,IF(H4>N3,(H4-N3)*U$10,0))",
+          "number_format": "General",
+          "confidence": "confirmed"
+        },
+        "cumm fee": {
+          "excel_column": "J",
+          "observed_value": 3.368000000000029,
+          "excel_formula": "=I4+J3",
+          "number_format": "0.00",
+          "confidence": "confirmed"
+        },
+        "Day PnL": {
+          "excel_column": "K",
+          "observed_value": 13.472000000000117,
+          "excel_formula": "=(H4-I4)",
+          "number_format": "0.00",
+          "confidence": "confirmed"
+        },
+        "nav-x1": {
+          "excel_column": "L",
+          "observed_value": 50013.472,
+          "excel_formula": "=L3+(H4-I4)/G4",
+          "number_format": "_(\"$\"* #,##0.00_);_(\"$\"* \\(#,##0.00\\);_(\"$\"* \"-\"??_);_(@_)",
+          "confidence": "confirmed"
+        },
+        "Loss Carry": {
+          "excel_column": "N",
+          "observed_value": 0,
+          "excel_formula": "=MAX(0,Q3-L4)",
+          "number_format": "_(\"$\"* #,##0.00_);_(\"$\"* \\(#,##0.00\\);_(\"$\"* \"-\"??_);_(@_)",
+          "confidence": "confirmed"
+        },
+        "%Net": {
+          "excel_column": "O",
+          "observed_value": 0.00026944000000000235,
+          "excel_formula": "=(H4-I4)/L$3",
+          "number_format": "0.000%",
+          "confidence": "confirmed"
+        },
+        "S net cummulative %": {
+          "excel_column": "P",
+          "observed_value": 0.00026944000000000235,
+          "excel_formula": "=O4",
+          "number_format": "0.00000%",
+          "confidence": "confirmed"
+        },
+        "HWM": {
+          "excel_column": "Q",
+          "observed_value": 50013.472,
+          "excel_formula": "=IF(AND(G4=G3,L4>Q3), MAX(L$3:L4), Q3+(MAX(L$3:L4)-Q3)*(G4-G3)/G3)",
+          "number_format": "_(\"$\"* #,##0.00_);_(\"$\"* \\(#,##0.00\\);_(\"$\"* \"-\"??_);_(@_)",
+          "confidence": "confirmed"
+        }
+      },
+      "notes": "Profitable day with 20% fee when $PL > prior Loss Carry (0)."
+    },
+    {
+      "excel_row_number": 6,
+      "dataframe_index": 4,
+      "prior_excel_row_number": 5,
+      "date": "2026-01-23",
+      "scenarios": [
+        "rounding_small_pl"
+      ],
+      "columns": {
+        "Cash Transfers": {
+          "excel_column": "A",
+          "observed_value": null,
+          "excel_formula": null,
+          "number_format": "General",
+          "confidence": "confirmed"
+        },
+        "Trading Days": {
+          "excel_column": "B",
+          "observed_value": 4,
+          "excel_formula": null,
+          "number_format": "General",
+          "confidence": "confirmed"
+        },
+        "Date": {
+          "excel_column": "C",
+          "observed_value": "2026-01-23",
+          "excel_formula": null,
+          "number_format": "mm-dd-yy",
+          "confidence": "confirmed"
+        },
+        "Cash Balance": {
+          "excel_column": "E",
+          "observed_value": 25037.08,
+          "excel_formula": null,
+          "number_format": "_(\"$\"* #,##0.00_);_(\"$\"* \\(#,##0.00\\);_(\"$\"* \"-\"??_);_(@_)",
+          "confidence": "confirmed"
+        },
+        "NLV": {
+          "excel_column": "F",
+          "observed_value": 25037.08,
+          "excel_formula": "=F5+H6+A6",
+          "number_format": "_(\"$\"* #,##0.00_);_(\"$\"* \\(#,##0.00\\);_(\"$\"* \"-\"??_);_(@_)",
+          "confidence": "confirmed"
+        },
+        "#": {
+          "excel_column": "G",
+          "observed_value": 1,
+          "excel_formula": null,
+          "number_format": "_(* #,##0_);_(* \\(#,##0\\);_(* \"-\"??_);_(@_)",
+          "confidence": "confirmed"
+        },
+        "$PL": {
+          "excel_column": "H",
+          "observed_value": 0.9400000000023283,
+          "excel_formula": "=IF(E6=\"\",0,(E6-E5-R6)-A6)",
+          "number_format": "0.00",
+          "confidence": "confirmed"
+        },
+        "Inc. Fee": {
+          "excel_column": "I",
+          "observed_value": 0.18800000000046568,
+          "excel_formula": "=IF(F6=\"\",0,IF(H6>N5,(H6-N5)*U$10,0))",
+          "number_format": "General",
+          "confidence": "confirmed"
+        },
+        "cumm fee": {
+          "excel_column": "J",
+          "observed_value": 8.06400000000067,
+          "excel_formula": "=I6+J5",
+          "number_format": "0.00",
+          "confidence": "confirmed"
+        },
+        "Day PnL": {
+          "excel_column": "K",
+          "observed_value": 0.7520000000018626,
+          "excel_formula": "=(H6-I6)",
+          "number_format": "0.00",
+          "confidence": "confirmed"
+        },
+        "nav-x1": {
+          "excel_column": "L",
+          "observed_value": 50032.256,
+          "excel_formula": "=L5+(H6-I6)/G6",
+          "number_format": "_(\"$\"* #,##0.00_);_(\"$\"* \\(#,##0.00\\);_(\"$\"* \"-\"??_);_(@_)",
+          "confidence": "confirmed"
+        },
+        "Loss Carry": {
+          "excel_column": "N",
+          "observed_value": 0,
+          "excel_formula": "=MAX(0,Q5-L6)",
+          "number_format": "_(\"$\"* #,##0.00_);_(\"$\"* \\(#,##0.00\\);_(\"$\"* \"-\"??_);_(@_)",
+          "confidence": "confirmed"
+        },
+        "%Net": {
+          "excel_column": "O",
+          "observed_value": 1.5040000000037253e-05,
+          "excel_formula": "=(H6-I6)/L$3",
+          "number_format": "0.000%",
+          "confidence": "confirmed"
+        },
+        "S net cummulative %": {
+          "excel_column": "P",
+          "observed_value": 0.0006451200000000536,
+          "excel_formula": "=O6+P5",
+          "number_format": "0.00000%",
+          "confidence": "confirmed"
+        },
+        "HWM": {
+          "excel_column": "Q",
+          "observed_value": 50032.256,
+          "excel_formula": "=IF(AND(G6=G5,L6>Q5), MAX(L$3:L6), Q5+(MAX(L$3:L6)-Q5)*(G6-G5)/G5)",
+          "number_format": "_(\"$\"* #,##0.00_);_(\"$\"* \\(#,##0.00\\);_(\"$\"* \"-\"??_);_(@_)",
+          "confidence": "confirmed"
+        }
+      },
+      "notes": "Small P&L / rounding-sensitive row."
+    },
+    {
+      "excel_row_number": 7,
+      "dataframe_index": 5,
+      "prior_excel_row_number": 6,
+      "date": "2026-01-26",
+      "scenarios": [
+        "losing_day",
+        "loss_carry_start"
+      ],
+      "columns": {
+        "Cash Transfers": {
+          "excel_column": "A",
+          "observed_value": null,
+          "excel_formula": null,
+          "number_format": "General",
+          "confidence": "confirmed"
+        },
+        "Trading Days": {
+          "excel_column": "B",
+          "observed_value": 5,
+          "excel_formula": null,
+          "number_format": "General",
+          "confidence": "confirmed"
+        },
+        "Date": {
+          "excel_column": "C",
+          "observed_value": "2026-01-26",
+          "excel_formula": null,
+          "number_format": "mm-dd-yy",
+          "confidence": "confirmed"
+        },
+        "Cash Balance": {
+          "excel_column": "E",
+          "observed_value": 24859.92,
+          "excel_formula": null,
+          "number_format": "_(\"$\"* #,##0.00_);_(\"$\"* \\(#,##0.00\\);_(\"$\"* \"-\"??_);_(@_)",
+          "confidence": "confirmed"
+        },
+        "NLV": {
+          "excel_column": "F",
+          "observed_value": 24859.92,
+          "excel_formula": "=F6+H7+A7",
+          "number_format": "_(\"$\"* #,##0.00_);_(\"$\"* \\(#,##0.00\\);_(\"$\"* \"-\"??_);_(@_)",
+          "confidence": "confirmed"
+        },
+        "#": {
+          "excel_column": "G",
+          "observed_value": 1,
+          "excel_formula": null,
+          "number_format": "_(* #,##0_);_(* \\(#,##0\\);_(* \"-\"??_);_(@_)",
+          "confidence": "confirmed"
+        },
+        "$PL": {
+          "excel_column": "H",
+          "observed_value": -177.1600000000035,
+          "excel_formula": "=IF(E7=\"\",0,(E7-E6-R7)-A7)",
+          "number_format": "0.00",
+          "confidence": "confirmed"
+        },
+        "Inc. Fee": {
+          "excel_column": "I",
+          "observed_value": 0,
+          "excel_formula": "=IF(F7=\"\",0,IF(H7>N6,(H7-N6)*U$10,0))",
+          "number_format": "General",
+          "confidence": "confirmed"
+        },
+        "cumm fee": {
+          "excel_column": "J",
+          "observed_value": 8.06400000000067,
+          "excel_formula": "=I7+J6",
+          "number_format": "0.00",
+          "confidence": "confirmed"
+        },
+        "Day PnL": {
+          "excel_column": "K",
+          "observed_value": -177.1600000000035,
+          "excel_formula": "=(H7-I7)",
+          "number_format": "0.00",
+          "confidence": "confirmed"
+        },
+        "nav-x1": {
+          "excel_column": "L",
+          "observed_value": 49855.096,
+          "excel_formula": "=L6+(H7-I7)/G7",
+          "number_format": "_(\"$\"* #,##0.00_);_(\"$\"* \\(#,##0.00\\);_(\"$\"* \"-\"??_);_(@_)",
+          "confidence": "confirmed"
+        },
+        "Loss Carry": {
+          "excel_column": "N",
+          "observed_value": 177.1600000000035,
+          "excel_formula": "=MAX(0,Q6-L7)",
+          "number_format": "_(\"$\"* #,##0.00_);_(\"$\"* \\(#,##0.00\\);_(\"$\"* \"-\"??_);_(@_)",
+          "confidence": "confirmed"
+        },
+        "%Net": {
+          "excel_column": "O",
+          "observed_value": -0.0035432000000000696,
+          "excel_formula": "=(H7-I7)/(L$3*G7)",
+          "number_format": "0.000%",
+          "confidence": "confirmed"
+        },
+        "S net cummulative %": {
+          "excel_column": "P",
+          "observed_value": -0.002898080000000016,
+          "excel_formula": "=O7+P6",
+          "number_format": "0.00000%",
+          "confidence": "confirmed"
+        },
+        "HWM": {
+          "excel_column": "Q",
+          "observed_value": 50032.256,
+          "excel_formula": "=IF(AND(G7=G6,L7>Q6), MAX(L$3:L7), Q6+(MAX(L$3:L7)-Q6)*(G7-G6)/G6)",
+          "number_format": "_(\"$\"* #,##0.00_);_(\"$\"* \\(#,##0.00\\);_(\"$\"* \"-\"??_);_(@_)",
+          "confidence": "confirmed"
+        }
+      },
+      "notes": "Loss day; Loss Carry begins (MAX(0, prior HWM - nav-x1))."
+    },
+    {
+      "excel_row_number": 8,
+      "dataframe_index": 6,
+      "prior_excel_row_number": 7,
+      "date": "2026-01-27",
+      "scenarios": [
+        "hwm_recovery"
+      ],
+      "columns": {
+        "Cash Transfers": {
+          "excel_column": "A",
+          "observed_value": null,
+          "excel_formula": null,
+          "number_format": "General",
+          "confidence": "confirmed"
+        },
+        "Trading Days": {
+          "excel_column": "B",
+          "observed_value": 6,
+          "excel_formula": null,
+          "number_format": "General",
+          "confidence": "confirmed"
+        },
+        "Date": {
+          "excel_column": "C",
+          "observed_value": "2026-01-27",
+          "excel_formula": null,
+          "number_format": "mm-dd-yy",
+          "confidence": "confirmed"
+        },
+        "Cash Balance": {
+          "excel_column": "E",
+          "observed_value": 25067.75,
+          "excel_formula": null,
+          "number_format": "_(\"$\"* #,##0.00_);_(\"$\"* \\(#,##0.00\\);_(\"$\"* \"-\"??_);_(@_)",
+          "confidence": "confirmed"
+        },
+        "NLV": {
+          "excel_column": "F",
+          "observed_value": 25067.75,
+          "excel_formula": "=F7+H8+A8",
+          "number_format": "_(\"$\"* #,##0.00_);_(\"$\"* \\(#,##0.00\\);_(\"$\"* \"-\"??_);_(@_)",
+          "confidence": "confirmed"
+        },
+        "#": {
+          "excel_column": "G",
+          "observed_value": 1,
+          "excel_formula": null,
+          "number_format": "_(* #,##0_);_(* \\(#,##0\\);_(* \"-\"??_);_(@_)",
+          "confidence": "confirmed"
+        },
+        "$PL": {
+          "excel_column": "H",
+          "observed_value": 207.83000000000175,
+          "excel_formula": "=IF(E8=\"\",0,(E8-E7-R8)-A8)",
+          "number_format": "0.00",
+          "confidence": "confirmed"
+        },
+        "Inc. Fee": {
+          "excel_column": "I",
+          "observed_value": 6.133999999999651,
+          "excel_formula": "=IF(F8=\"\",0,IF(H8>N7,(H8-N7)*U$10,0))",
+          "number_format": "General",
+          "confidence": "confirmed"
+        },
+        "cumm fee": {
+          "excel_column": "J",
+          "observed_value": 14.19800000000032,
+          "excel_formula": "=I8+J7",
+          "number_format": "0.00",
+          "confidence": "confirmed"
+        },
+        "Day PnL": {
+          "excel_column": "K",
+          "observed_value": 201.6960000000021,
+          "excel_formula": "=(H8-I8)",
+          "number_format": "0.00",
+          "confidence": "confirmed"
+        },
+        "nav-x1": {
+          "excel_column": "L",
+          "observed_value": 50056.792,
+          "excel_formula": "=L7+(H8-I8)/G8",
+          "number_format": "_(\"$\"* #,##0.00_);_(\"$\"* \\(#,##0.00\\);_(\"$\"* \"-\"??_);_(@_)",
+          "confidence": "confirmed"
+        },
+        "Loss Carry": {
+          "excel_column": "N",
+          "observed_value": 0,
+          "excel_formula": "=MAX(0,Q7-L8)",
+          "number_format": "_(\"$\"* #,##0.00_);_(\"$\"* \\(#,##0.00\\);_(\"$\"* \"-\"??_);_(@_)",
+          "confidence": "confirmed"
+        },
+        "%Net": {
+          "excel_column": "O",
+          "observed_value": 0.004033920000000042,
+          "excel_formula": "=(H8-I8)/(L$3*G8)",
+          "number_format": "0.000%",
+          "confidence": "confirmed"
+        },
+        "S net cummulative %": {
+          "excel_column": "P",
+          "observed_value": 0.0011358400000000264,
+          "excel_formula": "=O8+P7",
+          "number_format": "0.00000%",
+          "confidence": "confirmed"
+        },
+        "HWM": {
+          "excel_column": "Q",
+          "observed_value": 50056.792,
+          "excel_formula": "=IF(AND(G8=G7,L8>Q7), MAX(L$3:L8), Q7+(MAX(L$3:L8)-Q7)*(G8-G7)/G7)",
+          "number_format": "_(\"$\"* #,##0.00_);_(\"$\"* \\(#,##0.00\\);_(\"$\"* \"-\"??_);_(@_)",
+          "confidence": "confirmed"
+        }
+      },
+      "notes": "Recovery; nav-x1 reaches HWM (50056.792)."
+    },
+    {
+      "excel_row_number": 10,
+      "dataframe_index": 8,
+      "prior_excel_row_number": 9,
+      "date": "2026-01-29",
+      "scenarios": [
+        "under_hwm_loss_carry"
+      ],
+      "columns": {
+        "Cash Transfers": {
+          "excel_column": "A",
+          "observed_value": null,
+          "excel_formula": null,
+          "number_format": "General",
+          "confidence": "confirmed"
+        },
+        "Trading Days": {
+          "excel_column": "B",
+          "observed_value": 8,
+          "excel_formula": null,
+          "number_format": "General",
+          "confidence": "confirmed"
+        },
+        "Date": {
+          "excel_column": "C",
+          "observed_value": "2026-01-29",
+          "excel_formula": null,
+          "number_format": "mm-dd-yy",
+          "confidence": "confirmed"
+        },
+        "Cash Balance": {
+          "excel_column": "E",
+          "observed_value": 24491.58,
+          "excel_formula": null,
+          "number_format": "_(\"$\"* #,##0.00_);_(\"$\"* \\(#,##0.00\\);_(\"$\"* \"-\"??_);_(@_)",
+          "confidence": "confirmed"
+        },
+        "NLV": {
+          "excel_column": "F",
+          "observed_value": 24491.58,
+          "excel_formula": "=F9+H10+A10",
+          "number_format": "_(\"$\"* #,##0.00_);_(\"$\"* \\(#,##0.00\\);_(\"$\"* \"-\"??_);_(@_)",
+          "confidence": "confirmed"
+        },
+        "#": {
+          "excel_column": "G",
+          "observed_value": 1,
+          "excel_formula": null,
+          "number_format": "_(* #,##0_);_(* \\(#,##0\\);_(* \"-\"??_);_(@_)",
+          "confidence": "confirmed"
+        },
+        "$PL": {
+          "excel_column": "H",
+          "observed_value": -546.7199999999975,
+          "excel_formula": "=IF(E10=\"\",0,(E10-E9-R10)-A10)",
+          "number_format": "0.00",
+          "confidence": "confirmed"
+        },
+        "Inc. Fee": {
+          "excel_column": "I",
+          "observed_value": 0,
+          "excel_formula": "=IF(F10=\"\",0,IF(H10>N9,(H10-N9)*U$10,0))",
+          "number_format": "General",
+          "confidence": "confirmed"
+        },
+        "cumm fee": {
+          "excel_column": "J",
+          "observed_value": 14.19800000000032,
+          "excel_formula": "=I10+J9",
+          "number_format": "0.00",
+          "confidence": "confirmed"
+        },
+        "Day PnL": {
+          "excel_column": "K",
+          "observed_value": -546.7199999999975,
+          "excel_formula": "=(H10-I10)",
+          "number_format": "0.00",
+          "confidence": "confirmed"
+        },
+        "nav-x1": {
+          "excel_column": "L",
+          "observed_value": 49480.622,
+          "excel_formula": "=L9+(H10-I10)/G10",
+          "number_format": "_(\"$\"* #,##0.00_);_(\"$\"* \\(#,##0.00\\);_(\"$\"* \"-\"??_);_(@_)",
+          "confidence": "confirmed"
+        },
+        "Loss Carry": {
+          "excel_column": "N",
+          "observed_value": 576.1699999999983,
+          "excel_formula": "=MAX(0,Q9-L10)",
+          "number_format": "_(\"$\"* #,##0.00_);_(\"$\"* \\(#,##0.00\\);_(\"$\"* \"-\"??_);_(@_)",
+          "confidence": "confirmed"
+        },
+        "%Net": {
+          "excel_column": "O",
+          "observed_value": -0.01093439999999995,
+          "excel_formula": "=(H10-I10)/(L$3*G10)",
+          "number_format": "0.000%",
+          "confidence": "confirmed"
+        },
+        "S net cummulative %": {
+          "excel_column": "P",
+          "observed_value": -0.010387559999999938,
+          "excel_formula": "=O10+P9",
+          "number_format": "0.00000%",
+          "confidence": "confirmed"
+        },
+        "HWM": {
+          "excel_column": "Q",
+          "observed_value": 50056.792,
+          "excel_formula": "=IF(AND(G10=G9,L10>Q9), MAX(L$3:L10), Q9+(MAX(L$3:L10)-Q9)*(G10-G9)/G9)",
+          "number_format": "_(\"$\"* #,##0.00_);_(\"$\"* \\(#,##0.00\\);_(\"$\"* \"-\"??_);_(@_)",
+          "confidence": "confirmed"
+        }
+      },
+      "notes": "Under HWM with Loss Carry > 0."
+    },
+    {
+      "excel_row_number": 16,
+      "dataframe_index": 14,
+      "prior_excel_row_number": 15,
+      "date": "2026-02-06",
+      "scenarios": [
+        "deposit",
+        "tranche_change"
+      ],
+      "columns": {
+        "Cash Transfers": {
+          "excel_column": "A",
+          "observed_value": 25000,
+          "excel_formula": null,
+          "number_format": "General",
+          "confidence": "confirmed"
+        },
+        "Trading Days": {
+          "excel_column": "B",
+          "observed_value": 14,
+          "excel_formula": null,
+          "number_format": "General",
+          "confidence": "confirmed"
+        },
+        "Date": {
+          "excel_column": "C",
+          "observed_value": "2026-02-06",
+          "excel_formula": null,
+          "number_format": "mm-dd-yy",
+          "confidence": "confirmed"
+        },
+        "Cash Balance": {
+          "excel_column": "E",
+          "observed_value": 48442.72,
+          "excel_formula": null,
+          "number_format": "_(\"$\"* #,##0.00_);_(\"$\"* \\(#,##0.00\\);_(\"$\"* \"-\"??_);_(@_)",
+          "confidence": "confirmed"
+        },
+        "NLV": {
+          "excel_column": "F",
+          "observed_value": 48442.72,
+          "excel_formula": "=F15+H16+A16",
+          "number_format": "_(\"$\"* #,##0.00_);_(\"$\"* \\(#,##0.00\\);_(\"$\"* \"-\"??_);_(@_)",
+          "confidence": "confirmed"
+        },
+        "#": {
+          "excel_column": "G",
+          "observed_value": 2,
+          "excel_formula": null,
+          "number_format": "_(* #,##0_);_(* \\(#,##0\\);_(* \"-\"??_);_(@_)",
+          "confidence": "confirmed"
+        },
+        "$PL": {
+          "excel_column": "H",
+          "observed_value": 1542.760000000002,
+          "excel_formula": "=IF(E16=\"\",0,(E16-E15-R16)-A16)",
+          "number_format": "0.00",
+          "confidence": "confirmed"
+        },
+        "Inc. Fee": {
+          "excel_column": "I",
+          "observed_value": 0,
+          "excel_formula": "=IF(F16=\"\",0,IF(H16>N15,(H16-N15)*U$10,0))",
+          "number_format": "General",
+          "confidence": "confirmed"
+        },
+        "cumm fee": {
+          "excel_column": "J",
+          "observed_value": 14.19800000000032,
+          "excel_formula": "=I16+J15",
+          "number_format": "0.00",
+          "confidence": "confirmed"
+        },
+        "Day PnL": {
+          "excel_column": "K",
+          "observed_value": 1542.760000000002,
+          "excel_formula": "=(H16-I16)",
+          "number_format": "0.00",
+          "confidence": "confirmed"
+        },
+        "nav-x1": {
+          "excel_column": "L",
+          "observed_value": 47660.382,
+          "excel_formula": "=L15+(H16-I16)/G16",
+          "number_format": "_(\"$\"* #,##0.00_);_(\"$\"* \\(#,##0.00\\);_(\"$\"* \"-\"??_);_(@_)",
+          "confidence": "confirmed"
+        },
+        "Loss Carry": {
+          "excel_column": "N",
+          "observed_value": 2396.4100000000035,
+          "excel_formula": "=MAX(0,Q15-L16)",
+          "number_format": "_(\"$\"* #,##0.00_);_(\"$\"* \\(#,##0.00\\);_(\"$\"* \"-\"??_);_(@_)",
+          "confidence": "confirmed"
+        },
+        "%Net": {
+          "excel_column": "O",
+          "observed_value": 0.01542760000000002,
+          "excel_formula": "=(H16-I16)/(L$3*G16)",
+          "number_format": "0.000%",
+          "confidence": "confirmed"
+        },
+        "S net cummulative %": {
+          "excel_column": "P",
+          "observed_value": -0.04679235999999997,
+          "excel_formula": "=O16+P15",
+          "number_format": "0.00000%",
+          "confidence": "confirmed"
+        },
+        "HWM": {
+          "excel_column": "Q",
+          "observed_value": 50056.792,
+          "excel_formula": "=IF(AND(G16=G15,L16>Q15), MAX(L$3:L16), Q15+(MAX(L$3:L16)-Q15)*(G16-G15)/G15)",
+          "number_format": "_(\"$\"* #,##0.00_);_(\"$\"* \\(#,##0.00\\);_(\"$\"* \"-\"??_);_(@_)",
+          "confidence": "confirmed"
+        }
+      },
+      "notes": "Deposit +25000; tranche # changes 1\u21922. HWM formula on tranche change: medium uncertainty."
+    },
+    {
+      "excel_row_number": 17,
+      "dataframe_index": 15,
+      "prior_excel_row_number": 16,
+      "date": "2026-02-09",
+      "scenarios": [
+        "post_deposit"
+      ],
+      "columns": {
+        "Cash Transfers": {
+          "excel_column": "A",
+          "observed_value": null,
+          "excel_formula": null,
+          "number_format": "General",
+          "confidence": "confirmed"
+        },
+        "Trading Days": {
+          "excel_column": "B",
+          "observed_value": 15,
+          "excel_formula": null,
+          "number_format": "General",
+          "confidence": "confirmed"
+        },
+        "Date": {
+          "excel_column": "C",
+          "observed_value": "2026-02-09",
+          "excel_formula": null,
+          "number_format": "mm-dd-yy",
+          "confidence": "confirmed"
+        },
+        "Cash Balance": {
+          "excel_column": "E",
+          "observed_value": 48690.88,
+          "excel_formula": null,
+          "number_format": "_(\"$\"* #,##0.00_);_(\"$\"* \\(#,##0.00\\);_(\"$\"* \"-\"??_);_(@_)",
+          "confidence": "confirmed"
+        },
+        "NLV": {
+          "excel_column": "F",
+          "observed_value": 48690.88,
+          "excel_formula": "=F16+H17+A17",
+          "number_format": "_(\"$\"* #,##0.00_);_(\"$\"* \\(#,##0.00\\);_(\"$\"* \"-\"??_);_(@_)",
+          "confidence": "confirmed"
+        },
+        "#": {
+          "excel_column": "G",
+          "observed_value": 2,
+          "excel_formula": null,
+          "number_format": "_(* #,##0_);_(* \\(#,##0\\);_(* \"-\"??_);_(@_)",
+          "confidence": "confirmed"
+        },
+        "$PL": {
+          "excel_column": "H",
+          "observed_value": 248.15999999999622,
+          "excel_formula": "=IF(E17=\"\",0,(E17-E16-R17)-A17)",
+          "number_format": "0.00",
+          "confidence": "confirmed"
+        },
+        "Inc. Fee": {
+          "excel_column": "I",
+          "observed_value": 0,
+          "excel_formula": "=IF(F17=\"\",0,IF(H17>N16,(H17-N16)*U$10,0))",
+          "number_format": "General",
+          "confidence": "confirmed"
+        },
+        "cumm fee": {
+          "excel_column": "J",
+          "observed_value": 14.19800000000032,
+          "excel_formula": "=I17+J16",
+          "number_format": "0.00",
+          "confidence": "confirmed"
+        },
+        "Day PnL": {
+          "excel_column": "K",
+          "observed_value": 248.15999999999622,
+          "excel_formula": "=(H17-I17)",
+          "number_format": "0.00",
+          "confidence": "confirmed"
+        },
+        "nav-x1": {
+          "excel_column": "L",
+          "observed_value": 47784.462,
+          "excel_formula": "=L16+(H17-I17)/G17",
+          "number_format": "_(\"$\"* #,##0.00_);_(\"$\"* \\(#,##0.00\\);_(\"$\"* \"-\"??_);_(@_)",
+          "confidence": "confirmed"
+        },
+        "Loss Carry": {
+          "excel_column": "N",
+          "observed_value": 2272.3300000000017,
+          "excel_formula": "=MAX(0,Q16-L17)",
+          "number_format": "_(\"$\"* #,##0.00_);_(\"$\"* \\(#,##0.00\\);_(\"$\"* \"-\"??_);_(@_)",
+          "confidence": "confirmed"
+        },
+        "%Net": {
+          "excel_column": "O",
+          "observed_value": 0.0024815999999999623,
+          "excel_formula": "=(H17-I17)/(L$3*G17)",
+          "number_format": "0.000%",
+          "confidence": "confirmed"
+        },
+        "S net cummulative %": {
+          "excel_column": "P",
+          "observed_value": -0.044310760000000005,
+          "excel_formula": "=O17+P16",
+          "number_format": "0.00000%",
+          "confidence": "confirmed"
+        },
+        "HWM": {
+          "excel_column": "Q",
+          "observed_value": 50056.792,
+          "excel_formula": "=IF(AND(G17=G16,L17>Q16), MAX(L$3:L17), Q16+(MAX(L$3:L17)-Q16)*(G17-G16)/G16)",
+          "number_format": "_(\"$\"* #,##0.00_);_(\"$\"* \\(#,##0.00\\);_(\"$\"* \"-\"??_);_(@_)",
+          "confidence": "confirmed"
+        }
+      },
+      "notes": "First post-deposit row; $PL subtracts prior-row Cash Transfer (row 16)."
+    },
+    {
+      "excel_row_number": 114,
+      "dataframe_index": 112,
+      "prior_excel_row_number": 113,
+      "date": "2026-06-24",
+      "scenarios": [
+        "latest_completed_row"
+      ],
+      "columns": {
+        "Cash Transfers": {
+          "excel_column": "A",
+          "observed_value": null,
+          "excel_formula": null,
+          "number_format": "General",
+          "confidence": "confirmed"
+        },
+        "Trading Days": {
+          "excel_column": "B",
+          "observed_value": 130,
+          "excel_formula": null,
+          "number_format": "General",
+          "confidence": "confirmed"
+        },
+        "Date": {
+          "excel_column": "C",
+          "observed_value": "2026-06-24",
+          "excel_formula": null,
+          "number_format": "mm-dd-yy",
+          "confidence": "confirmed"
+        },
+        "Cash Balance": {
+          "excel_column": "E",
+          "observed_value": 43007.3,
+          "excel_formula": null,
+          "number_format": "_(\"$\"* #,##0.00_);_(\"$\"* \\(#,##0.00\\);_(\"$\"* \"-\"??_);_(@_)",
+          "confidence": "confirmed"
+        },
+        "NLV": {
+          "excel_column": "F",
+          "observed_value": 43007.3,
+          "excel_formula": "=F113+H114+A114",
+          "number_format": "_(\"$\"* #,##0.00_);_(\"$\"* \\(#,##0.00\\);_(\"$\"* \"-\"??_);_(@_)",
+          "confidence": "confirmed"
+        },
+        "#": {
+          "excel_column": "G",
+          "observed_value": 2,
+          "excel_formula": null,
+          "number_format": "_(* #,##0_);_(* \\(#,##0\\);_(* \"-\"??_);_(@_)",
+          "confidence": "confirmed"
+        },
+        "$PL": {
+          "excel_column": "H",
+          "observed_value": -2814,
+          "excel_formula": "=IF(E114=\"\",0,(E114-E113-R114)-A114)",
+          "number_format": "0.00",
+          "confidence": "confirmed"
+        },
+        "Inc. Fee": {
+          "excel_column": "I",
+          "observed_value": 0,
+          "excel_formula": "=IF(F114=\"\",0,IF(H114>N113,(H114-N113)*U$10,0))",
+          "number_format": "General",
+          "confidence": "confirmed"
+        },
+        "cumm fee": {
+          "excel_column": "J",
+          "observed_value": 156.7740000000027,
+          "excel_formula": "=I114+J113",
+          "number_format": "0.00",
+          "confidence": "confirmed"
+        },
+        "Day PnL": {
+          "excel_column": "K",
+          "observed_value": -2814,
+          "excel_formula": "=(H114-I114)",
+          "number_format": "0.00",
+          "confidence": "confirmed"
+        },
+        "nav-x1": {
+          "excel_column": "L",
+          "observed_value": 44871.38400000001,
+          "excel_formula": "=L113+(H114-I114)/G114",
+          "number_format": "_(\"$\"* #,##0.00_);_(\"$\"* \\(#,##0.00\\);_(\"$\"* \"-\"??_);_(@_)",
+          "confidence": "confirmed"
+        },
+        "Loss Carry": {
+          "excel_column": "N",
+          "observed_value": 5185.4079999999885,
+          "excel_formula": "=MAX(0,Q113-L114)",
+          "number_format": "_(\"$\"* #,##0.00_);_(\"$\"* \\(#,##0.00\\);_(\"$\"* \"-\"??_);_(@_)",
+          "confidence": "confirmed"
+        },
+        "%Net": {
+          "excel_column": "O",
+          "observed_value": -0.02814,
+          "excel_formula": "=(H114-I114)/(L$3*G114)",
+          "number_format": "0.000%",
+          "confidence": "confirmed"
+        },
+        "S net cummulative %": {
+          "excel_column": "P",
+          "observed_value": -0.10257232,
+          "excel_formula": "=O114+P113",
+          "number_format": "0.00000%",
+          "confidence": "confirmed"
+        },
+        "HWM": {
+          "excel_column": "Q",
+          "observed_value": 50056.792,
+          "excel_formula": "=IF(AND(G114=G113,L114>Q113), MAX(L$3:L114), Q113+(MAX(L$3:L114)-Q113)*(G114-G113)/G113)",
+          "number_format": "_(\"$\"* #,##0.00_);_(\"$\"* \\(#,##0.00\\);_(\"$\"* \"-\"??_);_(@_)",
+          "confidence": "confirmed"
+        }
+      },
+      "notes": "Latest completed ledger row at fixture extraction time."
+    }
+  ]
+}
