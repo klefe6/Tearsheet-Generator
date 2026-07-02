@@ -6,7 +6,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Tuple
+from typing import Optional, Tuple
 
 # Audited absolute path (Step 1 ledger contract). Override via TCP_V2_WORKBOOK_PATH.
 DEFAULT_WORKBOOK_PATH = (
@@ -20,6 +20,16 @@ TKP_SHEET_NAME = "Sheet1"
 # Inclusive preview port range for tearsheet services (8301–8312 per port migration).
 TCP_PREVIEW_PORT_MIN = 8301
 TCP_PREVIEW_PORT_MAX = 8312
+
+
+@dataclass(frozen=True)
+class AdminAuthSettings:
+    admin_token: Optional[str]
+    session_secret: Optional[str]
+
+    @property
+    def is_configured(self) -> bool:
+        return bool(self.admin_token and self.session_secret)
 
 
 @dataclass(frozen=True)
@@ -46,6 +56,16 @@ def load_config() -> TCPConfig:
     """Build config from defaults and optional environment overrides."""
     workbook_path = os.environ.get("TCP_V2_WORKBOOK_PATH", DEFAULT_WORKBOOK_PATH)
     return TCPConfig(workbook_path=workbook_path)
+
+
+def load_admin_auth_settings() -> AdminAuthSettings:
+    """Load preview admin auth settings from environment variables only."""
+    token = os.environ.get("TCP_V2_ADMIN_TOKEN")
+    secret = os.environ.get("TCP_V2_SESSION_SECRET")
+    return AdminAuthSettings(
+        admin_token=token if token else None,
+        session_secret=secret if secret else None,
+    )
 
 
 def resolve_state_paths(cfg: TCPConfig, base_dir: str | Path) -> Tuple[Path, Path, Path]:

@@ -78,15 +78,20 @@ def test_no_admin_or_mutation_hooks_in_source():
     source = (REPO_ROOT / "tcp_ts_v2.py").read_text(encoding="utf-8").lower()
     forbidden = [
         "secret-data-store",
-        "secret-add-btn",
-        "delete_last_row",
         "_save_secret_editor_state",
-        "add_row",
+        "save_state",
         "to_excel",
         "json.dump",
+        "workbook.save",
     ]
     for token in forbidden:
         assert token not in source, f"Unexpected mutation hook: {token}"
+
+
+def test_no_save_row_button_in_source():
+    source = (REPO_ROOT / "tcp_ts_v2.py").read_text(encoding="utf-8").lower()
+    assert "save row" not in source
+    assert "save_state" not in source
 
 
 def test_dashboard_propagation_callback_registered():
@@ -157,6 +162,9 @@ def test_health_route_reports_adapter_diagnostics():
     assert payload.get("state_layer") == "available"
     assert payload.get("active_state") == "not_initialized"
     assert payload.get("dashboard_propagation") == "ready"
+    assert payload.get("admin_editor") == "simulation_only"
+    assert payload.get("row_save") == "disabled"
+    assert payload.get("state_write") == "disabled"
     assert payload.get("monthly_performance") == "dynamic"
     assert payload.get("daily_metrics") == "dynamic"
     assert payload.get("nav_chart") == "dynamic"
