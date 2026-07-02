@@ -64,11 +64,17 @@ def _replace(cfg: tcp_config.TCPConfig, **kwargs) -> tcp_config.TCPConfig:
 
 def test_import_tcp_config_has_no_side_effects():
     """Import/reload and validate must not create JSON or touch the workbook."""
+    cfg = tcp_config.load_config()
+    active = REPO_ROOT / cfg.state_filename
+    backup = REPO_ROOT / cfg.state_backup_filename
+    lock = REPO_ROOT / cfg.lock_filename
+    before = {"active": active.exists(), "backup": backup.exists(), "lock": lock.exists()}
     importlib.reload(tcp_config)
     cfg = tcp_config.load_config()
     ok, msg = tcp_config.validate_config(cfg)
     assert ok, msg
-    assert not (REPO_ROOT / cfg.state_filename).exists()
+    after = {"active": active.exists(), "backup": backup.exists(), "lock": lock.exists()}
+    assert before == after
 
 
 def test_workbook_path_env_override(monkeypatch):

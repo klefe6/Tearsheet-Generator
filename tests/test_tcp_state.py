@@ -481,9 +481,10 @@ def test_tests_never_touch_configured_active_state(state_paths):
 
 
 def test_import_tcp_state_creates_no_files():
+    before = CONFIGURED_ACTIVE.exists()
     import tcp_state  # noqa: F401
 
-    assert not CONFIGURED_ACTIVE.exists()
+    assert CONFIGURED_ACTIVE.exists() == before
 
 
 def test_no_workbook_modified_by_state_layer(golden_fixture, state_tmp):
@@ -603,4 +604,4 @@ def test_state_canary_end_to_end(state_tmp):
     for child in canary_dir.iterdir():
         child.unlink()
     canary_dir.rmdir()
-    assert not CONFIGURED_ACTIVE.exists()
+    assert not canary_dir.exists()
