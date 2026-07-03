@@ -42,6 +42,33 @@ STRATEGY_DESCRIPTION = (
     "as core design principles."
 )
 
+RIGHT_TABLE_GAPS = "30px"
+
+TERMS_AND_FEES: Tuple[Tuple[str, str], ...] = (
+    ("Investment Type", "Managed Account"),
+    ("Fee Structure", "0% Annual / 20% Performance"),
+    ("High Water Mark", "Yes"),
+    ("Lockup Period", "None"),
+    ("Liquidity", "Daily"),
+    ("Notional Funding", "Yes"),
+    ("Execution FCM", "StoneX Financial"),
+)
+
+INVESTOR_OTHER_NOTES = (
+    "TCP allows for efficient, opportunistic deployments of capital in and out of the program in fixed "
+    "nominal trading levels of $150,000 per tranche. The program will remain perpetually funded with permanent "
+    "capital of the Introducing Broker in the form of a minimum of two tranches ($300,000 Nominal). The IB "
+    "itself also has historically allocated more tranches, and closed tranches profitably, and plans on "
+    "continuing in doing so, in what it considers opportunities for additional capital deployment based on "
+    "drawdowns of the program itself, with expected recoveries. This capability is allowed for investors as "
+    "well, with the announcement of any tranche opening or closure by/of the IB shared for complete disclosure "
+    "and additional visibility for the benefit of all potential participants."
+)
+
+TRANSACTION_FEE_FOOTNOTE = (
+    "* Give up fee is waived if account is traded at StoneX Financial."
+)
+
 ACCOUNT_STATISTICS: Tuple[Tuple[str, str, str], ...] = (
     ("Nominal Assets Being Traded in the Program", "$50,000", "0"),
     ("Total Accounts/Tranches Opened", "2", "0"),
@@ -287,6 +314,271 @@ def build_strategy_overview() -> dbc.Card:
         outline=True,
         className="mb-4",
         id="tcp-strategy-overview-card",
+    )
+
+
+def _blank_row(colspan: int = 3, *, gap: str = LEFT_TABLE_GAPS) -> html.Tr:
+    return html.Tr([html.Td("", colSpan=colspan, style={"height": gap})])
+
+
+def _checked_items(items: Sequence[Tuple[bool, str]]) -> List[Any]:
+    return [html.Tr([html.Td(_mark(checked, label))]) for checked, label in items]
+
+
+def _terms_and_fees_table() -> dbc.Table:
+    return dbc.Table(
+        [
+            html.Thead(html.Tr([html.Th("Terms & Fees"), html.Th("Details")])),
+            html.Tbody([html.Tr([html.Td(label), html.Td(value)]) for label, value in TERMS_AND_FEES]),
+        ],
+        striped=False,
+        bordered=True,
+        hover=True,
+        size="sm",
+        className="mb-3 table-responsive",
+        id="tcp-terms-and-fees-table",
+    )
+
+
+def _account_stats_table() -> dbc.Table:
+    return dbc.Table(
+        [
+            html.Thead(
+                html.Tr([html.Th("Account Stats"), html.Th("Proprietary"), html.Th("Client")])
+            ),
+            html.Tbody(
+                [html.Tr([html.Td(label), html.Td(prop), html.Td(client)]) for label, prop, client in ACCOUNT_STATISTICS]
+            ),
+        ],
+        striped=False,
+        bordered=True,
+        hover=True,
+        size="sm",
+        className="mb-3 table-responsive",
+        id="tcp-account-stats-table",
+    )
+
+
+def build_terms_and_fees() -> dbc.Card:
+    return dbc.Card(
+        [
+            dbc.CardHeader(html.H6("Terms & Fees", className="mb-0")),
+            dbc.CardBody(_terms_and_fees_table()),
+        ],
+        outline=True,
+        className="mb-4 d-none",
+        id="tcp-terms-and-fees-card",
+    )
+
+
+def build_investor_information() -> dbc.Card:
+    return dbc.Card(
+        [
+            dbc.CardHeader(html.H6("Investor Information", className="mb-0"), id="tcp-investor-information-header"),
+            dbc.CardBody(
+                html.Div(
+                    [
+                        _terms_and_fees_table(),
+                        _account_stats_table(),
+                        html.P("Other Notes:", className="small fw-bold mb-1 mt-2", id="tcp-investor-other-notes-heading"),
+                        html.P(
+                            INVESTOR_OTHER_NOTES,
+                            className="mt-2",
+                            style={"fontSize": "0.9rem"},
+                            id="tcp-investor-other-notes",
+                        ),
+                    ],
+                    id="tcp-investor-information-body",
+                )
+            ),
+        ],
+        outline=True,
+        className="mb-4",
+        id="tcp-investor-information-card",
+    )
+
+
+def build_trading_universe() -> dbc.Card:
+    na_exchanges = [
+        (True, "CME Group / MGX"),
+        (False, "ICE US"),
+        (False, "CFE"),
+        (False, "LME"),
+        (False, "NODAL"),
+    ]
+    europe_exchanges = [
+        (False, "ICE UK / Financial"),
+        (False, "Eurex"),
+        (False, "Euronext"),
+        (False, "DGCX"),
+    ]
+    asia_exchanges = [
+        (False, "SGX"),
+        (False, "HKFE"),
+        (False, "OSE / TOCOM"),
+        (False, "SAFEX"),
+        (False, "Bursa Malaysia"),
+    ]
+    financial_products = [
+        (False, "Equity Indices"),
+        (False, "Volatility Indices"),
+        (False, "Interest Rates"),
+        (False, "Currencies"),
+    ]
+    ag_products = [
+        (False, "Grains / Oilseeds"),
+        (False, "Softs"),
+        (False, "Dairy"),
+        (False, "Meats / Livestock"),
+    ]
+    other_products = [
+        (False, "Metals"),
+        (False, "Renewable Fuels"),
+        (True, "Cryptocurrencies"),
+    ]
+    ratio_rows = [
+        (True, "0-10 %", "94.8 %"),
+        (True, "10-25 %", "5.2 %"),
+        (False, "25-50 %", "-- %"),
+        (False, "50 %+", "-- %"),
+    ]
+    fee_rows = [
+        ("Commission", "$0.20"),
+        ("Exchange Fee", "$0.10"),
+        ("NFA Fee", "$0.00"),
+        ("Give Up Fee", "$0.00"),
+    ]
+
+    ratio_grid_children: List[Any] = [
+        html.Div("Ranges", className="ratio-header"),
+        html.Div("% time in range (daily)", className="ratio-header"),
+    ]
+    for checked, range_label, pct in ratio_rows:
+        color = PRIMARY_COLOR if checked else SECONDARY_COLOR
+        symbol = "✓" if checked else "✗"
+        ratio_grid_children.extend(
+            [
+                html.Div(html.Span(f"{symbol} {range_label}", style={"color": color, "marginRight": "0.5rem"}), className="ratio-cell"),
+                html.Div(html.Span(pct, style={"color": color, "marginRight": "0.5rem"}), className="ratio-cell"),
+            ]
+        )
+
+    tbody_rows: List[Any] = [
+        html.Tr([html.Th("Product Exchanges", colSpan=3, className=HEADER_ROW_CLASS)]),
+        html.Tr([html.Td("North America"), html.Td("Europe"), html.Td("Asia/Pacific")]),
+        html.Tr(
+            [
+                html.Td(_checked_items(na_exchanges)),
+                html.Td(_checked_items(europe_exchanges)),
+                html.Td(_checked_items(asia_exchanges)),
+            ]
+        ),
+        _blank_row(gap=RIGHT_TABLE_GAPS),
+        html.Tr([html.Th("Futures Products Traded", colSpan=3, className=HEADER_ROW_CLASS)]),
+        html.Tr([html.Td("Financial Instruments"), html.Td("Agricultural Commodities"), html.Td("Other Asset Classes")]),
+        html.Tr(
+            [
+                html.Td(_checked_items(financial_products)),
+                html.Td(_checked_items(ag_products)),
+                html.Td(_checked_items(other_products)),
+            ]
+        ),
+        _blank_row(gap=RIGHT_TABLE_GAPS),
+        html.Tr([html.Th("Risk Management", colSpan=3, className=HEADER_ROW_CLASS)]),
+        html.Tr([html.Td("Average Margin Usage"), html.Td("5.00 %"), html.Td()]),
+        html.Tr(
+            [
+                html.Td(
+                    [
+                        html.Div("Exchange Margin Ratios"),
+                        html.Small(
+                            "This is not cost-bearing, but is a measure of the exchange-required minimum funds "
+                            "to be in the account versus the Nominal Trade Size (150 k)",
+                            style={
+                                "fontSize": "0.75rem",
+                                "color": "#6c757d",
+                                "marginTop": "0.25rem",
+                                "display": "block",
+                            },
+                        ),
+                    ]
+                ),
+                html.Td(html.Div(ratio_grid_children, className="ratio-grid"), colSpan=2),
+            ]
+        ),
+        html.Tr(
+            [
+                html.Td("Risk Controls", id="risk-controls"),
+                html.Td(
+                    [
+                        html.Tr([html.Td(_mark(False, "Stop Losses"), id="stop-losses")]),
+                        html.Tr([html.Td(_mark(True, "VaR Considerations"), id="var-considerations")]),
+                    ]
+                ),
+                html.Td(
+                    [
+                        html.Tr([html.Td(_mark(False, "Position Reductions"), id="position-reductions")]),
+                        html.Tr([html.Td(_mark(True, "Position Offsets (Hedges)"), id="position-hedges")]),
+                    ]
+                ),
+            ]
+        ),
+        dbc.Tooltip("Mechanisms to limit potential losses in volatile markets.", target="risk-controls", placement="top"),
+        dbc.Tooltip(
+            "Orders that close a position at a predefined price to cap losses.",
+            target="stop-losses",
+            placement="top",
+        ),
+        dbc.Tooltip(
+            "Statistical estimate of potential loss over a given period at a chosen confidence level.",
+            target="var-considerations",
+            placement="top",
+        ),
+        dbc.Tooltip(
+            "Gradual decrease in position size to reduce exposure as risk increases.",
+            target="position-reductions",
+            placement="top",
+        ),
+        dbc.Tooltip(
+            "Taking opposite or correlated positions to hedge against adverse moves.",
+            target="position-hedges",
+            placement="top",
+        ),
+        _blank_row(gap=RIGHT_TABLE_GAPS),
+        html.Tr([html.Th("Transaction Fees (per Contract)", colSpan=3, className=HEADER_ROW_CLASS)]),
+        *[html.Tr([html.Td(label), html.Td(value), html.Td()]) for label, value in fee_rows],
+        html.Tr([html.Td(html.Strong("Total All-In Fees")), html.Td(html.Strong("$0.30")), html.Td()]),
+        html.Tr(
+            [
+                html.Td(
+                    html.Small(TRANSACTION_FEE_FOOTNOTE, style={"fontStyle": "italic", "color": "#6c757d"}),
+                    colSpan=3,
+                )
+            ]
+        ),
+    ]
+
+    return dbc.Card(
+        [
+            dbc.CardHeader(
+                html.H6("Trading Universe & Risk Profile", className="mb-0"),
+                className=HEADER_ROW_CLASS,
+            ),
+            dbc.CardBody(
+                dbc.Table(
+                    [html.Tbody(tbody_rows)],
+                    striped=False,
+                    bordered=True,
+                    hover=True,
+                    size="sm",
+                    className="table-responsive mb-0",
+                    id="tcp-trading-universe-table",
+                )
+            ),
+        ],
+        outline=True,
+        className="mb-4",
+        id="tcp-trading-universe-card",
     )
 
 

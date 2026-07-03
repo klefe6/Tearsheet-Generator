@@ -114,8 +114,15 @@ def test_account_stat_labels_present(layout_text, label, _prop, _client):
     assert label in layout_text
 
 
-def test_no_stonex_wording(layout_text):
-    assert "StoneX" not in layout_text
+def test_no_stonex_in_trading_exchange_lists(layout_text):
+    section = layout_text.split("Trading Universe & Risk Profile", 1)[1].split("Investor Information", 1)[0]
+    pre_footnote = section.split("* Give up fee")[0]
+    assert "StoneX" not in pre_footnote
+
+
+def test_stonex_in_terms_and_fees_only(layout_text):
+    assert "StoneX Financial" in layout_text
+    assert "Execution FCM" in layout_text
 
 
 def test_no_plus500_wording(layout_text):

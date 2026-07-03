@@ -49,15 +49,16 @@ from tcp_runtime_state import (
     state_record_to_fields,
 )
 from tcp_public_sections import (
-    build_account_statistics,
     build_firm_intro,
     build_inline_performance_disclaimers,
+    build_investor_information,
     build_nav_footnotes,
     build_public_disclosure_panel,
     build_public_footer,
     build_public_gate_wrapper,
     build_strategy_overview,
     build_tcp_header,
+    build_trading_universe,
     build_two_column_shell_row,
     resolve_public_gate_styles,
 )
@@ -238,12 +239,12 @@ def build_preview_layout(cfg: TCPConfig, state: PreviewState) -> html.Div:
                 html.Div(_monthly_table_component(propagation.monthly_calendar), id="monthly-calendar-container"),
                 build_two_column_shell_row(
                     build_strategy_overview(),
-                    html.Div(id="tcp-trading-universe-deferred", className="tcp-deferred-column"),
+                    build_trading_universe(),
                     row_id="tcp-strategy-row",
                 ),
                 build_two_column_shell_row(
                     performance_metrics_card,
-                    build_account_statistics(),
+                    build_investor_information(),
                     row_id="tcp-performance-account-row",
                 ),
                 *build_inline_performance_disclaimers(),

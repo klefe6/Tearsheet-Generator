@@ -55,6 +55,19 @@ def _v2_public_source() -> str:
     )
 
 
+def test_v2_restored_step_11c_public_sections():
+    combined = _v2_public_source()
+    for needle in (
+        "Trading Universe & Risk Profile",
+        "Investor Information",
+        "Terms & Fees",
+        "Other Notes:",
+        "Cryptocurrencies",
+    ):
+        assert needle in combined
+    assert "Maximum Drawdown Profile" not in combined
+
+
 def test_v2_restored_step_11b_public_sections():
     combined = _v2_public_source()
     for needle in (
@@ -67,12 +80,7 @@ def test_v2_restored_step_11b_public_sections():
         "disclaimer_text",
     ):
         assert needle in combined
-    for needle in (
-        "Trading Universe & Risk Profile",
-        "Maximum Drawdown Profile",
-        "Terms & Fees",
-    ):
-        assert needle not in combined
+    assert "Maximum Drawdown Profile" not in combined
 
 
 def test_v2_has_dynamic_core_sections():
@@ -121,10 +129,12 @@ def test_audit_reports_missing_required_sections():
         "proprietary_disclosure",
         "footer_contact",
         "nav_footnotes",
+        "trading_universe",
+        "investor_information",
+        "terms_and_fees",
     ):
         assert by_id[section_id].v2_present, section_id
-    for section_id in ("trading_universe", "drawdown_table", "terms_and_fees"):
-        assert not by_id[section_id].v2_present, section_id
+    assert not by_id["drawdown_table"].v2_present
 
 
 def test_audit_json_is_deterministic():

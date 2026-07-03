@@ -266,3 +266,48 @@ Do **not** implement in this step. Suggested slices:
 ### Dynamic core (unchanged)
 
 Monthly table, daily metrics, NAV chart, and current-date labels remain dynamic via `canonical-nav-store` / `propagate_tcp_dashboard`.
+
+---
+
+## Step 11C — Trading Universe and investor terms (2026-07-03)
+
+**Branch:** `feature/tcp-v2-public-shell`  
+**Prior commit:** `f975474`  
+**Module extensions:** `tcp_public_sections.py` — `build_trading_universe()`, `build_investor_information()`, `TERMS_AND_FEES`
+
+### Reclassified sections
+
+| Section | After Step 11C | Notes |
+| ------- | -------------- | ----- |
+| Trading Universe & Risk Profile | **PRESENT_BUT_VISUALLY_DIFFERENT** | Committed v1 exchanges, products, risk, transaction fees; tooltips preserved |
+| Investor Information card | **MATCHES_V1** | Terms & Fees + Account Stats + Other Notes in one card |
+| Terms & Fees table | **MATCHES_V1** | Static `TERMS_AND_FEES` including Execution FCM |
+| Account Stats (within investor card) | **MATCHES_V1** | Proprietary/client columns unchanged from v1 |
+| Other Notes / tranche narrative | **MATCHES_V1** | $150k tranche / $300k nominal copy |
+| Transaction fee footnote | **MATCHES_V1** | Committed StoneX give-up footnote in trading universe card |
+
+### Review items (operator/legal)
+
+| Item | Status |
+| ---- | ------ |
+| `$150,000` tranche / `$300,000` nominal in Other Notes vs `$50,000` account-stats display | **NEEDS_KEVIN_DECISION** — committed v1 has both; preserved for parity |
+| StoneX in Terms & Fees and transaction footnote | Committed v1 — not from `tearsheet_disclosure.py` |
+| Untracked `tearsheet_disclosure.py` | Still not used |
+
+### Revised completion estimates (post-11C)
+
+| Area | Before 11C | After 11C |
+| ---- | ---------: | --------: |
+| Public content parity | 72% | **88%** |
+| Visual parity | 58% | **72%** |
+| Mobile parity | 48% | **55%** |
+| **Entire project** | ~68% | **~76%** |
+
+### Still deferred
+
+- Maximum Drawdown Profile table
+- Drawdown chart
+- Benchmark comparison
+- Final chart/table styling (Step 11E)
+- Final mobile acceptance (Step 11F)
+- Production cutover (Step 11G)
