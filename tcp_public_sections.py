@@ -23,6 +23,17 @@ SECONDARY_COLOR = "#CCCCCC"
 LEFT_TABLE_GAPS = "20px"
 HEADER_ROW_CLASS = "bg-light"
 
+# Step 11F desktop visual contract markers (presentation only).
+PUBLIC_CARD_CLASS = "mb-4 tcp-public-card"
+DESKTOP_TWO_COLUMN_ROW_CLASS = "mb-2 tcp-two-column-row"
+MONTHLY_PERFORMANCE_CLASS = "table-responsive tcp-monthly-performance"
+NAV_CHART_CONTAINER_CLASS = "chart-container tcp-nav-chart-container"
+PREVIEW_BANNER_CLASS = "text-center fw-bold tcp-preview-banner"
+MODE_ALERT_CLASS = "tcp-mode-alert"
+DAILY_METRICS_TABLE_CLASS = "fixed-cols tcp-daily-metrics-table"
+DRAWDOWN_TABLE_CLASS = "fixed-cols tcp-drawdown-table"
+RUNTIME_DIAGNOSTICS_CARD_ID = "tcp-runtime-diagnostics-card"
+
 GATE_SCREEN_STYLE: Dict[str, str] = {"padding": "4rem", "textAlign": "center"}
 GATE_ACCEPT_TEXT = (
     "By clicking “Accept,” you agree that the performance figures shown are strictly "
@@ -133,6 +144,50 @@ DISCLOSURE_PANEL_STYLE = {
     "borderLeft": "4px solid #6c757d",
     "fontSize": "0.875rem",
 }
+
+
+def monthly_performance_cell_class(value: str) -> str:
+    """Map monthly percentage display strings to presentation classes (no calculation)."""
+    if value is None or str(value).strip() == "":
+        return "tcp-monthly-cell-empty"
+    try:
+        numeric = float(str(value).replace("%", "").strip())
+    except ValueError:
+        return "tcp-monthly-cell-neutral"
+    if numeric > 0:
+        return "tcp-monthly-cell-positive"
+    if numeric < 0:
+        return "tcp-monthly-cell-negative"
+    return "tcp-monthly-cell-neutral"
+
+
+def benchmark_notice_class(status: str) -> str:
+    """CSS class for benchmark ready/stale/unavailable notices."""
+    mapping = {
+        "ready": "tcp-benchmark-notice-ready",
+        "stale": "tcp-benchmark-notice-stale",
+        "unavailable": "tcp-benchmark-notice-unavailable",
+    }
+    return f"py-2 mb-2 small tcp-benchmark-notice {mapping.get(status, 'tcp-benchmark-notice-stale')}"
+
+
+def desktop_visual_contract() -> Dict[str, str]:
+    """Stable presentation contract markers for structural tests."""
+    return {
+        "page_container": "page-container",
+        "header_row": "header-row",
+        "two_column_row": DESKTOP_TWO_COLUMN_ROW_CLASS,
+        "public_card": PUBLIC_CARD_CLASS,
+        "monthly_performance": MONTHLY_PERFORMANCE_CLASS,
+        "nav_chart_container": NAV_CHART_CONTAINER_CLASS,
+        "preview_banner": PREVIEW_BANNER_CLASS,
+        "daily_metrics_table": DAILY_METRICS_TABLE_CLASS,
+        "drawdown_table": DRAWDOWN_TABLE_CLASS,
+        "benchmark_notice_prefix": "tcp-benchmark-notice",
+        "disclosure_panel": "tcp-public-disclosure-panel",
+        "footer_row": "tcp-public-footer-row",
+        "runtime_diagnostics": RUNTIME_DIAGNOSTICS_CARD_ID,
+    }
 
 
 def required_copy_fragments() -> Dict[str, str]:
@@ -313,7 +368,7 @@ def build_strategy_overview() -> dbc.Card:
             ),
         ],
         outline=True,
-        className="mb-4",
+        className=PUBLIC_CARD_CLASS,
         id="tcp-strategy-overview-card",
     )
 
@@ -367,7 +422,7 @@ def build_terms_and_fees() -> dbc.Card:
             dbc.CardBody(_terms_and_fees_table()),
         ],
         outline=True,
-        className="mb-4 d-none",
+        className=f"{PUBLIC_CARD_CLASS} d-none",
         id="tcp-terms-and-fees-card",
     )
 
@@ -394,7 +449,7 @@ def build_investor_information() -> dbc.Card:
             ),
         ],
         outline=True,
-        className="mb-4",
+        className=PUBLIC_CARD_CLASS,
         id="tcp-investor-information-card",
     )
 
@@ -578,7 +633,7 @@ def build_trading_universe() -> dbc.Card:
             ),
         ],
         outline=True,
-        className="mb-4",
+        className=PUBLIC_CARD_CLASS,
         id="tcp-trading-universe-card",
     )
 
@@ -598,14 +653,14 @@ def build_drawdown_profile_card(
     )
     return dbc.Card(
         [
-            dbc.CardHeader(html.H6("Maximum Drawdown Profile", className="mb-0")),
+            dbc.CardHeader(html.H6("Maximum Drawdown Profile", className="mb-0"), className=HEADER_ROW_CLASS),
             dbc.CardBody(body_children),
             dbc.CardFooter(
                 html.Small(DRAWDOWN_FOOTNOTE, className="text-muted fst-italic", id="tcp-drawdown-footnote"),
             ),
         ],
         outline=True,
-        className="mb-4",
+        className=PUBLIC_CARD_CLASS,
         id="tcp-drawdown-profile-card",
     )
 
@@ -643,7 +698,7 @@ def build_account_statistics() -> dbc.Card:
             ),
         ],
         outline=True,
-        className="mb-4",
+        className=PUBLIC_CARD_CLASS,
         id="tcp-account-stats-card",
     )
 
@@ -729,7 +784,7 @@ def build_two_column_shell_row(
     children = [dbc.Col(left, width=12, lg=6, className="mb-4 mb-lg-0")]
     if right is not None:
         children.append(dbc.Col(right, width=12, lg=6))
-    return dbc.Row(children, className="mb-2 tcp-two-column-row", id=row_id)
+    return dbc.Row(children, className=DESKTOP_TWO_COLUMN_ROW_CLASS, id=row_id)
 
 
 def resolve_public_gate_styles(n_clicks: Optional[int]) -> Tuple[Dict[str, str], Dict[str, str]]:

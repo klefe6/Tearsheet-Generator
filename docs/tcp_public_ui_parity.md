@@ -444,15 +444,88 @@ Benchmark comparison is **not a hard cutover blocker** if stale cache or unavail
 | Deployment readiness | 15% | **22%** |
 | **Entire project** | ~82% | **~86%** |
 
-### Still deferred
+### Still deferred (post-11E, pre-11F)
 
-- Final chart/table styling polish (Step 11F)
-- Final mobile acceptance (Step 11G)
+- Dedicated mobile/responsive acceptance (Step 11G)
 - Production cutover (Step 11H)
 
-### Remaining visual/mobile limitations (post-11E)
+### Remaining visual/mobile limitations (post-11E, pre-11F)
 
 - Drawdown/benchmark table column widths and header wrapping are functional but not final-polished at 390px.
 - Full-page mobile screenshots still require scroll-to-section validation; no dedicated responsive acceptance pass yet.
 - Preview-only runtime diagnostics banner remains above the public shell.
 - Do **not** mark final styling, mobile acceptance, or cutover complete from Step 11E alone.
+
+---
+
+## Step 11F — Desktop visual parity (2026-07-03)
+
+**Branch:** `feature/tcp-v2-public-shell`  
+**Prior commit:** `806bd1a`  
+**Presentation modules:** `assets/styles.css`, `tcp_public_sections.py`, `tcp_ts_v2.py`, `tcp_dashboard.py` (axis label only)
+
+### Desktop canary results
+
+| Viewport | Result | Notes |
+| -------- | ------ | ----- |
+| **1440 px** | **PASS** | Gate/header hierarchy, two-column rows, monthly/daily/NAV/drawdown/benchmark/footer all visible; no page-level overflow |
+| **1280 px** | **PASS** | Two-column balance retained; NAV chart container 900px centered; monthly table readable; no clipping |
+| **1024 px** | **PASS** | Transitional layout usable; account-stats Proprietary/Client distinct; disclosures/footer present; no horizontal overflow |
+
+Benchmark **ready** state observed live (`SPXTR source: quantstats. Data as of 2026-07-02.`). Unavailable/stale styling classes validated in unit tests (`tcp-benchmark-notice-*`).
+
+### Reclassified desktop styling
+
+| Area | After Step 11F | Classification |
+| ---- | -------------- | -------------- |
+| Page shell / `#page-container` | v1 stylesheet wired (`/assets/styles.css`); 90% width, max 90rem | **MATCHES_V1** |
+| Header grey band | `header-row` + `bg-light` preserved | **MATCHES_V1** |
+| Two-column cards | `tcp-two-column-row` with equal-height lg columns | **PRESENT_BUT_VISUALLY_DIFFERENT** (preview banner above) |
+| Public cards | Shared `tcp-public-card` padding/shadow/header band | **MATCHES_V1** |
+| Monthly performance table | Grey headers, 95% width, pos/neg cell classes | **MATCHES_V1** |
+| Daily metrics card | `tcp-daily-metrics-table` + grey card header | **MATCHES_V1** |
+| NAV chart | `chart-container` max 900px; y-axis **Value Added Daily Index** | **MATCHES_V1** |
+| Drawdown profile | Grey card header, `tcp-drawdown-table`, footnote | **MATCHES_V1** |
+| Benchmark notice | Distinct ready/stale/unavailable classes | **INTENTIONAL_V2_IMPROVEMENT** |
+| Account statistics | Proprietary/Client columns unchanged | **MATCHES_V1** |
+| Disclosures/footer | Panel + footer spacing preserved | **MATCHES_V1** |
+| Preview diagnostics card | Subordinate opacity (`tcp-runtime-diagnostics-card`) | **INTENTIONAL_V2_IMPROVEMENT** |
+
+### Validation evidence
+
+| Suite | Result | Duration |
+| ----- | ------ | --------: |
+| `tests/test_tcp_desktop_visual_parity.py` | **22 passed** | 305.94s |
+| Step 11F focused regression group | **286 passed, 1 skipped** | 675.25s |
+| Full `pytest tests` | **Deferred** to final branch-integration gate (presentation-only slice) |
+
+Structural contracts: `tests/test_tcp_desktop_visual_parity.py` (22 tests, no pixel screenshots).
+
+### Remaining desktop gaps
+
+- Preview-only banner still visible above public shell (intentional for 8312).
+- Runtime diagnostics card remains at page bottom (preview only).
+- Fine-grained v1 print/PDF styling not re-audited.
+
+### Remaining mobile-specific issues (not Step 11F)
+
+- No dedicated 390px acceptance pass (Step 11G).
+- Drawdown/benchmark column wrapping at narrow widths not final-polished.
+- Full-page mobile screenshots still require scroll-to-section validation.
+
+### Revised completion estimates (post-11F)
+
+| Area | Before 11F | After 11F |
+| ---- | ---------: | --------: |
+| Public content parity | 97% | **97%** |
+| Desktop visual parity | 82% | **94%** |
+| Mobile parity | 63% | **63%** |
+| Deployment readiness | 22% | **28%** |
+| **Entire project** | ~86% | **~89%** |
+
+### Still deferred
+
+- Dedicated mobile/responsive acceptance (Step 11G)
+- TCP access/Daily Values parity (new branch)
+- Final complete integration suite + branch integration
+- Production cutover (Step 11H)

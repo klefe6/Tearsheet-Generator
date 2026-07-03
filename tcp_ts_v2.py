@@ -58,6 +58,16 @@ from tcp_runtime_state import (
     state_record_to_fields,
 )
 from tcp_public_sections import (
+    DAILY_METRICS_TABLE_CLASS,
+    DRAWDOWN_TABLE_CLASS,
+    HEADER_ROW_CLASS,
+    MODE_ALERT_CLASS,
+    MONTHLY_PERFORMANCE_CLASS,
+    NAV_CHART_CONTAINER_CLASS,
+    PREVIEW_BANNER_CLASS,
+    PUBLIC_CARD_CLASS,
+    RUNTIME_DIAGNOSTICS_CARD_ID,
+    benchmark_notice_class,
     build_firm_intro,
     build_inline_performance_disclaimers,
     build_drawdown_profile_card,
@@ -70,6 +80,7 @@ from tcp_public_sections import (
     build_tcp_header,
     build_trading_universe,
     build_two_column_shell_row,
+    monthly_performance_cell_class,
     resolve_public_gate_styles,
 )
 from tcp_state import StatePaths
@@ -130,29 +141,39 @@ def load_preview_state(cfg: TCPConfig) -> PreviewState:
 def _monthly_table_component(monthly_df: pd.DataFrame) -> html.Div:
     if monthly_df.empty:
         return html.P("No monthly performance data available.", className="text-muted text-center")
-    return dbc.Table(
-        [
-            html.Thead(
-                html.Tr(
-                    [html.Th(col, style={"backgroundColor": GREY_BG, "color": "#000"}) for col in monthly_df.columns]
-                )
-            ),
-            html.Tbody(
-                [html.Tr([html.Td(monthly_df.iloc[i][col]) for col in monthly_df.columns]) for i in range(len(monthly_df))]
-            ),
-        ],
-        bordered=True,
-        hover=True,
-        size="sm",
-        className="table-responsive mb-5",
-        style={"width": "95%", "margin": "0 auto", "pageBreakInside": "avoid"},
+    body_rows = []
+    for i in range(len(monthly_df)):
+        cells = []
+        for col in monthly_df.columns:
+            value = monthly_df.iloc[i][col]
+            if col == "Year":
+                cells.append(html.Td(value, className="fw-semibold"))
+            else:
+                cells.append(html.Td(value, className=monthly_performance_cell_class(str(value))))
+        body_rows.append(html.Tr(cells))
+    return html.Div(
+        dbc.Table(
+            [
+                html.Thead(
+                    html.Tr(
+                        [html.Th(col, style={"backgroundColor": GREY_BG, "color": "#000"}) for col in monthly_df.columns]
+                    )
+                ),
+                html.Tbody(body_rows),
+            ],
+            bordered=True,
+            hover=True,
+            size="sm",
+            className=MONTHLY_PERFORMANCE_CLASS,
+        ),
+        className="tcp-monthly-performance-wrapper",
     )
 
 
 def _daily_perf_table_component(daily_df: pd.DataFrame) -> html.Div:
     if daily_df.empty:
         return html.P("No daily performance metrics available.", className="text-muted")
-    return dbc.Table.from_dataframe(daily_df, striped=False, bordered=True, hover=True, size="sm", className="fixed-cols")
+    return dbc.Table.from_dataframe(daily_df, striped=False, bordered=True, hover=True, size="sm", className=DAILY_METRICS_TABLE_CLASS)
 
 
 def _drawdown_table_component(drawdown_df: pd.DataFrame) -> html.Div:
@@ -164,7 +185,7 @@ def _drawdown_table_component(drawdown_df: pd.DataFrame) -> html.Div:
         bordered=True,
         hover=True,
         size="sm",
-        className="fixed-cols",
+        className=DRAWDOWN_TABLE_CLASS,
     )
 
 
@@ -237,12 +258,12 @@ def _benchmark_notice_component(result: BenchmarkResult) -> html.Div:
     message = benchmark_status_message(result)
     if not message:
         return html.Div()
-    color = "info"
+    alert_color = "info"
     if result.status == BENCHMARK_STATUS_UNAVAILABLE:
-        color = "warning"
+        alert_color = "warning"
     elif result.status == BENCHMARK_STATUS_STALE:
-        color = "secondary"
-    return dbc.Alert(message, color=color, className="py-2 mb-2 small")
+        alert_color = "secondary"
+    return dbc.Alert(message, color=alert_color, className=benchmark_notice_class(result.status))
 
 
 def build_preview_layout(cfg: TCPConfig, state: PreviewState, benchmark_result: BenchmarkResult) -> html.Div:
@@ -261,11 +282,11 @@ def build_preview_layout(cfg: TCPConfig, state: PreviewState, benchmark_result: 
 
     performance_metrics_card = dbc.Card(
         [
-            dbc.CardHeader(html.H6("Performance Metrics", className="mb-0")),
+            dbc.CardHeader(html.H6("Performance Metrics", className="mb-0"), className=HEADER_ROW_CLASS),
             dbc.CardBody(html.Div(_daily_perf_table_component(propagation.daily_performance), id="daily-perf-container")),
         ],
         outline=True,
-        className="mb-4",
+        className=PUBLIC_CARD_CLASS,
         id="tcp-performance-metrics-card",
     )
 
@@ -278,7 +299,7 @@ def build_preview_layout(cfg: TCPConfig, state: PreviewState, benchmark_result: 
             className="py-4",
             id="page-container",
             children=[
-                dbc.Alert(cfg.preview_label, color="warning", className="text-center fw-bold"),
+                dbc.Alert(cfg.preview_label, color="warning", className=PREVIEW_BANNER_CLASS),
                 *build_tcp_header(
                     _logo_src(),
                     _desktop_label_children(
@@ -291,12 +312,16 @@ def build_preview_layout(cfg: TCPConfig, state: PreviewState, benchmark_result: 
                     ),
                 ),
                 build_firm_intro(),
-                dbc.Alert(mode_alert, color="info"),
-                dcc.Graph(
-                    id="nav-preview-graph",
-                    figure=propagation.nav_figure,
-                    config={"displayModeBar": False, "responsive": True},
-                    style={"width": "100%", "maxWidth": "100%", "maxHeight": "400px", "pageBreakInside": "avoid"},
+                dbc.Alert(mode_alert, color="info", className=MODE_ALERT_CLASS),
+                html.Div(
+                    dcc.Graph(
+                        id="nav-preview-graph",
+                        figure=propagation.nav_figure,
+                        config={"displayModeBar": False, "responsive": True},
+                        style={"width": "100%", "maxWidth": "100%", "maxHeight": "400px", "pageBreakInside": "avoid"},
+                    ),
+                    className=NAV_CHART_CONTAINER_CLASS,
+                    id="tcp-nav-chart-container",
                 ),
                 *build_nav_footnotes(),
                 html.H5("Performance Summary", className="text-center mb-2"),
@@ -342,6 +367,7 @@ def build_preview_layout(cfg: TCPConfig, state: PreviewState, benchmark_result: 
                         ),
                     ],
                     className="mt-3",
+                    id=RUNTIME_DIAGNOSTICS_CARD_ID,
                 ),
             ],
         ),
@@ -694,7 +720,7 @@ def create_app(
 
     app = dash.Dash(
         __name__,
-        external_stylesheets=[dbc.themes.BOOTSTRAP],
+        external_stylesheets=[dbc.themes.BOOTSTRAP, "/assets/styles.css"],
         suppress_callback_exceptions=True,
         title="H&C – TCP v2 Preview",
     )

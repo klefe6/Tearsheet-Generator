@@ -238,3 +238,169 @@ body, #page-container {
 .ratio-grid .ratio-cell {
   white-space: nowrap;
 }
+
+/* ===========================
+   TCP v2 desktop public shell (Step 11F)
+   =========================== */
+
+.tcp-preview-banner {
+  font-size: 0.9rem;
+  margin-bottom: calc(var(--spacing-unit) * 0.75);
+  padding: 0.5rem 1rem;
+}
+
+.tcp-mode-alert {
+  font-size: 0.875rem;
+  margin-bottom: var(--spacing-unit);
+}
+
+.tcp-public-card {
+  border-color: #dee2e6;
+  box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.04);
+}
+
+.tcp-public-card .card-header {
+  background-color: var(--header-bg) !important;
+  border-bottom: 1px solid #dee2e6;
+  padding: 0.5rem 0.75rem;
+}
+
+.tcp-public-card .card-body {
+  padding: 0.75rem;
+}
+
+.tcp-two-column-row {
+  align-items: stretch;
+}
+
+@media (min-width: 992px) {
+  .tcp-two-column-row > [class*="col-"] {
+    display: flex;
+    flex-direction: column;
+  }
+  .tcp-two-column-row .tcp-public-card {
+    flex: 1 1 auto;
+    height: 100%;
+  }
+}
+
+.tcp-monthly-performance {
+  width: 95%;
+  margin: 0 auto var(--spacing-unit);
+  page-break-inside: avoid;
+}
+
+.tcp-monthly-performance table {
+  font-size: 0.875rem;
+}
+
+.tcp-monthly-performance th,
+.tcp-monthly-performance td {
+  text-align: center;
+  vertical-align: middle;
+  padding: 0.35rem 0.5rem;
+}
+
+.tcp-monthly-cell-positive {
+  color: var(--primary-color);
+  font-weight: 500;
+}
+
+.tcp-monthly-cell-negative {
+  color: #b02a37;
+  font-weight: 500;
+}
+
+.tcp-monthly-cell-neutral {
+  color: #212529;
+}
+
+.tcp-monthly-cell-empty {
+  color: #adb5bd;
+}
+
+.tcp-daily-metrics-table {
+  margin-bottom: 0;
+}
+
+.tcp-daily-metrics-table td,
+.tcp-daily-metrics-table th {
+  vertical-align: middle;
+}
+
+.tcp-drawdown-table {
+  margin-bottom: 0;
+}
+
+.tcp-drawdown-table td:first-child,
+.tcp-drawdown-table th:first-child {
+  font-weight: 600;
+}
+
+.tcp-benchmark-notice {
+  font-size: 0.85rem;
+  margin-bottom: 0.5rem;
+}
+
+.tcp-benchmark-notice-ready {
+  background-color: #e7f1ff;
+  border-color: #b6d4fe;
+  color: #084298;
+}
+
+.tcp-benchmark-notice-stale {
+  background-color: #f8f9fa;
+  border-color: #dee2e6;
+  color: #495057;
+}
+
+.tcp-benchmark-notice-unavailable {
+  background-color: #fff3cd;
+  border-color: #ffecb5;
+  color: #664d03;
+}
+
+.tcp-nav-chart-container,
+.chart-container {
+  width: 100%;
+  max-width: 900px;
+  margin: 0 auto var(--spacing-unit);
+  page-break-inside: avoid;
+}
+
+#nav-preview-graph,
+#NAV-graph {
+  width: 100% !important;
+  height: auto !important;
+  min-height: 320px;
+}
+
+@media (min-width: 1024px) and (max-width: 1439px) {
+  #page-container {
+    width: 94%;
+    padding: calc(var(--spacing-unit) * 0.75);
+  }
+  .tcp-monthly-performance table {
+    font-size: 0.82rem;
+  }
+}
+
+@media (min-width: 1440px) {
+  #page-container {
+    width: 90%;
+  }
+}
+
+#tcp-public-disclosure-panel {
+  margin-top: calc(var(--spacing-unit) * 0.5);
+}
+
+#tcp-public-footer-row {
+  margin-top: calc(var(--spacing-unit) * 0.5);
+  padding-bottom: var(--spacing-unit);
+}
+
+#tcp-runtime-diagnostics-card {
+  opacity: 0.85;
+  font-size: 0.85rem;
+}

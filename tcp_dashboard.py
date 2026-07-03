@@ -331,7 +331,7 @@ def build_tcp_nav_figure(
             plot_bgcolor=GREY_BG,
             paper_bgcolor=WHITE_BG,
             xaxis_title="Date",
-            yaxis_title="NAV",
+            yaxis_title="Value Added Daily Index",
         )
         return fig
 
@@ -355,7 +355,7 @@ def build_tcp_nav_figure(
         plot_bgcolor=GREY_BG,
         paper_bgcolor=WHITE_BG,
         xaxis_title="Date",
-        yaxis_title="NAV",
+        yaxis_title="Value Added Daily Index",
         autosize=True,
         margin={"l": 40, "r": 10, "t": 40, "b": 40},
     )
