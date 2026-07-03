@@ -45,18 +45,34 @@ def test_v1_head_contains_core_public_sections():
         assert needle in source
 
 
-def test_v2_missing_major_v1_sections():
-    source = (REPO_ROOT / "tcp_ts_v2.py").read_text(encoding="utf-8")
+def _v2_public_source() -> str:
+    root = REPO_ROOT
+    return "\n".join(
+        [
+            (root / "tcp_ts_v2.py").read_text(encoding="utf-8"),
+            (root / "tcp_public_sections.py").read_text(encoding="utf-8"),
+        ]
+    )
+
+
+def test_v2_restored_step_11b_public_sections():
+    combined = _v2_public_source()
     for needle in (
+        "Important Notice",
         "Strategy Overview",
-        "Trading Universe & Risk Profile",
-        "Maximum Drawdown Profile",
         "Account Stats",
         "Important Disclosure:",
         "footer_contact",
-        "Important Notice",
+        "hcdisclaimer_text",
+        "disclaimer_text",
     ):
-        assert needle not in source
+        assert needle in combined
+    for needle in (
+        "Trading Universe & Risk Profile",
+        "Maximum Drawdown Profile",
+        "Terms & Fees",
+    ):
+        assert needle not in combined
 
 
 def test_v2_has_dynamic_core_sections():
@@ -83,28 +99,40 @@ def test_v2_does_not_reference_tkp_product():
 
 
 def test_v2_preserves_tcp_product_naming():
-    source = (REPO_ROOT / "tcp_ts_v2.py").read_text(encoding="utf-8")
-    assert "The Crypto Program" in source
+    combined = _v2_public_source()
+    assert "The Crypto Program" in combined
 
 
 def test_audit_reports_missing_required_sections():
     report = audit_sources(
         v1_text=_head_file("tcp_ts.py"),
-        v2_text=(REPO_ROOT / "tcp_ts_v2.py").read_text(encoding="utf-8"),
+        v2_text=_v2_public_source(),
         v1_label="HEAD",
-        v2_label="v2",
+        v2_label="v2+public",
     )
-    missing = [s for s in report.sections if s.classification == "MISSING_REQUIRED"]
-    assert len(missing) >= 8
-    assert report.verdict.lower().find("cutover") >= 0 or "incomplete" in report.verdict.lower()
+    by_id = {s.section_id: s for s in report.sections}
+    for section_id in (
+        "gate_notice",
+        "firm_description",
+        "strategy_overview",
+        "account_stats_columns",
+        "hcdisclaimer",
+        "general_disclaimer",
+        "proprietary_disclosure",
+        "footer_contact",
+        "nav_footnotes",
+    ):
+        assert by_id[section_id].v2_present, section_id
+    for section_id in ("trading_universe", "drawdown_table", "terms_and_fees"):
+        assert not by_id[section_id].v2_present, section_id
 
 
 def test_audit_json_is_deterministic():
     report = audit_sources(
         v1_text=_head_file("tcp_ts.py"),
-        v2_text=(REPO_ROOT / "tcp_ts_v2.py").read_text(encoding="utf-8"),
+        v2_text=_v2_public_source(),
         v1_label="HEAD",
-        v2_label="v2",
+        v2_label="v2+public",
     )
     a = json.dumps(report.to_dict(), sort_keys=True)
     b = json.dumps(report.to_dict(), sort_keys=True)

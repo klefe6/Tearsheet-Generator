@@ -48,6 +48,19 @@ from tcp_runtime_state import (
     persist_delete_last_row,
     state_record_to_fields,
 )
+from tcp_public_sections import (
+    build_account_statistics,
+    build_firm_intro,
+    build_inline_performance_disclaimers,
+    build_nav_footnotes,
+    build_public_disclosure_panel,
+    build_public_footer,
+    build_public_gate_wrapper,
+    build_strategy_overview,
+    build_tcp_header,
+    build_two_column_shell_row,
+    resolve_public_gate_styles,
+)
 from tcp_state import StatePaths
 
 logging.basicConfig(level=logging.INFO)
@@ -182,102 +195,84 @@ def build_preview_layout(cfg: TCPConfig, state: PreviewState) -> html.Div:
     if snapshot.warning:
         mode_alert = snapshot.warning
 
-    return html.Div(
+    performance_metrics_card = dbc.Card(
         [
-            dcc.Store(id="canonical-nav-store", storage_type="memory", data=snapshot.canonical_nav),
-            dcc.Location(id="url", refresh=False),
-            dbc.Container(
-                fluid=True,
-                className="py-4",
-                children=[
-                    dbc.Alert(cfg.preview_label, color="warning", className="text-center fw-bold"),
-                    dbc.Row(
-                        [
-                            dbc.Col(html.Img(src=_logo_src(), style={"maxHeight": "80px"}, alt="Hughes & Company Logo"), width=2),
-                            dbc.Col(
-                                [
-                                    html.H2("Hughes & Company LLC", className="text-center"),
-                                    html.H5("The Crypto Program", className="text-center text-muted"),
-                                ],
-                                width=8,
-                            ),
-                            dbc.Col(
-                                html.Div(
-                                    _desktop_label_children(
-                                        propagation.desktop_label.header,
-                                        propagation.desktop_label.date_line,
-                                    ),
-                                    id="data-current-label-desktop",
-                                    className="d-none d-md-block",
-                                ),
-                                width=2,
-                            ),
-                        ],
-                        className="mb-1",
-                    ),
-                    dbc.Row(
-                        [
-                            dbc.Col(
-                                html.Div(
-                                    _mobile_label_children(
-                                        propagation.mobile_label.header,
-                                        propagation.mobile_label.date_line,
-                                    ),
-                                    id="data-current-label-mobile",
-                                    className="d-block d-md-none text-end",
-                                ),
-                                width=12,
-                            )
-                        ],
-                        className="mb-3",
-                    ),
-                    dbc.Alert(mode_alert, color="info"),
-                    dcc.Graph(
-                        id="nav-preview-graph",
-                        figure=propagation.nav_figure,
-                        config={"displayModeBar": False, "responsive": True},
-                        style={"width": "100%", "maxWidth": "100%", "maxHeight": "400px", "pageBreakInside": "avoid"},
-                    ),
-                    html.P(
-                        "This chart visualizes the growth of a $50,000 investment from inception to today. "
-                        "NAV stands for Net Asset Value; it reflects the non-compounded performance, net of all fees.",
-                        className="text-center small",
-                        style={"marginTop": "2rem"},
-                    ),
-                    html.H5("Performance Summary", className="text-center mb-2"),
-                    html.Div(_monthly_table_component(propagation.monthly_calendar), id="monthly-calendar-container"),
-                    dbc.Card(
-                        [
-                            dbc.CardHeader(html.H6("Performance Metrics", className="mb-0")),
-                            dbc.CardBody(html.Div(_daily_perf_table_component(propagation.daily_performance), id="daily-perf-container")),
-                        ],
-                        outline=True,
-                        className="mb-4",
-                    ),
-                    html.Div(id="admin-editor-container", style={"display": "none"}),
-                    dbc.Card(
-                        [
-                            dbc.CardHeader("Runtime diagnostics (preview only)"),
-                            dbc.CardBody(
-                                [
-                                    html.P([html.Strong("State mode: "), cfg.state_mode], className="mb-1"),
-                                    html.P([html.Strong("Data source: "), snapshot.data_source], className="mb-1"),
-                                    html.P([html.Strong("Recovery status: "), snapshot.recovery_status], className="mb-1"),
-                                    html.P([html.Strong("State revision: "), str(snapshot.state_revision or "—")], className="mb-1"),
-                                    html.P([html.Strong("Completed ledger rows: "), str(meta.completed_row_count)], className="mb-1"),
-                                    html.P([html.Strong("First completed date: "), first_completed], className="mb-1"),
-                                    html.P([html.Strong("Latest completed date: "), propagation.desktop_label.date_line], className="mb-1"),
-                                    html.P([html.Strong("Workbook: "), cfg.workbook_filename, " · Sheet: ", cfg.sheet_name], className="mb-1 small text-muted"),
-                                    html.P(html.A("Admin login", href="/admin/login", className="small"), className="mb-0"),
-                                ]
-                            ),
-                        ],
-                        className="mt-3",
-                    ),
-                ],
-            ),
-        ]
+            dbc.CardHeader(html.H6("Performance Metrics", className="mb-0")),
+            dbc.CardBody(html.Div(_daily_perf_table_component(propagation.daily_performance), id="daily-perf-container")),
+        ],
+        outline=True,
+        className="mb-4",
+        id="tcp-performance-metrics-card",
     )
+
+    main_children = [
+        dcc.Store(id="canonical-nav-store", storage_type="memory", data=snapshot.canonical_nav),
+        dcc.Location(id="url", refresh=False),
+        dbc.Container(
+            fluid=True,
+            className="py-4",
+            id="page-container",
+            children=[
+                dbc.Alert(cfg.preview_label, color="warning", className="text-center fw-bold"),
+                *build_tcp_header(
+                    _logo_src(),
+                    _desktop_label_children(
+                        propagation.desktop_label.header,
+                        propagation.desktop_label.date_line,
+                    ),
+                    _mobile_label_children(
+                        propagation.mobile_label.header,
+                        propagation.mobile_label.date_line,
+                    ),
+                ),
+                build_firm_intro(),
+                dbc.Alert(mode_alert, color="info"),
+                dcc.Graph(
+                    id="nav-preview-graph",
+                    figure=propagation.nav_figure,
+                    config={"displayModeBar": False, "responsive": True},
+                    style={"width": "100%", "maxWidth": "100%", "maxHeight": "400px", "pageBreakInside": "avoid"},
+                ),
+                *build_nav_footnotes(),
+                html.H5("Performance Summary", className="text-center mb-2"),
+                html.Div(_monthly_table_component(propagation.monthly_calendar), id="monthly-calendar-container"),
+                build_two_column_shell_row(
+                    build_strategy_overview(),
+                    html.Div(id="tcp-trading-universe-deferred", className="tcp-deferred-column"),
+                    row_id="tcp-strategy-row",
+                ),
+                build_two_column_shell_row(
+                    performance_metrics_card,
+                    build_account_statistics(),
+                    row_id="tcp-performance-account-row",
+                ),
+                *build_inline_performance_disclaimers(),
+                build_public_disclosure_panel(),
+                build_public_footer(),
+                html.Div(id="admin-editor-container", style={"display": "none"}),
+                dbc.Card(
+                    [
+                        dbc.CardHeader("Runtime diagnostics (preview only)"),
+                        dbc.CardBody(
+                            [
+                                html.P([html.Strong("State mode: "), cfg.state_mode], className="mb-1"),
+                                html.P([html.Strong("Data source: "), snapshot.data_source], className="mb-1"),
+                                html.P([html.Strong("Recovery status: "), snapshot.recovery_status], className="mb-1"),
+                                html.P([html.Strong("State revision: "), str(snapshot.state_revision or "—")], className="mb-1"),
+                                html.P([html.Strong("Completed ledger rows: "), str(meta.completed_row_count)], className="mb-1"),
+                                html.P([html.Strong("First completed date: "), first_completed], className="mb-1"),
+                                html.P([html.Strong("Latest completed date: "), propagation.desktop_label.date_line], className="mb-1"),
+                                html.P([html.Strong("Workbook: "), cfg.workbook_filename, " · Sheet: ", cfg.sheet_name], className="mb-1 small text-muted"),
+                                html.P(html.A("Admin login", href="/admin/login", className="small"), className="mb-0"),
+                            ]
+                        ),
+                    ],
+                    className="mt-3",
+                ),
+            ],
+        ),
+    ]
+    return build_public_gate_wrapper(main_children)
 
 
 def _health_payload(cfg: TCPConfig, state: PreviewState, auth_manager: AdminAuthManager) -> dict:
@@ -311,6 +306,16 @@ def _health_payload(cfg: TCPConfig, state: PreviewState, auth_manager: AdminAuth
     else:
         base.update({"adapter_status": "error", "error_type": state.error_type, "message": state.error})
     return base
+
+
+def _register_public_gate_callback(app: dash.Dash) -> None:
+    @app.callback(
+        Output("disclaimer-screen", "style"),
+        Output("main-app", "style"),
+        Input("accept-button", "n_clicks"),
+    )
+    def _reveal_public_layout(n_clicks):
+        return resolve_public_gate_styles(n_clicks)
 
 
 def _register_dashboard_callback(app: dash.Dash) -> None:
@@ -614,6 +619,7 @@ def create_app(
 
     if state.snapshot is not None:
         app.layout = build_preview_layout(cfg, state)
+        _register_public_gate_callback(app)
         _register_dashboard_callback(app)
         _register_admin_callbacks(app, cfg, paths, runtime_holder, auth_manager)
     else:

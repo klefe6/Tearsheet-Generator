@@ -218,4 +218,51 @@ Do **not** implement in this step. Suggested slices:
 
 ## Production-readiness verdict
 
-**Public cutover remains blocked.** Backend and admin layers are production-grade; the public tearsheet is not yet a visual or functional replacement for TCP v1.
+**Public cutover remains blocked** on Trading Universe, Investor Information / Terms & Fees (Step 11C), drawdown profile, and final mobile polish — but the **Step 11B shell** (gate, header, strategy, account stats, disclaimers, footer) is now restored in `feature/tcp-v2-public-shell`.
+
+---
+
+## Step 11B — Public shell restoration (2026-07-02)
+
+**Branch:** `feature/tcp-v2-public-shell`  
+**Base commit:** `b5fce4b`  
+**Module:** `tcp_public_sections.py` (committed v1 copy; no workbook/JSON I/O)
+
+### Reclassified sections
+
+| Section | After Step 11B | Notes |
+| ------- | -------------- | ----- |
+| Accept gate / Important Notice | **MATCHES_V1** | Presentation-only session reveal; not admin auth |
+| Header grey band + styling | **PRESENT_BUT_VISUALLY_DIFFERENT** | Grey `header-row` restored; preview banner remains above |
+| Firm description / principals | **MATCHES_V1** | Committed v1 copy |
+| NAV footnotes (2 paragraphs) | **MATCHES_V1** | Primary + percentage/entry-timing footnote |
+| Strategy Overview (BTC/ETH) | **PRESENT_BUT_VISUALLY_DIFFERENT** | Description + core methodology rows; full v1 nested tables simplified |
+| Account Stats (proprietary/client) | **MATCHES_V1** | Static `ACCOUNT_STATISTICS`; standalone card (not full Investor Information) |
+| H&C / general disclaimer paragraphs | **MATCHES_V1** | Committed v1 wording |
+| Important Disclosure panel | **MATCHES_V1** | Committed v1 inline copy (not untracked `tearsheet_disclosure.py`) |
+| Footer contact | **MATCHES_V1** | Committed v1 `footer_contact` |
+| Desktop two-column shell | **PRESENT_BUT_VISUALLY_DIFFERENT** | Strategy \| deferred column; metrics \| account stats |
+| Trading Universe & Risk Profile | **MISSING_REQUIRED** | Deferred to Step 11C |
+| Investor Information card | **MISSING_REQUIRED** | Deferred to Step 11C (Terms & Fees, tranche narrative) |
+| Terms & Fees table | **MISSING_REQUIRED** | Deferred to Step 11C |
+| Maximum Drawdown Profile | **MISSING_REQUIRED** | Deferred |
+| Final mobile parity | **MISSING_REQUIRED** | Deferred to Step 11F |
+
+### Revised completion estimates (post-11B)
+
+| Area | Before 11B | After 11B |
+| ---- | ---------: | --------: |
+| Public content parity | 30% | **72%** |
+| Visual parity | 25% | **58%** |
+| Mobile parity | 40% | **48%** |
+| **Entire project** | ~58% | **~68%** |
+
+### Disclosure source
+
+- **Used:** `git show b5fce4b:tcp_ts.py` (committed v1 wording via `tcp_public_sections.py`)
+- **Not used:** untracked `tearsheet_disclosure.py` in dirty main checkout — defer newer wording for legal/operator review
+- **Working-tree v1 delta:** main checkout `tcp_ts.py` modified locally; not used as Step 11B source
+
+### Dynamic core (unchanged)
+
+Monthly table, daily metrics, NAV chart, and current-date labels remain dynamic via `canonical-nav-store` / `propagate_tcp_dashboard`.
