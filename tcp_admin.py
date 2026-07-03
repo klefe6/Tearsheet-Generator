@@ -12,7 +12,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Union
 
 import dash_bootstrap_components as dbc
-from dash import dash_table, dcc, html
+from dash import dash_table, html
 
 from tcp_calculations import (
     CalculationInvariantError,
@@ -528,8 +528,6 @@ def build_admin_editor_layout(
     writable: bool = False,
     warning: Optional[str] = None,
 ) -> html.Div:
-    table = build_ledger_datatable(rows, LEDGER_TABLE_COLUMNS)
-    table.style_data_conditional = ledger_table_style_conditional(rows)
     return html.Div(
         [
             build_simulation_banner(persistence_enabled=persistence_enabled and writable),
@@ -542,35 +540,10 @@ def build_admin_editor_layout(
                 writable=writable,
                 warning=warning,
             ),
-            dbc.Row(
-                [
-                    dbc.Col(
-                        [
-                            dbc.Button("Add Row", id="admin-open-add-modal", color="success", size="sm", className="me-2"),
-                            dbc.Button(
-                                "Delete Last Row",
-                                id="admin-open-delete-modal",
-                                color="danger",
-                                size="sm",
-                                outline=True,
-                                className="me-2",
-                            ),
-                            build_export_disabled_control(),
-                            html.A("Logout", href="/admin/logout", className="btn btn-link btn-sm"),
-                        ],
-                        width=12,
-                    )
-                ],
-                className="mb-3",
-            ),
             build_column_selector(),
-            html.Div(table, id="admin-ledger-table-container"),
             build_add_row_modal(),
             build_add_row_preview_modal(persistence_enabled=persistence_enabled and writable),
             build_delete_modal(persistence_enabled=persistence_enabled and writable),
-            dcc.Store(id="admin-proposed-row-store", storage_type="memory", data=None),
-            dcc.Store(id="admin-state-revision-store", storage_type="memory", data=state_revision),
-            dcc.Store(id="admin-delete-final-date-store", storage_type="memory", data=latest_date),
         ]
     )
 

@@ -149,7 +149,8 @@ def test_required_v1_copy_fragments(layout_text):
 def test_public_accept_gate_exists(layout_text):
     assert "disclaimer-screen" in layout_text
     assert "accept-button" in layout_text
-    assert "Important Notice" in layout_text
+    assert "Important Notic" in layout_text
+    assert "secret-notice-e" in layout_text
 
 
 def test_gate_initially_conceals_main_app(layout_text):

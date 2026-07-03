@@ -81,7 +81,18 @@ from tcp_public_sections import (
     build_trading_universe,
     build_two_column_shell_row,
     monthly_performance_cell_class,
-    resolve_public_gate_styles,
+)
+from tcp_daily_values import (
+    DAILY_VALUES_SECTION_ID,
+    DAILY_VALUES_TABLE_ID,
+    DAILY_VALUES_TOOLBAR_ID,
+    PUBLIC_GATE_ACCEPTED_STORE_ID,
+    build_daily_values_section,
+    project_public_daily_rows,
+    public_daily_column_defs,
+    resolve_access_visibility,
+    resolve_daily_values_toolbar_style,
+    rows_from_records,
 )
 from tcp_state import StatePaths
 
@@ -293,6 +304,13 @@ def build_preview_layout(cfg: TCPConfig, state: PreviewState, benchmark_result: 
     main_children = [
         dcc.Store(id="canonical-nav-store", storage_type="memory", data=snapshot.canonical_nav),
         dcc.Store(id="benchmark-store", storage_type="memory", data=benchmark_result.to_store_dict()),
+        dcc.Store(id="admin-proposed-row-store", storage_type="memory", data=None),
+        dcc.Store(id="admin-state-revision-store", storage_type="memory", data=snapshot.state_revision),
+        dcc.Store(
+            id="admin-delete-final-date-store",
+            storage_type="memory",
+            data=meta.latest_completed_date.isoformat() if meta.latest_completed_date else None,
+        ),
         dcc.Location(id="url", refresh=False),
         dbc.Container(
             fluid=True,
@@ -346,6 +364,11 @@ def build_preview_layout(cfg: TCPConfig, state: PreviewState, benchmark_result: 
                     row_id="tcp-performance-account-row",
                 ),
                 *build_inline_performance_disclaimers(),
+                build_daily_values_section(
+                    snapshot.records,
+                    meta,
+                    data_source=snapshot.data_source,
+                ),
                 build_public_disclosure_panel(),
                 build_public_footer(),
                 html.Div(id="admin-editor-container", style={"display": "none"}),
@@ -408,14 +431,43 @@ def _health_payload(cfg: TCPConfig, state: PreviewState, auth_manager: AdminAuth
     return base
 
 
-def _register_public_gate_callback(app: dash.Dash) -> None:
+def _register_access_callbacks(app: dash.Dash, auth_manager: AdminAuthManager) -> None:
+    @app.callback(
+        Output("url", "pathname"),
+        Input("secret-notice-e", "n_clicks"),
+        prevent_initial_call=True,
+    )
+    def _redirect_admin_login(n_clicks):
+        if n_clicks:
+            return "/admin/login"
+        return no_update
+
     @app.callback(
         Output("disclaimer-screen", "style"),
         Output("main-app", "style"),
+        Output(DAILY_VALUES_SECTION_ID, "style"),
+        Output(PUBLIC_GATE_ACCEPTED_STORE_ID, "data"),
         Input("accept-button", "n_clicks"),
+        Input("url", "pathname"),
+        State(PUBLIC_GATE_ACCEPTED_STORE_ID, "data"),
     )
-    def _reveal_public_layout(n_clicks):
-        return resolve_public_gate_styles(n_clicks)
+    def _control_public_access(accept_clicks, _pathname, public_accepted):
+        gate_style, main_style, daily_style, store_value = resolve_access_visibility(
+            accept_clicks=accept_clicks,
+            admin_authenticated=auth_manager.is_authenticated(session),
+            public_accepted=bool(public_accepted),
+        )
+        return gate_style, main_style, daily_style, store_value
+
+    @app.callback(
+        Output(DAILY_VALUES_TOOLBAR_ID, "style"),
+        Input("url", "pathname"),
+        Input("admin-state-revision-store", "data"),
+    )
+    def _toggle_daily_values_admin_toolbar(_pathname, _revision):
+        return resolve_daily_values_toolbar_style(
+            admin_authenticated=auth_manager.is_authenticated(session),
+        )
 
 
 def _register_dashboard_callback(app: dash.Dash, runtime_holder: Dict[str, Any]) -> None:
@@ -488,28 +540,30 @@ def _register_admin_callbacks(
         return editor, {"display": "block"}
 
     @app.callback(
-        Output("admin-ledger-table", "data"),
-        Output("admin-ledger-table", "style_data_conditional"),
+        Output(DAILY_VALUES_TABLE_ID, "data"),
+        Output(DAILY_VALUES_TABLE_ID, "style_data_conditional"),
         Input("admin-state-revision-store", "data"),
         prevent_initial_call=False,
     )
-    def _refresh_ledger_table(_revision):
-        if not auth_manager.is_authenticated(session):
-            return no_update, no_update
-        rows = ledger_records_to_rows(current_snapshot().records)
-        display_rows = [{k: v for k, v in row.items() if k != "_highlight"} for row in rows]
-        return display_rows, ledger_table_style_conditional(rows)
+    def _refresh_daily_values_table(_revision):
+        snap = current_snapshot()
+        rows = ledger_records_to_rows(snap.records)
+        return project_public_daily_rows(rows), ledger_table_style_conditional(rows)
 
     @app.callback(
-        Output("admin-ledger-table", "columns"),
+        Output(DAILY_VALUES_TABLE_ID, "columns"),
         Input("admin-column-selector", "value"),
         prevent_initial_call=False,
     )
-    def _update_visible_columns(visible_columns):
+    def _update_daily_values_columns(visible_columns):
+        from tcp_daily_values import PUBLIC_DAILY_COLUMN_IDS
+
         if not auth_manager.is_authenticated(session):
-            return no_update
-        visible = visible_columns or []
-        return datatable_column_defs(visible)
+            return public_daily_column_defs()
+        selected = [col for col in (visible_columns or list(PUBLIC_DAILY_COLUMN_IDS)) if col in PUBLIC_DAILY_COLUMN_IDS]
+        if not selected:
+            selected = list(PUBLIC_DAILY_COLUMN_IDS)
+        return public_daily_column_defs(selected)
 
     @app.callback(
         Output("admin-add-modal", "is_open"),
@@ -730,7 +784,7 @@ def create_app(
     if state.snapshot is not None:
         benchmark_result = _resolve_benchmark_result(runtime_holder)
         app.layout = build_preview_layout(cfg, state, benchmark_result)
-        _register_public_gate_callback(app)
+        _register_access_callbacks(app, auth_manager)
         _register_dashboard_callback(app, runtime_holder)
         _register_admin_callbacks(app, cfg, paths, runtime_holder, auth_manager)
     else:

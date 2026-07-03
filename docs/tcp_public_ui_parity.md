@@ -526,6 +526,66 @@ Structural contracts: `tests/test_tcp_desktop_visual_parity.py` (22 tests, no pi
 ### Still deferred
 
 - Dedicated mobile/responsive acceptance (Step 11G)
-- TCP access/Daily Values parity (new branch)
 - Final complete integration suite + branch integration
 - Production cutover (Step 11H)
+
+---
+
+## Step 11G — Access flow and shared Daily Values (`feature/tcp-v2-access-daily-values`)
+
+**Date:** 2026-07-03  
+**Base:** `f0005c9` (`feature/tcp-v2-public-shell`)
+
+### TKP reference behavior (audited)
+
+| Behavior | TKP |
+| -------- | --- |
+| Gate title | “Important Notic” + clickable **e** (`secret-notice-e`) |
+| **e** click | Sets `access-mode: secret` and reveals a secret admin Daily Returns table |
+| Accept | Reveals public site; public collapsed Daily Returns at page bottom |
+| Public Daily Returns | Read-only columns: `#Day`, `Date`, `NAV`, `Perc. Net`, `$PL`, `HWM`, `Fee (20%)` |
+| Admin logout | Not separately audited in TKP shell for this slice |
+
+### TCP v2 behavior (intentional differences)
+
+| Behavior | TCP v2 |
+| -------- | ------ |
+| Gate title | “Important Notic” + clickable **e** (same affordance) |
+| **e** click | Redirects to `/admin/login` — does **not** grant admin by itself |
+| Accept | Reveals public site + shared Daily Values (read-only); stores acceptance in session `public-gate-accepted-store` |
+| Admin login | Flask session (`tcp_v2_admin_authenticated`); reveals public page without second Accept |
+| Daily Values | Single `tcp-daily-values-table` from canonical runtime snapshot |
+| Admin toolbar | Add Row / Delete Last Row in `tcp-daily-values-admin-toolbar` (hidden unless authenticated) |
+| Logout | Clears Flask admin session; if public accepted, remains in read-only public mode |
+
+**Security not copied from TKP:** TCP does not expose a client-side “secret mode” table or URL tokens. Admin authorization is server-side only; public Accept is presentation-only.
+
+### Daily Values contract
+
+| Item | Detail |
+| ---- | ------ |
+| Position | Bottom of public content, before disclosure panel and footer |
+| Canonical source | `RuntimeSnapshot.records` → `ledger_records_to_rows` → `project_public_daily_rows` |
+| Public columns | `#`, `Date`, `NAV`, `%Net`, `$PL`, `HWM`, `Inc. Fee` |
+| Public permissions | Read-only DataTable, pagination, native sort, row count + latest date summary |
+| Admin controls | Same table + Add/Delete modals (existing server-side validation) |
+| Synchronization | `admin-state-revision-store` refresh updates table; successful Add/Delete updates canonical NAV store and dashboard outputs |
+
+### Mobile placement
+
+Daily Values card uses `overflowX: auto` on the table. Gate **e** and Accept remain usable at ~390px; admin toolbar stacks with Bootstrap buttons.
+
+### Validation evidence
+
+Focused pytest group:
+
+```text
+tests/test_tcp_access_daily_values.py
+tests/test_tcp_public_shell.py
+tests/test_tcp_admin.py
+tests/test_tcp_v2_shell.py
+tests/test_tcp_runtime_state.py
+```
+
+Browser canary on port **8312** with disposable JSON state and admin token (production **8302** untouched).
+

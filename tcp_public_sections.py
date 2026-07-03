@@ -198,7 +198,7 @@ def required_copy_fragments() -> Dict[str, str]:
         "strategy_heading": "Strategy Overview",
         "bitcoin": "Bitcoin",
         "ethereum": "Ethereum",
-        "gate_title": "Important Notice",
+        "gate_title": "Important Notic",
         "account_stats_heading": "Account Stats",
         "proprietary_heading": "Proprietary",
         "client_heading": "Client",
@@ -220,7 +220,19 @@ def build_public_accept_gate() -> html.Div:
         style=GATE_SCREEN_STYLE,
         children=html.Div(
             children=[
-                html.H2("Important Notice", className="mb-4", id="tcp-public-gate-title"),
+                html.H2(
+                    [
+                        "Important Notic",
+                        html.Span(
+                            "e",
+                            id="secret-notice-e",
+                            n_clicks=0,
+                            style={"cursor": "pointer", "userSelect": "none"},
+                        ),
+                    ],
+                    className="mb-4",
+                    id="tcp-public-gate-title",
+                ),
                 html.P(GATE_ACCEPT_TEXT, className="lead mb-5", id="tcp-public-gate-copy"),
                 dbc.Button("Accept & Continue", id="accept-button", color="primary"),
             ],
@@ -795,9 +807,12 @@ def resolve_public_gate_styles(n_clicks: Optional[int]) -> Tuple[Dict[str, str],
 
 
 def build_public_gate_wrapper(main_children: List[Any]) -> html.Div:
+    from tcp_daily_values import PUBLIC_GATE_ACCEPTED_STORE_ID
+
     return html.Div(
         [
             dcc.Store(id="disclaimer-accepted", storage_type="session"),
+            dcc.Store(id=PUBLIC_GATE_ACCEPTED_STORE_ID, storage_type="session", data=False),
             build_public_accept_gate(),
             html.Div(id="main-app", style={"display": "none"}, children=main_children),
         ],
