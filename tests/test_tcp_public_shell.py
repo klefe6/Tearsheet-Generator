@@ -223,6 +223,11 @@ def test_nav_graph_present(layout_text):
     assert "nav-preview-graph" in layout_text
 
 
+def test_drawdown_container_present(layout_text):
+    assert "drawdown-profile-container" in layout_text
+    assert "Maximum Drawdown Profile" in layout_text
+
+
 def test_desktop_date_label_present(layout_text):
     assert "data-current-label-desktop" in layout_text
 

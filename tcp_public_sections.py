@@ -12,6 +12,7 @@ import dash_bootstrap_components as dbc
 from dash import dcc, html
 
 from tcp_dashboard import GREY_BG
+from tcp_drawdown import DRAWDOWN_FOOTNOTE
 
 HNC_LEGAL_NAME = "Hughes & Company LLC"
 TCP_PRODUCT_NAME = "The Crypto Program"
@@ -579,6 +580,23 @@ def build_trading_universe() -> dbc.Card:
         outline=True,
         className="mb-4",
         id="tcp-trading-universe-card",
+    )
+
+
+def build_drawdown_profile_card(table_children: Any) -> dbc.Card:
+    return dbc.Card(
+        [
+            dbc.CardHeader(html.H6("Maximum Drawdown Profile", className="mb-0")),
+            dbc.CardBody(
+                html.Div(table_children, id="drawdown-profile-container", className="table-responsive"),
+            ),
+            dbc.CardFooter(
+                html.Small(DRAWDOWN_FOOTNOTE, className="text-muted fst-italic", id="tcp-drawdown-footnote"),
+            ),
+        ],
+        outline=True,
+        className="mb-4",
+        id="tcp-drawdown-profile-card",
     )
 
 

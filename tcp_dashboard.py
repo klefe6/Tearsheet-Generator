@@ -84,6 +84,7 @@ class DashboardPropagation:
     canonical_records: List[Dict[str, Any]]
     monthly_calendar: pd.DataFrame
     daily_performance: pd.DataFrame
+    drawdown_profile: pd.DataFrame
     nav_figure: go.Figure
     desktop_label: CurrentDataLabels
     mobile_label: CurrentDataLabels
@@ -387,6 +388,8 @@ def propagate_tcp_dashboard(
     canonical_records: Sequence[Mapping[str, Any]],
 ) -> DashboardPropagation:
     """Recompute all Step 7 dynamic outputs from one canonical NAV snapshot."""
+    from tcp_drawdown import build_drawdown_dataframe
+
     records_copy = deepcopy(list(canonical_records))
     nav_series = canonical_records_to_series(records_copy)
     baseline = float(nav_series.iloc[0]) if not nav_series.empty else None
@@ -398,6 +401,7 @@ def propagate_tcp_dashboard(
         canonical_records=records_copy,
         monthly_calendar=recompute_tcp_monthly_performance(records_copy, baseline_nav=baseline),
         daily_performance=recompute_tcp_daily_metrics(records_copy, baseline_nav=baseline),
+        drawdown_profile=build_drawdown_dataframe(records_copy),
         nav_figure=build_tcp_nav_figure(records_copy),
         desktop_label=labels,
         mobile_label=labels,

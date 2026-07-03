@@ -51,6 +51,7 @@ from tcp_runtime_state import (
 from tcp_public_sections import (
     build_firm_intro,
     build_inline_performance_disclaimers,
+    build_drawdown_profile_card,
     build_investor_information,
     build_nav_footnotes,
     build_public_disclosure_panel,
@@ -143,6 +144,19 @@ def _daily_perf_table_component(daily_df: pd.DataFrame) -> html.Div:
     if daily_df.empty:
         return html.P("No daily performance metrics available.", className="text-muted")
     return dbc.Table.from_dataframe(daily_df, striped=False, bordered=True, hover=True, size="sm", className="fixed-cols")
+
+
+def _drawdown_table_component(drawdown_df: pd.DataFrame) -> html.Div:
+    if drawdown_df.empty:
+        return html.P("No drawdown profile data available.", className="text-muted")
+    return dbc.Table.from_dataframe(
+        drawdown_df,
+        striped=False,
+        bordered=True,
+        hover=True,
+        size="sm",
+        className="fixed-cols",
+    )
 
 
 def _desktop_label_children(header: str, date_line: str) -> List[Any]:
@@ -243,7 +257,13 @@ def build_preview_layout(cfg: TCPConfig, state: PreviewState) -> html.Div:
                     row_id="tcp-strategy-row",
                 ),
                 build_two_column_shell_row(
-                    performance_metrics_card,
+                    html.Div(
+                        [
+                            performance_metrics_card,
+                            build_drawdown_profile_card(_drawdown_table_component(propagation.drawdown_profile)),
+                        ],
+                        id="tcp-performance-drawdown-column",
+                    ),
                     build_investor_information(),
                     row_id="tcp-performance-account-row",
                 ),
@@ -324,6 +344,7 @@ def _register_dashboard_callback(app: dash.Dash) -> None:
         Output("nav-preview-graph", "figure"),
         Output("monthly-calendar-container", "children"),
         Output("daily-perf-container", "children"),
+        Output("drawdown-profile-container", "children"),
         Output("data-current-label-desktop", "children"),
         Output("data-current-label-mobile", "children"),
         Input("canonical-nav-store", "data"),
@@ -335,6 +356,7 @@ def _register_dashboard_callback(app: dash.Dash) -> None:
             propagation.nav_figure,
             _monthly_table_component(propagation.monthly_calendar),
             _daily_perf_table_component(propagation.daily_performance),
+            _drawdown_table_component(propagation.drawdown_profile),
             _desktop_label_children(propagation.desktop_label.header, propagation.desktop_label.date_line),
             _mobile_label_children(propagation.mobile_label.header, propagation.mobile_label.date_line),
         )

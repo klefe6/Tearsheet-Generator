@@ -115,6 +115,7 @@ def test_empty_ledger_outputs():
     propagation = propagate_tcp_dashboard([])
     assert propagation.nav_point_count == 0
     assert propagation.monthly_calendar.empty
+    assert propagation.drawdown_profile.empty
     assert propagation.desktop_label.header == LABEL_UNAVAILABLE
     assert isinstance(propagation.nav_figure, go.Figure)
 
@@ -137,6 +138,7 @@ def test_deterministic_propagation(canonical):
     assert first.latest_nav == second.latest_nav
     assert first.monthly_calendar.equals(second.monthly_calendar)
     assert first.daily_performance.equals(second.daily_performance)
+    assert first.drawdown_profile.equals(second.drawdown_profile)
 
 
 def test_first_month_calculation(canonical):

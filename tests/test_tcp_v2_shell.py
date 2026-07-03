@@ -133,6 +133,8 @@ def test_layout_renders_dynamic_sections():
     assert "Performance Metrics" in layout_str
     assert "monthly-calendar-container" in layout_str
     assert "daily-perf-container" in layout_str
+    assert "drawdown-profile-container" in layout_str
+    assert "Maximum Drawdown Profile" in layout_str
     assert "nav-preview-graph" in layout_str
 
 

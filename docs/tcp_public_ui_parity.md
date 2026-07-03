@@ -303,11 +303,73 @@ Monthly table, daily metrics, NAV chart, and current-date labels remain dynamic 
 | Mobile parity | 48% | **55%** |
 | **Entire project** | ~68% | **~76%** |
 
-### Still deferred
+### Still deferred (post-11C, pre-11D)
 
-- Maximum Drawdown Profile table
-- Drawdown chart
 - Benchmark comparison
 - Final chart/table styling (Step 11E)
+- Final mobile acceptance (Step 11F)
+- Production cutover (Step 11G)
+
+---
+
+## Step 11D — Dynamic Maximum Drawdown Profile (2026-07-03)
+
+**Branch:** `feature/tcp-v2-public-shell`  
+**Prior commit:** `e823032`  
+**New module:** `tcp_drawdown.py` — pure baseline-relative worst-episode analysis
+
+### Reclassified sections
+
+| Section | After Step 11D | Notes |
+| ------- | -------------- | ----- |
+| Maximum Drawdown Profile card | **MATCHES_V1** | Heading, metric rows, TCP (Inception) column, footnote |
+| Drawdown summary table | **MATCHES_V1** | Depth through End Date; display precision 0.1% |
+| Drawdown dynamic refresh | **MATCHES_V1** | Via `canonical-nav-store` → `propagate_tcp_dashboard` |
+| Drawdown chart | **N/A — not in committed v1 layout** | `build_drawdown_figure()` exists in v1 source but is not mounted publicly |
+
+### Accepted methodology
+
+| Item | Policy |
+| ---- | ------ |
+| Depth formula | `(nav - running_max) / baseline * 100` (baseline = first NAV) |
+| Episode selection | Single worst drawdown only (committed v1) |
+| NAV input for drawdown | US business-day `asfreq` + forward-fill on canonical ledger dates |
+| Public NAV chart | Unchanged sparse ledger observations (no synthetic fill) |
+| Durations | Calendar `.days` between business-day-filled index timestamps |
+| Unrecovered end | `"TBD"`; recovery text `"Ongoing for N days"` |
+| SPXTR column | Deferred to benchmark step (Step 11E+) |
+
+### Workbook baseline (SHA-256 `1164a8cc…`, 112 rows)
+
+| Metric | TCP (Inception) |
+| ------ | --------------- |
+| Depth | -10.4% |
+| Decline Period | 148 days |
+| Recovery Period | Ongoing for 0 days |
+| Total Duration | Ongoing for 148 days |
+| Start Date | 2026-01-27 |
+| Valley Date | 2026-06-24 |
+| End Date | TBD |
+
+Add/Delete persistence updates drawdown through the same canonical NAV snapshot as monthly/daily/NAV outputs.
+
+### Drawdown-chart decision
+
+**A — Not required for v1 parity.** Committed v1 defines `build_drawdown_figure()` but does not mount it in the public layout. Table restoration is sufficient for this slice.
+
+### Revised completion estimates (post-11D)
+
+| Area | Before 11D | After 11D |
+| ---- | ---------: | --------: |
+| Public content parity | 88% | **94%** |
+| Visual parity | 72% | **78%** |
+| Mobile parity | 55% | **60%** |
+| **Entire project** | ~76% | **~82%** |
+
+### Still deferred
+
+- Benchmark / SPXTR comparison column
+- Drawdown chart (optional; not v1-public)
+- Final chart/table styling polish (Step 11E)
 - Final mobile acceptance (Step 11F)
 - Production cutover (Step 11G)
