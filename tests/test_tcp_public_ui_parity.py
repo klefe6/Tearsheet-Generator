@@ -67,6 +67,17 @@ def test_v2_restored_step_11c_public_sections():
         assert needle in combined
 
 
+def test_v2_restored_step_11e_benchmark_integration():
+    combined = _v2_public_source()
+    for needle in (
+        "benchmark-store",
+        "tcp-benchmark-notice",
+        "SPXTR",
+        "load_spxtr_benchmark",
+    ):
+        assert needle in combined
+
+
 def test_v2_restored_step_11d_drawdown_section():
     combined = _v2_public_source()
     for needle in (

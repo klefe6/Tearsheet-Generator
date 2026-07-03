@@ -386,9 +386,12 @@ def build_tcp_current_data_labels(
 
 def propagate_tcp_dashboard(
     canonical_records: Sequence[Mapping[str, Any]],
+    *,
+    benchmark_result: Optional[Any] = None,
 ) -> DashboardPropagation:
     """Recompute all Step 7 dynamic outputs from one canonical NAV snapshot."""
-    from tcp_drawdown import build_drawdown_dataframe
+    from tcp_benchmarks import BENCHMARK_STATUS_UNAVAILABLE, align_benchmark_returns
+    from tcp_drawdown import build_drawdown_dataframe, normalize_drawdown_nav_records
 
     records_copy = deepcopy(list(canonical_records))
     nav_series = canonical_records_to_series(records_copy)
@@ -397,11 +400,18 @@ def propagate_tcp_dashboard(
     latest_nav = _coerce_nav(records_copy[-1]["NAV"]) if records_copy else None
     labels = build_tcp_current_data_labels(records_copy)
 
+    spxtr_aligned = None
+    if benchmark_result is not None and benchmark_result.status != BENCHMARK_STATUS_UNAVAILABLE:
+        if benchmark_result.returns is not None and not benchmark_result.returns.empty:
+            nav_bd = normalize_drawdown_nav_records(records_copy)
+            if not nav_bd.empty:
+                spxtr_aligned = align_benchmark_returns(benchmark_result.returns, nav_bd.index)
+
     return DashboardPropagation(
         canonical_records=records_copy,
         monthly_calendar=recompute_tcp_monthly_performance(records_copy, baseline_nav=baseline),
         daily_performance=recompute_tcp_daily_metrics(records_copy, baseline_nav=baseline),
-        drawdown_profile=build_drawdown_dataframe(records_copy),
+        drawdown_profile=build_drawdown_dataframe(records_copy, spxtr_aligned_returns=spxtr_aligned),
         nav_figure=build_tcp_nav_figure(records_copy),
         desktop_label=labels,
         mobile_label=labels,

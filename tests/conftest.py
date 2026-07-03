@@ -2,9 +2,13 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
+
+# Prevent benchmark network I/O during pytest collection and test runs.
+os.environ.setdefault("TCP_V2_SKIP_BENCHMARK_FETCH", "1")
 
 from tcp_test_constants import CONTRACT_PATH, GOLDEN_FIXTURE_PATH
 

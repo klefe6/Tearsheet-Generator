@@ -39,5 +39,6 @@ tests/_tmp_state/
 _runtime/
 tests/_acceptance_state/
 tests/_canary_state/
+tests/_canary_state_step11d/
 *.json.tmp
 

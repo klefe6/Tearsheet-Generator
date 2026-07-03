@@ -151,7 +151,7 @@ v1 `serve_layout()` additionally renders **~70% more public content**: accept ga
 | Monthly table | Static at startup | Workbook-derived | Dynamic | `recompute_tcp_monthly_performance` |
 | Daily metrics | Static at startup | `daily_returns` asfreq | Dynamic | Sparse ledger returns |
 | Strategy cards | Static | Hard-coded HTML | Missing | N/A |
-| Drawdown table | Static at startup | NAV + SPXTR downloads | Missing | Deferred |
+| Drawdown table | Dynamic from canonical NAV | NAV + SPXTR via `tcp_benchmarks` | **MATCHES_V1** (Step 11D/11E) |
 | Account stats | Static | `ACCOUNT_STATS` | Missing | N/A |
 | Disclosures | Static | Inline / module (WT) | Missing | N/A |
 | Admin | N/A | N/A | Auth routes | JSON mutations |
@@ -169,7 +169,7 @@ v1 `serve_layout()` additionally renders **~70% more public content**: accept ga
 | Percentage NAV axis | Keep absent | No |
 | Drawdown table dynamic vs restart-static | **Needs decision** | Yes (if required) |
 | Drawdown chart (unused in v1 layout) | **Needs decision** | No unless required |
-| Benchmark presentation (SPXTR) | **Needs decision** | Yes (if required on page) |
+| Benchmark presentation (SPXTR) | **MATCHES_V1** (drawdown column) | No — degraded gracefully if provider unavailable |
 | Accept gate on production v2 | Restore v1 behavior | Yes |
 | Export feature | Deferred | No |
 | `Last Updated` vs `Data current to` wording | **Needs decision** | No |
@@ -305,10 +305,9 @@ Monthly table, daily metrics, NAV chart, and current-date labels remain dynamic 
 
 ### Still deferred (post-11C, pre-11D)
 
-- Benchmark comparison
-- Final chart/table styling (Step 11E)
-- Final mobile acceptance (Step 11F)
-- Production cutover (Step 11G)
+- Final chart/table styling (Step 11F)
+- Final mobile acceptance (Step 11G)
+- Production cutover (Step 11H)
 
 ---
 
@@ -337,7 +336,7 @@ Monthly table, daily metrics, NAV chart, and current-date labels remain dynamic 
 | Public NAV chart | Unchanged sparse ledger observations (no synthetic fill) |
 | Durations | Calendar `.days` between business-day-filled index timestamps |
 | Unrecovered end | `"TBD"`; recovery text `"Ongoing for N days"` |
-| SPXTR column | Deferred to benchmark step (Step 11E+) |
+| SPXTR column | **MATCHES_V1** (Step 11E) | `SPXTR (Inception)` in drawdown table when provider ready/stale |
 
 ### Workbook baseline (SHA-256 `1164a8cc…`, 112 rows)
 
@@ -368,8 +367,92 @@ Add/Delete persistence updates drawdown through the same canonical NAV snapshot 
 
 ### Still deferred
 
-- Benchmark / SPXTR comparison column
 - Drawdown chart (optional; not v1-public)
-- Final chart/table styling polish (Step 11E)
-- Final mobile acceptance (Step 11F)
-- Production cutover (Step 11G)
+- Final chart/table styling polish (Step 11F)
+- Final mobile acceptance (Step 11G)
+- Production cutover (Step 11H)
+
+*(Benchmark comparison restored in Step 11E — see below.)*
+
+---
+
+## Step 11E — SPXTR benchmark comparison (2026-07-03)
+
+**Branch:** `feature/tcp-v2-public-shell`  
+**Prior commit:** `9281a7a`  
+**New module:** `tcp_benchmarks.py`
+
+### Reclassified sections
+
+| Section | After Step 11E | Notes |
+| ------- | -------------- | ----- |
+| SPXTR drawdown column | **MATCHES_V1** | `SPXTR (Inception)` in Maximum Drawdown Profile table |
+| Benchmark NAV chart traces | **N/A — not in committed v1 public layout** | AGG/GLD/BTC/ETH only in unmounted drawdown figure helper |
+| Daily/monthly SPXTR columns | **N/A — not in committed v1** | v1 daily metrics are TCP-only |
+| Benchmark failure handling | **INTENTIONAL_V2_IMPROVEMENT** | v1 crashes if `bench_ret["SPXTR"]` missing; v2 degrades gracefully |
+
+### Accepted benchmark contract
+
+| Item | Policy |
+| ---- | ------ |
+| Public benchmark | **SPXTR only** (`^SP500TR` via quantstats `utils.download_returns`) |
+| Provider | quantstats / yfinance stack (committed v1) |
+| Alignment | `reindex(nav_bd_index).ffill().bfill().dropna()` |
+| SPXTR NAV | `(1 + returns).cumprod() * strategy_baseline` from inception |
+| SPXTR drawdown | quantstats-style `(nav/running_max - 1) * 100` |
+| TCP drawdown | unchanged baseline-relative (Step 11D) |
+| NAV chart | TCP only — no benchmark trace added |
+
+### Data strategy
+
+**A — Live bounded fetch (10s) with last-known-good disk cache** at `_runtime/tcp_benchmark_cache.json`.
+
+| Status | Behavior |
+| ------ | -------- |
+| `ready` | Fresh fetch succeeded; as-of date shown |
+| `stale` | Fetch failed; cached returns shown with explicit stale label |
+| `unavailable` | No fetch and no cache; TCP-only drawdown column; warning banner |
+
+Rejected: frozen snapshot for cutover (live+cache matches v1 startup intent with safer failure); startup-only memory (no stale recovery).
+
+### Provider normalization (live fix, 2026-07-03)
+
+Committed v1 uses quantstats `utils.download_returns`, which can surface pandas `DataFrame` or MultiIndex payloads from yfinance. TCP v2 adds `normalize_provider_returns()` as the single boundary:
+
+| Input | Behavior |
+| ----- | -------- |
+| `Series` | Accepted after `to_numeric`, inf/NaN drop, sort, dedupe |
+| One-column `DataFrame` | Reduced to that column deterministically |
+| yfinance MultiIndex | Selects `Adj Close`/`Close` for requested symbol when unambiguous |
+| Ambiguous multi-column | `BenchmarkNormalizationError` → unavailable/stale fallback |
+| Duplicate dates | **keep_first** |
+| ±inf / NaN | Dropped; empty result → unavailable |
+
+No scalar boolean checks on Series-valued cells; no raw provider tracebacks on the public page.
+
+### External-data cutover note
+
+Benchmark comparison is **not a hard cutover blocker** if stale cache or unavailable state is acceptable to operators; Kevin should confirm whether live SPXTR is required on day-one cutover vs stale-tolerant display.
+
+### Revised completion estimates (post-11E)
+
+| Area | Before 11E | After 11E |
+| ---- | ---------: | --------: |
+| Public content parity | 94% | **97%** |
+| Visual parity | 78% | **82%** |
+| Mobile parity | 60% | **63%** |
+| Deployment readiness | 15% | **22%** |
+| **Entire project** | ~82% | **~86%** |
+
+### Still deferred
+
+- Final chart/table styling polish (Step 11F)
+- Final mobile acceptance (Step 11G)
+- Production cutover (Step 11H)
+
+### Remaining visual/mobile limitations (post-11E)
+
+- Drawdown/benchmark table column widths and header wrapping are functional but not final-polished at 390px.
+- Full-page mobile screenshots still require scroll-to-section validation; no dedicated responsive acceptance pass yet.
+- Preview-only runtime diagnostics banner remains above the public shell.
+- Do **not** mark final styling, mobile acceptance, or cutover complete from Step 11E alone.

@@ -583,13 +583,23 @@ def build_trading_universe() -> dbc.Card:
     )
 
 
-def build_drawdown_profile_card(table_children: Any) -> dbc.Card:
+def build_drawdown_profile_card(
+    table_children: Any,
+    *,
+    benchmark_notice: Optional[Any] = None,
+) -> dbc.Card:
+    body_children: List[Any] = []
+    if benchmark_notice is not None:
+        body_children.append(html.Div(benchmark_notice, id="tcp-benchmark-notice"))
+    else:
+        body_children.append(html.Div(id="tcp-benchmark-notice"))
+    body_children.append(
+        html.Div(table_children, id="drawdown-profile-container", className="table-responsive"),
+    )
     return dbc.Card(
         [
             dbc.CardHeader(html.H6("Maximum Drawdown Profile", className="mb-0")),
-            dbc.CardBody(
-                html.Div(table_children, id="drawdown-profile-container", className="table-responsive"),
-            ),
+            dbc.CardBody(body_children),
             dbc.CardFooter(
                 html.Small(DRAWDOWN_FOOTNOTE, className="text-muted fst-italic", id="tcp-drawdown-footnote"),
             ),

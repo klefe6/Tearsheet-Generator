@@ -7,6 +7,7 @@ Server starts only under if __name__ == "__main__".
 from __future__ import annotations
 
 import logging
+import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -35,6 +36,14 @@ from tcp_admin import (
     simulate_delete_last_row,
 )
 from tcp_config import AdminAuthSettings, TCPConfig, load_admin_auth_settings, load_config, resolve_state_paths, validate_config
+from tcp_benchmarks import (
+    BENCHMARK_STATUS_STALE,
+    BENCHMARK_STATUS_UNAVAILABLE,
+    BenchmarkResult,
+    DEFAULT_CACHE_FILENAME,
+    benchmark_status_message,
+    load_spxtr_benchmark,
+)
 from tcp_dashboard import (
     GREY_BG,
     propagate_tcp_dashboard,
@@ -196,12 +205,52 @@ def build_error_layout(cfg: TCPConfig, state: PreviewState) -> html.Div:
     )
 
 
-def build_preview_layout(cfg: TCPConfig, state: PreviewState) -> html.Div:
+def _benchmark_cache_path() -> Path:
+    return REPO_ROOT / "_runtime" / DEFAULT_CACHE_FILENAME
+
+
+def _unavailable_benchmark_result() -> BenchmarkResult:
+    return BenchmarkResult(
+        status=BENCHMARK_STATUS_UNAVAILABLE,
+        symbol="^SP500TR",
+        display_name="SPXTR",
+        as_of=None,
+        fetched_at=None,
+        returns=None,
+        warning="SPXTR benchmark data is temporarily unavailable.",
+    )
+
+
+def _resolve_benchmark_result(runtime_holder: Dict[str, Any]) -> BenchmarkResult:
+    existing = runtime_holder.get("benchmark")
+    if isinstance(existing, BenchmarkResult):
+        return existing
+    if os.environ.get("TCP_V2_SKIP_BENCHMARK_FETCH") == "1":
+        result = _unavailable_benchmark_result()
+    else:
+        result = load_spxtr_benchmark(cache_path=_benchmark_cache_path())
+    runtime_holder["benchmark"] = result
+    return result
+
+
+def _benchmark_notice_component(result: BenchmarkResult) -> html.Div:
+    message = benchmark_status_message(result)
+    if not message:
+        return html.Div()
+    color = "info"
+    if result.status == BENCHMARK_STATUS_UNAVAILABLE:
+        color = "warning"
+    elif result.status == BENCHMARK_STATUS_STALE:
+        color = "secondary"
+    return dbc.Alert(message, color=color, className="py-2 mb-2 small")
+
+
+def build_preview_layout(cfg: TCPConfig, state: PreviewState, benchmark_result: BenchmarkResult) -> html.Div:
     snapshot = state.snapshot
     assert snapshot is not None
     meta = snapshot.ledger.metadata
     first_completed = meta.first_completed_date.strftime("%B %d, %Y") if meta.first_completed_date else "—"
-    propagation = propagate_tcp_dashboard(snapshot.canonical_nav)
+    propagation = propagate_tcp_dashboard(snapshot.canonical_nav, benchmark_result=benchmark_result)
     mode_alert = (
         "JSON state is authoritative. Authenticated Add/Delete persist to preview JSON."
         if cfg.persistence_enabled and snapshot.data_source == "json"
@@ -222,6 +271,7 @@ def build_preview_layout(cfg: TCPConfig, state: PreviewState) -> html.Div:
 
     main_children = [
         dcc.Store(id="canonical-nav-store", storage_type="memory", data=snapshot.canonical_nav),
+        dcc.Store(id="benchmark-store", storage_type="memory", data=benchmark_result.to_store_dict()),
         dcc.Location(id="url", refresh=False),
         dbc.Container(
             fluid=True,
@@ -260,7 +310,10 @@ def build_preview_layout(cfg: TCPConfig, state: PreviewState) -> html.Div:
                     html.Div(
                         [
                             performance_metrics_card,
-                            build_drawdown_profile_card(_drawdown_table_component(propagation.drawdown_profile)),
+                            build_drawdown_profile_card(
+                                _drawdown_table_component(propagation.drawdown_profile),
+                                benchmark_notice=_benchmark_notice_component(benchmark_result),
+                            ),
                         ],
                         id="tcp-performance-drawdown-column",
                     ),
@@ -339,24 +392,32 @@ def _register_public_gate_callback(app: dash.Dash) -> None:
         return resolve_public_gate_styles(n_clicks)
 
 
-def _register_dashboard_callback(app: dash.Dash) -> None:
+def _register_dashboard_callback(app: dash.Dash, runtime_holder: Dict[str, Any]) -> None:
     @app.callback(
         Output("nav-preview-graph", "figure"),
         Output("monthly-calendar-container", "children"),
         Output("daily-perf-container", "children"),
         Output("drawdown-profile-container", "children"),
+        Output("tcp-benchmark-notice", "children"),
         Output("data-current-label-desktop", "children"),
         Output("data-current-label-mobile", "children"),
         Input("canonical-nav-store", "data"),
+        Input("benchmark-store", "data"),
     )
-    def _propagate_dashboard_outputs(canonical_data):
+    def _propagate_dashboard_outputs(canonical_data, benchmark_data):
         records = canonical_data or []
-        propagation = propagate_tcp_dashboard(records)
+        benchmark_result = (
+            BenchmarkResult.from_store_dict(benchmark_data)
+            if benchmark_data
+            else _resolve_benchmark_result(runtime_holder)
+        )
+        propagation = propagate_tcp_dashboard(records, benchmark_result=benchmark_result)
         return (
             propagation.nav_figure,
             _monthly_table_component(propagation.monthly_calendar),
             _daily_perf_table_component(propagation.daily_performance),
             _drawdown_table_component(propagation.drawdown_profile),
+            _benchmark_notice_component(benchmark_result),
             _desktop_label_children(propagation.desktop_label.header, propagation.desktop_label.date_line),
             _mobile_label_children(propagation.mobile_label.header, propagation.mobile_label.date_line),
         )
@@ -641,9 +702,10 @@ def create_app(
     _register_auth_routes(app, auth_manager)
 
     if state.snapshot is not None:
-        app.layout = build_preview_layout(cfg, state)
+        benchmark_result = _resolve_benchmark_result(runtime_holder)
+        app.layout = build_preview_layout(cfg, state, benchmark_result)
         _register_public_gate_callback(app)
-        _register_dashboard_callback(app)
+        _register_dashboard_callback(app, runtime_holder)
         _register_admin_callbacks(app, cfg, paths, runtime_holder, auth_manager)
     else:
         app.layout = build_error_layout(cfg, state)

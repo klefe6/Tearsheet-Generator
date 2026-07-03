@@ -9,6 +9,7 @@ import pandas as pd
 import pytest
 
 from tcp_admin import simulate_add_row
+from tcp_benchmarks import BENCHMARK_STATUS_UNAVAILABLE, SPXTR_SYMBOL, BenchmarkResult
 from tcp_dashboard import (
     STRATEGY_NAME,
     canonical_nav_records_from_ledger,
@@ -475,8 +476,20 @@ def test_layout_creation_writes_no_workbook_or_state(tmp_path):
 # --- Regression ---
 
 
-def test_no_benchmark_section(layout_text):
-    assert "SPXTR (Inception)" not in layout_text
+def test_no_spxtr_column_when_benchmark_unavailable(canonical):
+    propagation = propagate_tcp_dashboard(
+        canonical,
+        benchmark_result=BenchmarkResult(
+            status=BENCHMARK_STATUS_UNAVAILABLE,
+            symbol=SPXTR_SYMBOL,
+            display_name="SPXTR",
+            as_of=None,
+            fetched_at=None,
+            returns=None,
+            warning="unavailable",
+        ),
+    )
+    assert "SPXTR (Inception)" not in propagation.drawdown_profile.columns
 
 
 def test_no_public_daily_returns(layout_text):

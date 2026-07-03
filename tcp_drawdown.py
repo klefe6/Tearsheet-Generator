@@ -34,6 +34,8 @@ DRAWDOWN_METRIC_ORDER: Tuple[str, ...] = (
 
 STRATEGY_INCEPTION_COLUMN = f"{STRATEGY_NAME} (Inception)"
 
+SPXTR_INCEPTION_COLUMN = "SPXTR (Inception)"
+
 DRAWDOWN_FOOTNOTE = (
     "Both TCP & SPXTR drawdown stats are reflective of the same $150,000 fixed nominal "
     "exposure at start of drawdown period."
@@ -208,13 +210,38 @@ def build_drawdown_summary(period: DrawdownPeriod) -> Dict[str, str]:
     return period.to_display_row()
 
 
-def format_drawdown_table_records(period: DrawdownPeriod) -> pd.DataFrame:
+def format_drawdown_table_records(
+    period: DrawdownPeriod,
+    *,
+    extra_columns: Optional[Mapping[str, DrawdownPeriod]] = None,
+) -> pd.DataFrame:
     row = period.to_display_row()
-    return pd.DataFrame(
-        {
-            "Metric": list(DRAWDOWN_METRIC_ORDER),
-            STRATEGY_INCEPTION_COLUMN: [row[m] for m in DRAWDOWN_METRIC_ORDER],
-        }
+    columns: Dict[str, List[str]] = {
+        "Metric": list(DRAWDOWN_METRIC_ORDER),
+        STRATEGY_INCEPTION_COLUMN: [row[m] for m in DRAWDOWN_METRIC_ORDER],
+    }
+    for label, extra_period in (extra_columns or {}).items():
+        extra_row = extra_period.to_display_row()
+        columns[label] = [extra_row[m] for m in DRAWDOWN_METRIC_ORDER]
+    return pd.DataFrame(columns)
+
+
+def build_spxtr_drawdown_period(
+    aligned_returns: pd.Series,
+    *,
+    inception_start: pd.Timestamp,
+    baseline: float,
+) -> Optional[DrawdownPeriod]:
+    if aligned_returns.empty or baseline == 0:
+        return None
+    spxtr_nav = (1.0 + aligned_returns.loc[inception_start:].astype(float)).cumprod() * float(baseline)
+    if spxtr_nav.empty:
+        return None
+    return worst_drawdown_profile(
+        spxtr_nav,
+        baseline=float(baseline),
+        use_quantstats=True,
+        show_price=False,
     )
 
 
@@ -222,16 +249,32 @@ def build_drawdown_dataframe(
     canonical_records: Sequence[Mapping[str, Any]],
     *,
     business_day_forward_fill: bool = True,
+    spxtr_aligned_returns: Optional[pd.Series] = None,
 ) -> pd.DataFrame:
-    """Return v1-shaped worst-drawdown table for TCP (Inception) only."""
+    """Return v1-shaped worst-drawdown table for TCP and optional SPXTR (Inception)."""
     records_copy = deepcopy(list(canonical_records))
     nav = normalize_drawdown_nav_records(records_copy, business_day_forward_fill=business_day_forward_fill)
     if nav.empty:
-        return pd.DataFrame(columns=["Metric", STRATEGY_INCEPTION_COLUMN])
+        columns = ["Metric", STRATEGY_INCEPTION_COLUMN]
+        if spxtr_aligned_returns is not None:
+            columns.append(SPXTR_INCEPTION_COLUMN)
+        return pd.DataFrame(columns=columns)
 
     baseline = float(nav.iloc[0])
+    inception_start = nav.index.min()
     period = worst_drawdown_profile(nav, baseline=baseline, use_quantstats=False, show_price=False)
-    return format_drawdown_table_records(period)
+
+    extra_columns: Dict[str, DrawdownPeriod] = {}
+    if spxtr_aligned_returns is not None:
+        spxtr_period = build_spxtr_drawdown_period(
+            spxtr_aligned_returns,
+            inception_start=inception_start,
+            baseline=baseline,
+        )
+        if spxtr_period is not None:
+            extra_columns[SPXTR_INCEPTION_COLUMN] = spxtr_period
+
+    return format_drawdown_table_records(period, extra_columns=extra_columns)
 
 
 def build_drawdown_series(
