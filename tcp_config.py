@@ -90,6 +90,38 @@ def load_config() -> TCPConfig:
     )
 
 
+def resolve_bind_port(cfg: TCPConfig) -> int:
+    """Port for tcp_ts_v2.py. Defaults to preview_port; override with TCP_V2_BIND_PORT."""
+    raw = os.environ.get("TCP_V2_BIND_PORT")
+    if raw is None or not raw.strip():
+        return cfg.preview_port
+    try:
+        return int(raw.strip())
+    except ValueError:
+        return cfg.preview_port
+
+
+def validate_bind_port(cfg: TCPConfig, bind_port: int) -> Tuple[bool, str]:
+    if bind_port == cfg.production_port:
+        if cfg.debug:
+            return False, "debug must be False when binding production port 8302"
+        if bind_port != 8302:
+            return False, "production_port must be 8302"
+        return True, "ok"
+    if TCP_PREVIEW_PORT_MIN <= bind_port <= TCP_PREVIEW_PORT_MAX:
+        if bind_port == cfg.production_port:
+            return False, "preview bind must not use production port 8302"
+        return True, "ok"
+    return False, (
+        f"bind port {bind_port} must be production port 8302 or preview range "
+        f"{TCP_PREVIEW_PORT_MIN}-{TCP_PREVIEW_PORT_MAX}"
+    )
+
+
+def is_production_runtime(cfg: TCPConfig) -> bool:
+    return resolve_bind_port(cfg) == cfg.production_port
+
+
 def load_admin_auth_settings() -> AdminAuthSettings:
     """Load preview admin auth settings from environment variables only."""
     token = os.environ.get("TCP_V2_ADMIN_TOKEN")

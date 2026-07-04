@@ -44,7 +44,17 @@ from tcp_admin import (
     simulate_add_row,
     simulate_delete_last_row,
 )
-from tcp_config import AdminAuthSettings, TCPConfig, load_admin_auth_settings, load_config, resolve_state_paths, validate_config
+from tcp_config import (
+    AdminAuthSettings,
+    TCPConfig,
+    is_production_runtime,
+    load_admin_auth_settings,
+    load_config,
+    resolve_bind_port,
+    resolve_state_paths,
+    validate_bind_port,
+    validate_config,
+)
 from tcp_benchmarks import (
     BENCHMARK_STATUS_STALE,
     BENCHMARK_STATUS_UNAVAILABLE,
@@ -336,6 +346,39 @@ def build_preview_layout(cfg: TCPConfig, state: PreviewState, benchmark_result: 
         id="tcp-performance-metrics-card",
     )
 
+    production_runtime = is_production_runtime(cfg)
+    preview_banner = (
+        []
+        if production_runtime
+        else [dbc.Alert(cfg.preview_label, color="warning", className=PREVIEW_BANNER_CLASS)]
+    )
+    mode_alert_block = [] if production_runtime else [dbc.Alert(mode_alert, color="info", className=MODE_ALERT_CLASS)]
+    diagnostics_card = (
+        []
+        if production_runtime
+        else [
+            dbc.Card(
+                [
+                    dbc.CardHeader("Runtime diagnostics (preview only)"),
+                    dbc.CardBody(
+                        [
+                            html.P([html.Strong("State mode: "), cfg.state_mode], className="mb-1"),
+                            html.P([html.Strong("Data source: "), snapshot.data_source], className="mb-1"),
+                            html.P([html.Strong("Recovery status: "), snapshot.recovery_status], className="mb-1"),
+                            html.P([html.Strong("State revision: "), str(snapshot.state_revision or "—")], className="mb-1"),
+                            html.P([html.Strong("Completed ledger rows: "), str(meta.completed_row_count)], className="mb-1"),
+                            html.P([html.Strong("First completed date: "), first_completed], className="mb-1"),
+                            html.P([html.Strong("Latest completed date: "), propagation.desktop_label.date_line], className="mb-1"),
+                            html.P([html.Strong("Workbook: "), cfg.workbook_filename, " · Sheet: ", cfg.sheet_name], className="mb-1 small text-muted"),
+                        ]
+                    ),
+                ],
+                className=f"mt-3 {PUBLIC_SECTION_CLASS}",
+                id=RUNTIME_DIAGNOSTICS_CARD_ID,
+            )
+        ]
+    )
+
     main_children = [
         dcc.Store(id="canonical-nav-store", storage_type="memory", data=snapshot.canonical_nav),
         dcc.Store(id="benchmark-store", storage_type="memory", data=benchmark_result.to_store_dict()),
@@ -353,7 +396,7 @@ def build_preview_layout(cfg: TCPConfig, state: PreviewState, benchmark_result: 
             className="py-4",
             id="page-container",
             children=[
-                dbc.Alert(cfg.preview_label, color="warning", className=PREVIEW_BANNER_CLASS),
+                *preview_banner,
                 *build_tcp_header(
                     _logo_src(),
                     _desktop_label_children(
@@ -366,7 +409,7 @@ def build_preview_layout(cfg: TCPConfig, state: PreviewState, benchmark_result: 
                     ),
                 ),
                 build_firm_intro(),
-                dbc.Alert(mode_alert, color="info", className=MODE_ALERT_CLASS),
+                *mode_alert_block,
                 html.Div(
                     dcc.Graph(
                         id="nav-preview-graph",
@@ -413,25 +456,7 @@ def build_preview_layout(cfg: TCPConfig, state: PreviewState, benchmark_result: 
                 build_public_disclosure_panel(),
                 build_public_footer(),
                 html.Div(id="admin-editor-container", style={"display": "none"}),
-                dbc.Card(
-                    [
-                        dbc.CardHeader("Runtime diagnostics (preview only)"),
-                        dbc.CardBody(
-                            [
-                                html.P([html.Strong("State mode: "), cfg.state_mode], className="mb-1"),
-                                html.P([html.Strong("Data source: "), snapshot.data_source], className="mb-1"),
-                                html.P([html.Strong("Recovery status: "), snapshot.recovery_status], className="mb-1"),
-                                html.P([html.Strong("State revision: "), str(snapshot.state_revision or "—")], className="mb-1"),
-                                html.P([html.Strong("Completed ledger rows: "), str(meta.completed_row_count)], className="mb-1"),
-                                html.P([html.Strong("First completed date: "), first_completed], className="mb-1"),
-                                html.P([html.Strong("Latest completed date: "), propagation.desktop_label.date_line], className="mb-1"),
-                                html.P([html.Strong("Workbook: "), cfg.workbook_filename, " · Sheet: ", cfg.sheet_name], className="mb-1 small text-muted"),
-                            ]
-                        ),
-                    ],
-                    className=f"mt-3 {PUBLIC_SECTION_CLASS}",
-                    id=RUNTIME_DIAGNOSTICS_CARD_ID,
-                ),
+                *diagnostics_card,
             ],
         ),
     ]
@@ -442,7 +467,7 @@ def _health_payload(cfg: TCPConfig, state: PreviewState, auth_manager: AdminAuth
     base: Dict[str, Any] = {
         "app": "tcp-v2",
         "mode": "read-only" if cfg.read_only else "json-active",
-        "port": cfg.preview_port,
+        "port": resolve_bind_port(cfg),
         "debug": cfg.debug,
         "workbook": cfg.workbook_filename,
         "sheet": cfg.sheet_name,
@@ -926,8 +951,14 @@ def main() -> None:
     if not ok:
         logger.error("Config validation failed: %s", msg)
         sys.exit(1)
-    logger.info("Starting %s on port %s (debug=%s)", cfg.preview_label, cfg.preview_port, cfg.debug)
-    app.run(debug=cfg.debug, port=cfg.preview_port)
+    bind_port = resolve_bind_port(cfg)
+    ok_bind, bind_msg = validate_bind_port(cfg, bind_port)
+    if not ok_bind:
+        logger.error("Bind port validation failed: %s", bind_msg)
+        sys.exit(1)
+    label = "TCP v2 Production" if is_production_runtime(cfg) else cfg.preview_label
+    logger.info("Starting %s on port %s (debug=%s)", label, bind_port, cfg.debug)
+    app.run(debug=cfg.debug, port=bind_port)
 
 
 if __name__ == "__main__":
