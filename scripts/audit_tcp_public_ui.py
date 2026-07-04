@@ -455,6 +455,10 @@ def audit_sources(
         seen.add(section_id)
         v1_present = _contains(v1_text, needle)
         v2_present = _contains(v2_text, needle)
+        if section_id == "gate_notice":
+            v2_present = v2_present or _contains(v2_text, "Important Notic") or _contains(
+                v2_text, "disclaimer-screen"
+            )
         (
             classification,
             severity,

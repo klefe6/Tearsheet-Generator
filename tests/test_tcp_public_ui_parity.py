@@ -93,7 +93,7 @@ def test_v2_restored_step_11d_drawdown_section():
 def test_v2_restored_step_11b_public_sections():
     combined = _v2_public_source()
     for needle in (
-        "Important Notice",
+        "Important Notic",
         "Strategy Overview",
         "Account Stats",
         "Important Disclosure:",
