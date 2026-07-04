@@ -31,6 +31,7 @@ Thumbs.db
 *.log
 
 # TCP v2 runtime JSON state (preview)
+.tcp_production.env
 tcp_daily_returns_secret_state.json
 tcp_daily_returns_secret_state.backup.json
 tcp_daily_returns_secret_state.lock
