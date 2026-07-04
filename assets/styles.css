@@ -257,6 +257,10 @@ body, #page-container {
 .tcp-public-card {
   border-color: #dee2e6;
   box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.04);
+  position: static;
+  z-index: auto;
+  min-height: 0;
+  overflow: visible;
 }
 
 .tcp-public-card .card-header {
@@ -267,20 +271,25 @@ body, #page-container {
 
 .tcp-public-card .card-body {
   padding: 0.75rem;
+  min-height: 0;
+  overflow: visible;
 }
 
 .tcp-two-column-row {
-  align-items: stretch;
+  align-items: flex-start;
 }
 
 @media (min-width: 992px) {
   .tcp-two-column-row > [class*="col-"] {
     display: flex;
     flex-direction: column;
+    align-items: stretch;
+    min-width: 0;
   }
   .tcp-two-column-row .tcp-public-card {
-    flex: 1 1 auto;
-    height: 100%;
+    flex: 0 1 auto;
+    height: auto;
+    min-height: 0;
   }
 }
 
@@ -403,6 +412,90 @@ body, #page-container {
 #tcp-runtime-diagnostics-card {
   opacity: 0.85;
   font-size: 0.85rem;
+  position: static;
+  z-index: auto;
+  clear: both;
+}
+
+/* ===========================
+   TCP v2 layout overlap fixes
+   =========================== */
+
+.tcp-performance-drawdown-column {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-unit);
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.tcp-post-account-disclaimers {
+  position: static;
+  width: 100%;
+  max-width: 100%;
+  clear: both;
+}
+
+.tcp-public-section {
+  position: static;
+  width: 100%;
+  max-width: 100%;
+  clear: both;
+  margin-top: var(--spacing-unit);
+  margin-bottom: var(--spacing-unit);
+}
+
+.tcp-legal-notice-block {
+  position: static;
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+#tcp-hc-disclaimer-row,
+#tcp-general-disclaimer-row,
+#tcp-daily-values-section,
+#tcp-public-disclosure-panel,
+#tcp-public-footer-row,
+#tcp-drawdown-profile-card {
+  position: static;
+  z-index: auto;
+}
+
+.tcp-public-gate-title {
+  line-height: 1.2;
+  white-space: normal;
+}
+
+.tcp-gate-title-inline {
+  display: inline;
+}
+
+.tcp-gate-secret-e {
+  cursor: pointer;
+  user-select: none;
+  display: inline;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  line-height: inherit;
+  letter-spacing: inherit;
+  vertical-align: baseline;
+  position: relative;
+}
+
+.tcp-gate-secret-e::after {
+  content: "";
+  position: absolute;
+  inset: -0.35rem -0.25rem;
 }
 
 /* ===========================
@@ -433,18 +526,7 @@ body,
   max-width: 100%;
 }
 
-.tcp-gate-secret-e {
-  cursor: pointer;
-  user-select: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 2.75rem;
-  min-height: 2.75rem;
-  margin-left: 0.15rem;
-  padding: 0.25rem 0.5rem;
-  vertical-align: middle;
-}
+/* Gate secret-e styles defined in layout overlap fixes section above */
 
 .tcp-admin-toolbar {
   display: flex;

@@ -29,6 +29,13 @@ CONTROLLED_TABLE_OVERFLOW_CLASS = "tcp-table-scroll"
 ADMIN_TOOLBAR_CLASS = "tcp-admin-toolbar"
 ADMIN_MODAL_CLASS = "tcp-admin-modal"
 GATE_SECRET_E_CLASS = "tcp-gate-secret-e"
+GATE_TITLE_NORMALIZED = "Important Notice"
+GATE_TITLE_INLINE_CLASS = "tcp-gate-title-inline"
+GATE_TITLE_HEADING_CLASS = "tcp-public-gate-title"
+LEGAL_NOTICE_CLASS = "tcp-legal-notice-block"
+PUBLIC_SECTION_CLASS = "tcp-public-section"
+POST_ACCOUNT_DISCLAIMERS_CLASS = "tcp-post-account-disclaimers"
+PERFORMANCE_DRAWDOWN_COLUMN_CLASS = "tcp-performance-drawdown-column"
 ACCOUNT_STATS_TABLE_CLASS = "tcp-account-stats-table"
 TERMS_FEES_TABLE_CLASS = "tcp-terms-fees-table"
 FOOTER_WRAP_CLASS = "tcp-public-footer-wrap"
@@ -181,6 +188,11 @@ def benchmark_notice_class(status: str) -> str:
     return f"py-2 mb-2 small tcp-benchmark-notice {mapping.get(status, 'tcp-benchmark-notice-stale')}"
 
 
+def normalized_gate_title_text() -> str:
+    """Visible gate title with the clickable final letter included."""
+    return GATE_TITLE_NORMALIZED
+
+
 def mobile_responsive_contract() -> Dict[str, str]:
     """Stable mobile/responsive presentation markers for structural tests."""
     return {
@@ -189,6 +201,11 @@ def mobile_responsive_contract() -> Dict[str, str]:
         "admin_toolbar": ADMIN_TOOLBAR_CLASS,
         "admin_modal": ADMIN_MODAL_CLASS,
         "gate_secret_e": GATE_SECRET_E_CLASS,
+        "gate_title_heading": GATE_TITLE_HEADING_CLASS,
+        "gate_title_inline": GATE_TITLE_INLINE_CLASS,
+        "legal_notice": LEGAL_NOTICE_CLASS,
+        "public_section": PUBLIC_SECTION_CLASS,
+        "post_account_disclaimers": POST_ACCOUNT_DISCLAIMERS_CLASS,
         "account_stats_table": ACCOUNT_STATS_TABLE_CLASS,
         "terms_fees_table": TERMS_FEES_TABLE_CLASS,
         "footer_wrap": FOOTER_WRAP_CLASS,
@@ -198,6 +215,28 @@ def mobile_responsive_contract() -> Dict[str, str]:
         "two_column_row": DESKTOP_TWO_COLUMN_ROW_CLASS,
         "disclosure_panel": "tcp-public-disclosure-panel",
         "daily_values_section": "tcp-daily-values-section",
+    }
+
+
+def layout_overlap_contract() -> Dict[str, str]:
+    """Stable layout-flow markers for overlap regression tests."""
+    return {
+        "gate_title_normalized": GATE_TITLE_NORMALIZED,
+        "gate_secret_e_id": "secret-notice-e",
+        "gate_secret_e": GATE_SECRET_E_CLASS,
+        "gate_title_heading": GATE_TITLE_HEADING_CLASS,
+        "performance_drawdown_column": PERFORMANCE_DRAWDOWN_COLUMN_CLASS,
+        "drawdown_card": "tcp-drawdown-profile-card",
+        "proprietary_notice_row": "tcp-hc-disclaimer-row",
+        "general_disclaimer_row": "tcp-general-disclaimer-row",
+        "post_account_disclaimers": POST_ACCOUNT_DISCLAIMERS_CLASS,
+        "legal_notice": LEGAL_NOTICE_CLASS,
+        "public_section": PUBLIC_SECTION_CLASS,
+        "controlled_table_overflow": CONTROLLED_TABLE_OVERFLOW_CLASS,
+        "daily_values_section": "tcp-daily-values-section",
+        "disclosure_panel": "tcp-public-disclosure-panel",
+        "footer_row": "tcp-public-footer-row",
+        "runtime_diagnostics": RUNTIME_DIAGNOSTICS_CARD_ID,
     }
 
 
@@ -252,7 +291,7 @@ def build_public_accept_gate() -> html.Div:
             children=[
                 html.H2(
                     [
-                        "Important Notic",
+                        html.Span("Important Notic", className=GATE_TITLE_INLINE_CLASS),
                         html.Span(
                             "e",
                             id="secret-notice-e",
@@ -260,7 +299,7 @@ def build_public_accept_gate() -> html.Div:
                             className=GATE_SECRET_E_CLASS,
                         ),
                     ],
-                    className="mb-4",
+                    className=f"mb-4 {GATE_TITLE_HEADING_CLASS}",
                     id="tcp-public-gate-title",
                 ),
                 html.P(GATE_ACCEPT_TEXT, className="lead mb-5", id="tcp-public-gate-copy"),
@@ -754,13 +793,19 @@ def build_account_statistics() -> dbc.Card:
 def build_inline_performance_disclaimers() -> List[Any]:
     return [
         dbc.Row(
-            dbc.Col(html.P(HCDISCLAIMER_TEXT, className="text-muted small"), width=12),
-            className="mb-4",
+            dbc.Col(
+                html.P(HCDISCLAIMER_TEXT, className=f"text-muted small {LEGAL_NOTICE_CLASS}"),
+                width=12,
+            ),
+            className=f"mb-4 {PUBLIC_SECTION_CLASS}",
             id="tcp-hc-disclaimer-row",
         ),
         dbc.Row(
-            dbc.Col(html.P(GENERAL_DISCLAIMER_TEXT, className="text-muted small"), width=12),
-            className="mb-4",
+            dbc.Col(
+                html.P(GENERAL_DISCLAIMER_TEXT, className=f"text-muted small {LEGAL_NOTICE_CLASS}"),
+                width=12,
+            ),
+            className=f"mb-4 {PUBLIC_SECTION_CLASS}",
             id="tcp-general-disclaimer-row",
         ),
     ]
@@ -802,13 +847,13 @@ def build_public_disclosure_panel() -> dbc.Row:
                     ),
                     " or 954 500 0500.",
                 ],
-                className="p-3 border rounded",
+                className=f"p-3 border rounded {LEGAL_NOTICE_CLASS}",
                 style=DISCLOSURE_PANEL_STYLE,
                 id="tcp-public-disclosure-panel",
             ),
             width=12,
         ),
-        className="mb-4",
+        className=f"mb-4 {PUBLIC_SECTION_CLASS}",
     )
 
 
@@ -818,7 +863,7 @@ def build_public_footer() -> dbc.Row:
             html.P(FOOTER_CONTACT, className=f"text-center small text-muted {FOOTER_WRAP_CLASS}", id="tcp-public-footer"),
             width=12,
         ),
-        className="mb-2",
+        className=f"mb-2 {PUBLIC_SECTION_CLASS}",
         id="tcp-public-footer-row",
     )
 

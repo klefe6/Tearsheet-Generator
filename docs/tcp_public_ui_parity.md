@@ -550,7 +550,7 @@ Structural contracts: `tests/test_tcp_desktop_visual_parity.py` (22 tests, no pi
 
 | Behavior | TCP v2 |
 | -------- | ------ |
-| Gate title | “Important Notic” + clickable **e** (same affordance) |
+| Gate title | “Important Notice” — inline clickable **e** (`secret-notice-e`, baseline-aligned) |
 | **e** click | Redirects to `/admin/login` — does **not** grant admin by itself |
 | Accept | Reveals public site + shared Daily Values (read-only); stores acceptance in session `public-gate-accepted-store` |
 | Admin login | Flask session (`tcp_v2_admin_authenticated`); reveals public page without second Accept |

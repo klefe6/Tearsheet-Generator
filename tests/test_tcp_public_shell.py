@@ -11,7 +11,7 @@ import pytest
 
 from tcp_admin import SESSION_KEY, AdminAuthManager, SIMULATION_BANNER_TEXT
 from tcp_config import AdminAuthSettings, load_config, resolve_state_paths
-from tcp_public_sections import ACCOUNT_STATISTICS, required_copy_fragments, resolve_public_gate_styles
+from tcp_public_sections import ACCOUNT_STATISTICS, normalized_gate_title_text, required_copy_fragments, resolve_public_gate_styles
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 TEST_TOKEN = "test-admin-token-public-shell"
@@ -139,7 +139,11 @@ def test_no_tkp_product_wording():
 
 
 def test_required_v1_copy_fragments(layout_text):
-    for fragment in required_copy_fragments().values():
+    for key, fragment in required_copy_fragments().items():
+        if key == "gate_title":
+            assert fragment in layout_text
+            assert normalized_gate_title_text() == "Important Notice"
+            continue
         assert fragment in layout_text
 
 

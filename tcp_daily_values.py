@@ -23,6 +23,7 @@ from tcp_public_sections import (
     CONTROLLED_TABLE_OVERFLOW_CLASS,
     HEADER_ROW_CLASS,
     PUBLIC_CARD_CLASS,
+    PUBLIC_SECTION_CLASS,
     ADMIN_TOOLBAR_CLASS,
 )
 
@@ -211,5 +212,6 @@ def build_daily_values_section(
             id="tcp-daily-values-card",
         ),
         id=DAILY_VALUES_SECTION_ID,
+        className=PUBLIC_SECTION_CLASS,
         style={"display": "none"},
     )

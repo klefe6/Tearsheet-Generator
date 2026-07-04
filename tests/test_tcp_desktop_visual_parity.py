@@ -20,6 +20,7 @@ from tcp_public_sections import (
     benchmark_notice_class,
     desktop_visual_contract,
     monthly_performance_cell_class,
+    normalized_gate_title_text,
     required_copy_fragments,
     resolve_public_gate_styles,
 )
@@ -150,7 +151,11 @@ def test_no_duplicate_dynamic_component_ids(layout_text):
 
 def test_no_public_content_removed(layout_text):
     fragments = required_copy_fragments()
-    for needle in fragments.values():
+    for key, needle in fragments.items():
+        if key == "gate_title":
+            assert needle in layout_text
+            assert normalized_gate_title_text() == "Important Notice"
+            continue
         assert needle in layout_text
 
 
