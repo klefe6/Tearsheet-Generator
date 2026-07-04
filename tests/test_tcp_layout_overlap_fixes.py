@@ -105,14 +105,20 @@ def test_gate_e_does_not_use_visible_absolute_positioning(css_text):
     assert "position: fixed" not in block
 
 
-def test_gate_e_still_targets_admin_login():
+def test_gate_e_reveals_password_row_callback():
     from tcp_ts_v2 import create_app
+    from tearsheet_gate_auth import GATE_PASSWORD_VISIBLE_STORE_ID
 
     app, *_ = create_app()
     assert any(
         inp.get("id") == GATE_NOTICE_E_ID
         for cb in app.callback_map.values()
         for inp in cb.get("inputs", [])
+    )
+    assert any(
+        GATE_PASSWORD_VISIBLE_STORE_ID in str(cb.get("output", ""))
+        and any(inp.get("id") == GATE_NOTICE_E_ID for inp in cb.get("inputs", []))
+        for cb in app.callback_map.values()
     )
 
 

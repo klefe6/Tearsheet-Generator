@@ -71,8 +71,9 @@ class DeleteSimulationResult:
 class AdminAuthManager:
     """Server-side preview admin authentication."""
 
-    def __init__(self, settings: AdminAuthSettings):
+    def __init__(self, settings: AdminAuthSettings, *, session_key: str = SESSION_KEY):
         self._settings = settings
+        self._session_key = session_key
 
     @property
     def settings(self) -> AdminAuthSettings:
@@ -96,17 +97,17 @@ class AdminAuthManager:
         if not self.is_configured:
             return False, "Admin access is not configured."
         if self.verify_token(token):
-            session[SESSION_KEY] = True
+            session[self._session_key] = True
             if hasattr(session, "permanent"):
                 session.permanent = True
             return True, ""
-        return False, "Invalid credentials."
+        return False, "Invalid password"
 
     def logout(self, session: Any) -> None:
-        session.pop(SESSION_KEY, None)
+        session.pop(self._session_key, None)
 
     def is_authenticated(self, session: Mapping[str, Any]) -> bool:
-        return self.is_configured and bool(session.get(SESSION_KEY))
+        return self.is_configured and bool(session.get(self._session_key))
 
 
 def configure_flask_session_secret(server: Any, settings: AdminAuthSettings) -> None:

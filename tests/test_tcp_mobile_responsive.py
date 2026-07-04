@@ -194,12 +194,13 @@ def test_public_gate_usable_contract(css_text, layout_text):
     assert "#disclaimer-screen" in css_text
 
 
-def test_e_opens_login_callback_registered():
+def test_e_reveals_password_row_callback_registered():
     from tcp_ts_v2 import create_app
+    from tearsheet_gate_auth import GATE_PASSWORD_VISIBLE_STORE_ID
 
     app, *_ = create_app()
     assert any(
-        "url.pathname" in str(cb.get("output", ""))
+        GATE_PASSWORD_VISIBLE_STORE_ID in str(cb.get("output", ""))
         and any(inp.get("id") == GATE_NOTICE_E_ID for inp in cb.get("inputs", []))
         for cb in app.callback_map.values()
     )

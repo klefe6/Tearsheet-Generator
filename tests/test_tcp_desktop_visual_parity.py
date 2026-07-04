@@ -160,10 +160,12 @@ def test_no_public_content_removed(layout_text):
 
 
 def test_public_gate_separate_from_admin(layout_text):
+    from tearsheet_gate_auth import GATE_PASSWORD_ROW_ID
+
     hidden, shown = resolve_public_gate_styles(1)
     assert hidden.get("display") == "none"
     assert shown.get("display") == "block"
-    assert "admin/login" in layout_text
+    assert GATE_PASSWORD_ROW_ID in layout_text
     assert "accept-button" in layout_text
 
 

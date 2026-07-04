@@ -551,9 +551,9 @@ Structural contracts: `tests/test_tcp_desktop_visual_parity.py` (22 tests, no pi
 | Behavior | TCP v2 |
 | -------- | ------ |
 | Gate title | “Important Notice” — inline clickable **e** (`secret-notice-e`, baseline-aligned) |
-| **e** click | Redirects to `/admin/login` — does **not** grant admin by itself |
-| Accept | Reveals public site + shared Daily Values (read-only); stores acceptance in session `public-gate-accepted-store` |
-| Admin login | Flask session (`tcp_v2_admin_authenticated`); reveals public page without second Accept |
+| **e** click | Reveals inline password row below Accept — does **not** authenticate |
+| Password submit | Server-side Flask session (`tcp_v2_admin_authenticated`) after token validation |
+| Admin login fallback | `GET/POST /admin/login` remains available but is not the primary gate interaction |
 | Daily Values | Single `tcp-daily-values-table` from canonical runtime snapshot |
 | Admin toolbar | Add Row / Delete Last Row in `tcp-daily-values-admin-toolbar` (hidden unless authenticated) |
 | Logout | Clears Flask admin session; if public accepted, remains in read-only public mode |

@@ -12,6 +12,7 @@ import dash_bootstrap_components as dbc
 from dash import dcc, html
 
 from tcp_dashboard import GREY_BG
+from tearsheet_gate_auth import GATE_PASSWORD_VISIBLE_STORE_ID, build_gate_password_row
 from tcp_drawdown import DRAWDOWN_FOOTNOTE
 
 HNC_LEGAL_NAME = "Hughes & Company LLC"
@@ -304,6 +305,7 @@ def build_public_accept_gate() -> html.Div:
                 ),
                 html.P(GATE_ACCEPT_TEXT, className="lead mb-5", id="tcp-public-gate-copy"),
                 dbc.Button("Accept & Continue", id="accept-button", color="primary"),
+                build_gate_password_row(),
             ],
         ),
     )
@@ -894,6 +896,7 @@ def build_public_gate_wrapper(main_children: List[Any]) -> html.Div:
         [
             dcc.Store(id="disclaimer-accepted", storage_type="session"),
             dcc.Store(id=PUBLIC_GATE_ACCEPTED_STORE_ID, storage_type="session", data=False),
+            dcc.Store(id=GATE_PASSWORD_VISIBLE_STORE_ID, storage_type="memory", data=False),
             build_public_accept_gate(),
             html.Div(id="main-app", style={"display": "none"}, children=main_children),
         ],

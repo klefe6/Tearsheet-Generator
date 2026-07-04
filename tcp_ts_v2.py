@@ -19,6 +19,15 @@ import pandas as pd
 from dash import Input, Output, State, dcc, html, no_update
 from flask import jsonify, redirect, render_template_string, request, session
 
+from tearsheet_gate_auth import (
+    GATE_PASSWORD_ERROR_ID,
+    GATE_PASSWORD_INPUT_ID,
+    GATE_PASSWORD_ROW_ID,
+    GATE_PASSWORD_SUBMIT_ID,
+    GATE_PASSWORD_VISIBLE_STORE_ID,
+    INVALID_PASSWORD_MESSAGE,
+    gate_password_row_style,
+)
 from tcp_admin import (
     DELETE_CONFIRM_MESSAGE,
     DELETE_PERSIST_MESSAGE,
@@ -399,7 +408,6 @@ def build_preview_layout(cfg: TCPConfig, state: PreviewState, benchmark_result: 
                                 html.P([html.Strong("First completed date: "), first_completed], className="mb-1"),
                                 html.P([html.Strong("Latest completed date: "), propagation.desktop_label.date_line], className="mb-1"),
                                 html.P([html.Strong("Workbook: "), cfg.workbook_filename, " · Sheet: ", cfg.sheet_name], className="mb-1 small text-muted"),
-                                html.P(html.A("Admin login", href="/admin/login", className="small"), className="mb-0"),
                             ]
                         ),
                     ],
@@ -447,14 +455,49 @@ def _health_payload(cfg: TCPConfig, state: PreviewState, auth_manager: AdminAuth
 
 def _register_access_callbacks(app: dash.Dash, auth_manager: AdminAuthManager) -> None:
     @app.callback(
-        Output("url", "pathname"),
+        Output(GATE_PASSWORD_VISIBLE_STORE_ID, "data"),
         Input("secret-notice-e", "n_clicks"),
+        State(GATE_PASSWORD_VISIBLE_STORE_ID, "data"),
         prevent_initial_call=True,
     )
-    def _redirect_admin_login(n_clicks):
+    def _toggle_gate_password_row(n_clicks, visible):
         if n_clicks:
-            return "/admin/login"
+            return not bool(visible)
         return no_update
+
+    @app.callback(
+        Output(GATE_PASSWORD_ROW_ID, "style"),
+        Input(GATE_PASSWORD_VISIBLE_STORE_ID, "data"),
+    )
+    def _render_gate_password_row(visible):
+        return gate_password_row_style(bool(visible))
+
+    @app.callback(
+        Output(GATE_PASSWORD_ERROR_ID, "children"),
+        Output(GATE_PASSWORD_VISIBLE_STORE_ID, "data", allow_duplicate=True),
+        Output("disclaimer-screen", "style", allow_duplicate=True),
+        Output("main-app", "style", allow_duplicate=True),
+        Output(DAILY_VALUES_SECTION_ID, "style", allow_duplicate=True),
+        Output(PUBLIC_GATE_ACCEPTED_STORE_ID, "data", allow_duplicate=True),
+        Output("admin-state-revision-store", "data", allow_duplicate=True),
+        Input(GATE_PASSWORD_SUBMIT_ID, "n_clicks"),
+        Input(GATE_PASSWORD_INPUT_ID, "n_submit"),
+        State(GATE_PASSWORD_INPUT_ID, "value"),
+        State("admin-state-revision-store", "data"),
+        prevent_initial_call=True,
+    )
+    def _gate_admin_login(submit_clicks, _n_submit, password, revision):
+        _ = submit_clicks
+        ok, _msg = auth_manager.login(session, password or "")
+        if not ok:
+            return INVALID_PASSWORD_MESSAGE, no_update, no_update, no_update, no_update, no_update, no_update
+        gate_style, main_style, daily_style, store_value = resolve_access_visibility(
+            accept_clicks=0,
+            admin_authenticated=True,
+            public_accepted=False,
+        )
+        next_revision = (revision or 0) + 1
+        return "", False, gate_style, main_style, daily_style, store_value, next_revision
 
     @app.callback(
         Output("disclaimer-screen", "style"),
@@ -463,9 +506,10 @@ def _register_access_callbacks(app: dash.Dash, auth_manager: AdminAuthManager) -
         Output(PUBLIC_GATE_ACCEPTED_STORE_ID, "data"),
         Input("accept-button", "n_clicks"),
         Input("url", "pathname"),
+        Input("admin-state-revision-store", "data"),
         State(PUBLIC_GATE_ACCEPTED_STORE_ID, "data"),
     )
-    def _control_public_access(accept_clicks, _pathname, public_accepted):
+    def _control_public_access(accept_clicks, _pathname, _revision, public_accepted):
         gate_style, main_style, daily_style, store_value = resolve_access_visibility(
             accept_clicks=accept_clicks,
             admin_authenticated=auth_manager.is_authenticated(session),

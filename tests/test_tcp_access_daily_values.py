@@ -151,9 +151,11 @@ def test_accept_does_not_authenticate_admin(auth_manager):
     assert not auth_manager.is_authenticated(session)
 
 
-def test_e_affordance_opens_login_callback_registered(app):
+def test_e_affordance_reveals_password_row_callback(app):
+    from tearsheet_gate_auth import GATE_PASSWORD_VISIBLE_STORE_ID
+
     assert any(
-        "url.pathname" in str(cb.get("output", ""))
+        GATE_PASSWORD_VISIBLE_STORE_ID in str(cb.get("output", ""))
         and any(inp.get("id") == GATE_NOTICE_E_ID for inp in cb.get("inputs", []))
         for cb in app.callback_map.values()
     )

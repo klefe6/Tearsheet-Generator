@@ -28,6 +28,22 @@ from dash import html, dcc, dash_table
 from dash.dash_table.Format import Format, Scheme, Symbol
 import dash_bootstrap_components as dbc
 from dash.dependencies import Input, Output, State
+from flask import session
+
+from tcp_admin import AdminAuthManager, configure_flask_session_secret
+from tcp_public_sections import GATE_SECRET_E_CLASS, GATE_TITLE_HEADING_CLASS, GATE_TITLE_INLINE_CLASS
+from tearsheet_gate_auth import (
+    GATE_PASSWORD_ERROR_ID,
+    GATE_PASSWORD_INPUT_ID,
+    GATE_PASSWORD_ROW_ID,
+    GATE_PASSWORD_SUBMIT_ID,
+    GATE_PASSWORD_VISIBLE_STORE_ID,
+    INVALID_PASSWORD_MESSAGE,
+    TKP_SESSION_KEY,
+    build_gate_password_row,
+    gate_password_row_style,
+    load_tkp_admin_auth_settings,
+)
 
 import yfinance as yf
 
@@ -1812,6 +1828,11 @@ app = dash.Dash(
     title="H&C – TKP",
 )
 
+_tkp_auth_settings = load_tkp_admin_auth_settings()
+_tkp_auth_manager = AdminAuthManager(_tkp_auth_settings, session_key=TKP_SESSION_KEY)
+configure_flask_session_secret(app.server, _tkp_auth_settings)
+TKP_ADMIN_AUTH_REVISION_STORE_ID = "tkp-admin-auth-revision-store"
+
 def serve_layout(records=None):
     if records is None:
         records = secret_table_records
@@ -2892,6 +2913,7 @@ dbc.Row(
                                             html.Div([
                                                 dbc.Button("Export Excel", id="secret-export-btn", color="secondary", size="sm"),
                                                 dcc.Download(id="secret-export-download"),
+                                                dbc.Button("Logout", id="tkp-admin-logout-btn", color="link", size="sm", className="ms-2"),
                                             ], style={"float": "right"}),
                                         ], className="mb-3", style={"display": "flex", "justifyContent": "space-between"}),
                                         dash_table.DataTable(
@@ -3223,7 +3245,6 @@ dbc.Row(
     )
 
 dcc_store = dcc.Store(id="disclaimer-accepted", storage_type="session")
-# "standard" = Accept & Continue; "secret" = last letter of "Notice" (same UI for now; branch later via this store)
 access_mode_store = dcc.Store(id="access-mode", storage_type="session", data=None)
 
 disclaimer_screen = html.Div(
@@ -3232,18 +3253,16 @@ disclaimer_screen = html.Div(
         children=[
             html.H2(
                 [
-                    "Important Notic",
+                    html.Span("Important Notic", className=GATE_TITLE_INLINE_CLASS),
                     html.Span(
                         "e",
                         id="secret-notice-e",
                         n_clicks=0,
-                        style={
-                            "cursor": "default",
-                            "userSelect": "none",
-                        },
+                        className=GATE_SECRET_E_CLASS,
                     ),
                 ],
-                className="mb-4",
+                className=f"mb-4 {GATE_TITLE_HEADING_CLASS}",
+                id="tcp-public-gate-title",
             ),
             html.P(
                 "By clicking “Accept,” you agree that the performance figures shown are strictly informational and do not amount to investment advice, a solicitation, or an offer to invest or participate in this strategy. This material is not intended to solicit funds.",
@@ -3253,7 +3272,8 @@ disclaimer_screen = html.Div(
                 "Accept & Continue",
                 id="accept-button",
                 color="primary"
-            )
+            ),
+            build_gate_password_row(),
         ]
     )
 )
@@ -3271,6 +3291,8 @@ def dynamic_layout():
     return html.Div([
         dcc_store,
         access_mode_store,
+        dcc.Store(id=GATE_PASSWORD_VISIBLE_STORE_ID, storage_type="memory", data=False),
+        dcc.Store(id=TKP_ADMIN_AUTH_REVISION_STORE_ID, storage_type="memory", data=0),
         dcc.Store(id="canonical-nav-store", storage_type="memory", data=fresh_canonical),
         disclaimer_screen,
         html.Div(
@@ -3284,13 +3306,57 @@ def dynamic_layout():
 app.layout = dynamic_layout
 
 @app.callback(
+    Output(GATE_PASSWORD_VISIBLE_STORE_ID, "data"),
+    Input("secret-notice-e", "n_clicks"),
+    State(GATE_PASSWORD_VISIBLE_STORE_ID, "data"),
+    prevent_initial_call=True,
+)
+def toggle_gate_password_visible(n_clicks, visible):
+    if n_clicks:
+        return not bool(visible)
+    return dash.no_update
+
+
+@app.callback(
+    Output(GATE_PASSWORD_ROW_ID, "style"),
+    Input(GATE_PASSWORD_VISIBLE_STORE_ID, "data"),
+)
+def render_gate_password_row(visible):
+    return gate_password_row_style(bool(visible))
+
+
+@app.callback(
+    Output(GATE_PASSWORD_ERROR_ID, "children"),
+    Output(GATE_PASSWORD_VISIBLE_STORE_ID, "data", allow_duplicate=True),
+    Output("disclaimer-screen", "style", allow_duplicate=True),
+    Output("main-app", "style", allow_duplicate=True),
+    Output("access-mode", "data", allow_duplicate=True),
+    Output(TKP_ADMIN_AUTH_REVISION_STORE_ID, "data", allow_duplicate=True),
+    Input(GATE_PASSWORD_SUBMIT_ID, "n_clicks"),
+    Input(GATE_PASSWORD_INPUT_ID, "n_submit"),
+    State(GATE_PASSWORD_INPUT_ID, "value"),
+    State(TKP_ADMIN_AUTH_REVISION_STORE_ID, "data"),
+    prevent_initial_call=True,
+)
+def gate_admin_login(submit_clicks, _n_submit, password, revision):
+    _ = submit_clicks
+    ok, _msg = _tkp_auth_manager.login(session, password or "")
+    if not ok:
+        return INVALID_PASSWORD_MESSAGE, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+    return "", False, {"display": "none"}, {"display": "block"}, "standard", (revision or 0) + 1
+
+
+@app.callback(
     Output("disclaimer-screen", "style"),
     Output("main-app", "style"),
     Output("access-mode", "data"),
     Input("accept-button", "n_clicks"),
-    Input("secret-notice-e", "n_clicks"),
+    Input(TKP_ADMIN_AUTH_REVISION_STORE_ID, "data"),
+    State("access-mode", "data"),
 )
-def show_main(n_accept, n_secret):
+def show_main(n_accept, _auth_revision, access_mode):
+    if _tkp_auth_manager.is_authenticated(session):
+        return {"display": "none"}, {"display": "block"}, access_mode or "standard"
     ctx = dash.callback_context
     if not ctx.triggered:
         return {"padding": "4rem", "textAlign": "center"}, {"display": "none"}, None
@@ -3298,18 +3364,30 @@ def show_main(n_accept, n_secret):
     button_id = prop_id.split(".")[0]
     if button_id == "accept-button" and (n_accept or 0) > 0:
         return {"display": "none"}, {"display": "block"}, "standard"
-    if button_id == "secret-notice-e" and (n_secret or 0) > 0:
-        return {"display": "none"}, {"display": "block"}, "secret"
-    return {"padding": "4rem", "textAlign": "center"}, {"display": "none"}, None
+    return {"padding": "4rem", "textAlign": "center"}, {"display": "none"}, access_mode
 
 @app.callback(
     Output("secret-table-container", "style"),
+    Input(TKP_ADMIN_AUTH_REVISION_STORE_ID, "data"),
     Input("access-mode", "data"),
 )
-def toggle_secret_table(access_mode):
-    if access_mode == "secret":
+def toggle_secret_table(_auth_revision, access_mode):
+    if _tkp_auth_manager.is_authenticated(session):
         return {"display": "block"}
     return {"display": "none"}
+
+
+@app.callback(
+    Output(TKP_ADMIN_AUTH_REVISION_STORE_ID, "data", allow_duplicate=True),
+    Input("tkp-admin-logout-btn", "n_clicks"),
+    State(TKP_ADMIN_AUTH_REVISION_STORE_ID, "data"),
+    prevent_initial_call=True,
+)
+def tkp_admin_logout(n_clicks, revision):
+    if n_clicks:
+        _tkp_auth_manager.logout(session)
+        return (revision or 0) + 1
+    return dash.no_update
 
 # ── Public Daily Returns: sync data from admin store ──────────────────────
 @app.callback(
@@ -3397,6 +3475,8 @@ def update_page_size(page_size):
     prevent_initial_call=True,
 )
 def toggle_add_modal(n_open, n_cancel, n_save, is_open):
+    if not _tkp_auth_manager.is_authenticated(session):
+        return dash.no_update
     ctx = dash.callback_context
     tid = ctx.triggered[0]["prop_id"].split(".")[0]
     if tid == "secret-add-btn":
@@ -3415,6 +3495,8 @@ def toggle_add_modal(n_open, n_cancel, n_save, is_open):
     prevent_initial_call=True,
 )
 def add_row(n_clicks, date_val, plus500_val, balance_val, deposit_val, current_data):
+    if not _tkp_auth_manager.is_authenticated(session):
+        return dash.no_update
     if not n_clicks or not balance_val:
         return dash.no_update
     rows = list(current_data) if current_data else []
@@ -3453,6 +3535,8 @@ def add_row(n_clicks, date_val, plus500_val, balance_val, deposit_val, current_d
     prevent_initial_call=True,
 )
 def toggle_delete_confirm_modal(n_open, n_cancel, n_confirm, current_data, is_open):
+    if not _tkp_auth_manager.is_authenticated(session):
+        return dash.no_update, dash.no_update
     ctx = dash.callback_context
     tid = ctx.triggered[0]["prop_id"].split(".")[0]
     if tid == "secret-delete-last-btn":
@@ -3477,6 +3561,8 @@ def toggle_delete_confirm_modal(n_open, n_cancel, n_confirm, current_data, is_op
     prevent_initial_call=True,
 )
 def delete_last_row(n_clicks, current_data):
+    if not _tkp_auth_manager.is_authenticated(session):
+        return dash.no_update
     if not n_clicks or not current_data:
         return dash.no_update
     rows = list(current_data)

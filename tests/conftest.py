@@ -10,6 +10,11 @@ import pytest
 # Prevent benchmark network I/O during pytest collection and test runs.
 os.environ.setdefault("TCP_V2_SKIP_BENCHMARK_FETCH", "1")
 
+_TESTS_DIR = Path(__file__).resolve().parent
+_CANARY_STATE = _TESTS_DIR / "_tmp_canary_layout" / "tcp_daily_returns_secret_state.json"
+if _CANARY_STATE.is_file():
+    os.environ.setdefault("TCP_V2_STATE_PATH", str(_CANARY_STATE))
+
 from tcp_test_constants import CONTRACT_PATH, GOLDEN_FIXTURE_PATH
 
 
