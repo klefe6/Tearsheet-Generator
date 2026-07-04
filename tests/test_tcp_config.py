@@ -11,7 +11,16 @@ import tcp_config
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
-def test_default_config_values():
+def test_default_config_values(monkeypatch):
+    for name in (
+        "TCP_V2_STATE_MODE",
+        "TCP_V2_STATE_PATH",
+        "TCP_V2_STATE_BACKUP_PATH",
+        "TCP_V2_STATE_LOCK_PATH",
+        "TCP_V2_WORKBOOK_PATH",
+        "TCP_V2_ALLOW_WORKBOOK_FALLBACK",
+    ):
+        monkeypatch.delenv(name, raising=False)
     cfg = tcp_config.load_config()
     assert cfg.app_code == "tcp"
     assert cfg.app_name == "TCP"

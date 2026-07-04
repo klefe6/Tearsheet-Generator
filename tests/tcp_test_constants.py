@@ -6,6 +6,9 @@ FIXTURES_DIR = TESTS_DIR / "fixtures"
 GOLDEN_FIXTURE_PATH = FIXTURES_DIR / "tcp_golden_rows.json"
 CONTRACT_PATH = TESTS_DIR.parent / "docs" / "tcp_daily_ledger_contract.md"
 
+TEST_AUTH_TOKEN = "test-conftest-runtime-admin-token"
+TEST_AUTH_SECRET = "test-conftest-runtime-session-secret"
+
 REQUIRED_LEDGER_FIELDS = [
     "Cash Transfers",
     "Trading Days",

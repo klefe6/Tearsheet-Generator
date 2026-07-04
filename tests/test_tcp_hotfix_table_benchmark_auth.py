@@ -37,7 +37,7 @@ from tcp_daily_values import (
     sort_rows_for_display,
 )
 from tcp_dashboard import canonical_nav_records_from_ledger, propagate_tcp_dashboard
-from tcp_ledger import load_ledger
+from tcp_test_constants import TEST_AUTH_SECRET, TEST_AUTH_TOKEN
 from tearsheet_gate_auth import (
     GATE_PASSWORD_INPUT_ID,
     GATE_PASSWORD_ROW_ID,
@@ -46,8 +46,8 @@ from tearsheet_gate_auth import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-TEST_TOKEN = "test-runtime-admin-token"
-TEST_SECRET = "test-runtime-session-secret"
+TEST_TOKEN = TEST_AUTH_TOKEN
+TEST_SECRET = TEST_AUTH_SECRET
 
 
 class MockBenchmarkProvider:
@@ -88,20 +88,10 @@ def _auth_env(monkeypatch):
     monkeypatch.setenv("TCP_V2_SESSION_SECRET", TEST_SECRET)
 
 
-@pytest.fixture(scope="session")
-def ledger():
-    cfg = load_config()
-    wb = Path(cfg.workbook_path)
-    if not wb.is_file():
-        pytest.skip("TCP workbook not available")
-    return load_ledger(cfg.workbook_path, cfg.sheet_name)
-
-
 @pytest.fixture
-def tcp_app():
-    from tcp_ts_v2 import create_app
-
-    return create_app()
+def tcp_app(tcp_app_bundle):
+  """Full create_app bundle for layout/callback tests in this module."""
+  return tcp_app_bundle
 
 
 @pytest.fixture

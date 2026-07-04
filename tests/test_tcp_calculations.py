@@ -32,7 +32,6 @@ from tcp_calculations import (
     public_row,
 )
 from tcp_config import load_config, resolve_state_paths
-from tcp_ledger import load_ledger
 from tcp_state import serialize_state, validate_state
 from tcp_test_constants import GOLDEN_FIXTURE_PATH
 from replay_tcp_ledger import replay_ledger
@@ -61,30 +60,6 @@ def _workbook_available() -> bool:
 
 def _load_golden_fixture() -> dict:
     return json.loads(GOLDEN_FIXTURE_PATH.read_text(encoding="utf-8"))
-
-
-def _ledger():
-    """Load the audited workbook once per test session (read-only adapter)."""
-    return _get_session_ledger()
-
-
-_SESSION_LEDGER = None
-
-
-def _get_session_ledger():
-    global _SESSION_LEDGER
-    if _SESSION_LEDGER is None:
-        cfg = load_config()
-        if not Path(cfg.workbook_path).is_file():
-            pytest.skip("TCP workbook not available")
-        _SESSION_LEDGER = load_ledger(cfg.workbook_path, cfg.sheet_name)
-    return _SESSION_LEDGER
-
-
-@pytest.fixture(scope="session")
-def ledger():
-    """Session-scoped read-only ledger for calculator tests."""
-    return _get_session_ledger()
 
 
 def _record_by_excel_row(ledger, excel_row: int):
@@ -137,8 +112,7 @@ def rules():
 
 
 @pytest.mark.parametrize("excel_row,scenario", list(GOLDEN_ROWS.items()))
-def test_golden_row_matches_workbook(excel_row, scenario):
-    ledger = _ledger()
+def test_golden_row_matches_workbook(excel_row, scenario, ledger):
     target = _record_by_excel_row(ledger, excel_row)
     if excel_row == ledger.completed_records[0].excel_row_number:
         entry = _entry_from_record(target)
@@ -160,8 +134,7 @@ def test_golden_row_matches_workbook(excel_row, scenario):
         )
 
 
-def test_full_ledger_replay_passes():
-    ledger = _ledger()
+def test_full_ledger_replay_passes(ledger):
     report = replay_ledger(ledger)
     assert report.rows_mismatched == 0
     assert report.rows_matched == report.rows_attempted == 112
@@ -270,16 +243,14 @@ def test_tranche_regression(rules):
         compute_tcp_row(prior, entry, rules)
 
 
-def test_very_small_positive_pl_matches_workbook(rules):
-    ledger = _ledger()
+def test_very_small_positive_pl_matches_workbook(rules, ledger):
     calculated = _compute_through_row(ledger, 6)
     observed = _record_by_excel_row(ledger, 6).fields
     assert compare_field("$PL", calculated["$PL"], observed["$PL"])[0]
     assert calculated["$PL"] > 0
 
 
-def test_very_small_loss_matches_workbook():
-    ledger = _ledger()
+def test_very_small_loss_matches_workbook(ledger):
     calculated = _compute_through_row(ledger, 7)
     observed = _record_by_excel_row(ledger, 7).fields
     assert calculated["$PL"] < 0
@@ -347,8 +318,7 @@ def test_pl_just_above_and_below_loss_carry(rules):
     assert above["Inc. Fee"] > 0.0
 
 
-def test_new_hwm_boundary_matches_workbook():
-    ledger = _ledger()
+def test_new_hwm_boundary_matches_workbook(ledger):
     calculated = _compute_through_row(ledger, 8)
     observed = _record_by_excel_row(ledger, 8).fields
     assert calculated["nav-x1"] > calculated["HWM"] - 0.001 or math.isclose(
@@ -357,8 +327,7 @@ def test_new_hwm_boundary_matches_workbook():
     assert compare_field("HWM", calculated["HWM"], observed["HWM"])[0]
 
 
-def test_no_fee_under_hwm_row_matches_workbook():
-    ledger = _ledger()
+def test_no_fee_under_hwm_row_matches_workbook(ledger):
     calculated = _compute_through_row(ledger, 10)
     observed = _record_by_excel_row(ledger, 10).fields
     assert calculated["Inc. Fee"] == 0.0
@@ -398,8 +367,7 @@ def test_input_dictionaries_remain_unchanged(rules):
     assert entry == entry_copy
 
 
-def test_repeated_calls_return_identical_output(rules):
-    ledger = _ledger()
+def test_repeated_calls_return_identical_output(rules, ledger):
     prior = _compute_through_row(ledger, 4)
     entry = _entry_from_record(_record_by_excel_row(ledger, 5))
     first = compute_tcp_row(prior, entry, rules)
@@ -440,8 +408,7 @@ def test_no_tkp_module_imported():
     import tcp_calculations  # noqa: F401
 
 
-def test_calculated_record_passes_state_validation():
-    ledger = _ledger()
+def test_calculated_record_passes_state_validation(ledger):
     seed = public_row(
         build_seed_row(_entry_from_record(ledger.completed_records[0]), TCPInceptionContext())
     )
@@ -457,8 +424,7 @@ def test_calculated_record_passes_state_validation():
     validate_state(state)
 
 
-def test_calculated_record_serializes_in_memory():
-    ledger = _ledger()
+def test_calculated_record_serializes_in_memory(ledger):
     seed = public_row(
         build_seed_row(_entry_from_record(ledger.completed_records[0]), TCPInceptionContext())
     )
@@ -476,12 +442,11 @@ def test_calculated_record_serializes_in_memory():
     assert "_running_max_nav" not in payload
 
 
-def test_state_files_not_written_by_calculator():
+def test_state_files_not_written_by_calculator(ledger):
     active_existed = CONFIGURED_ACTIVE.exists()
     backup_existed = CONFIGURED_BACKUP.exists()
     lock_existed = CONFIGURED_LOCK.exists()
 
-    ledger = _ledger()
     _compute_through_row(ledger, 10)
 
     if active_existed:
@@ -498,8 +463,7 @@ def test_state_files_not_written_by_calculator():
         assert not CONFIGURED_LOCK.exists()
 
 
-def test_rules_immutability(rules):
-    ledger = _ledger()
+def test_rules_immutability(rules, ledger):
     prior = _compute_through_row(ledger, 4)
     entry = _entry_from_record(_record_by_excel_row(ledger, 5))
     rules_copy = TCPRules(

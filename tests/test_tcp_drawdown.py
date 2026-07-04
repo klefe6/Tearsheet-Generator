@@ -29,7 +29,6 @@ from tcp_ledger import load_ledger
 from tcp_public_sections import resolve_public_gate_styles
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-_SESSION_LEDGER = None
 
 # Derived once from workbook + committed v1 methodology (2026-07-03).
 WORKBOOK_DRAWDOWN_BASELINE = {
@@ -41,29 +40,6 @@ WORKBOOK_DRAWDOWN_BASELINE = {
     "Valley Date": "2026-06-24",
     "End Date": "TBD",
 }
-
-
-def _get_session_ledger():
-    global _SESSION_LEDGER
-    if _SESSION_LEDGER is None:
-        from tcp_config import load_config
-
-        cfg = load_config()
-        wb = Path(cfg.workbook_path)
-        if not wb.is_file():
-            pytest.skip("TCP workbook not available")
-        _SESSION_LEDGER = load_ledger(cfg.workbook_path, cfg.sheet_name)
-    return _SESSION_LEDGER
-
-
-@pytest.fixture(scope="session")
-def ledger():
-    return _get_session_ledger()
-
-
-@pytest.fixture(scope="session")
-def canonical(ledger):
-    return canonical_nav_records_from_ledger(ledger.completed_records)
 
 
 @pytest.fixture(scope="session")
@@ -315,33 +291,8 @@ def test_running_peak_non_decreasing(canonical):
 
 
 @pytest.fixture(scope="module")
-def layout_text():
-    import os
-
-    saved = {
-        "TCP_V2_ADMIN_TOKEN": os.environ.get("TCP_V2_ADMIN_TOKEN"),
-        "TCP_V2_SESSION_SECRET": os.environ.get("TCP_V2_SESSION_SECRET"),
-    }
-    os.environ["TCP_V2_ADMIN_TOKEN"] = "drawdown-test-token"
-    os.environ["TCP_V2_SESSION_SECRET"] = "drawdown-test-secret"
-    from tcp_config import AdminAuthSettings
-    from tcp_ts_v2 import create_app
-
-    app, _cfg, state, _auth, _holder = create_app(
-        auth_settings=AdminAuthSettings(
-            admin_token="drawdown-test-token",
-            session_secret="drawdown-test-secret",
-        )
-    )
-    if state.snapshot is None:
-        pytest.skip("runtime unavailable")
-    text = str(app.layout)
-    for key, value in saved.items():
-        if value is None:
-            os.environ.pop(key, None)
-        else:
-            os.environ[key] = value
-    return text
+def layout_text(tcp_layout_text):
+    return tcp_layout_text
 
 
 def test_drawdown_section_id_present(layout_text):

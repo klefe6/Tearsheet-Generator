@@ -43,12 +43,8 @@ def disposable(request):
 
 
 @pytest.fixture(scope="session")
-def workbook_ledger():
-    cfg = load_config()
-    wb = Path(cfg.workbook_path)
-    if not wb.is_file():
-        pytest.skip("workbook unavailable")
-    return load_ledger(cfg.workbook_path, cfg.sheet_name)
+def workbook_ledger(tcp_ledger):
+    return tcp_ledger
 
 
 def _cfg(root: Path, paths: StatePaths, **kwargs) -> TCPConfig:

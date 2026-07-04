@@ -44,11 +44,8 @@ def _public_source() -> str:
 
 
 @pytest.fixture
-def layout_text():
-    from tcp_ts_v2 import create_app
-
-    app, *_ = create_app()
-    return _layout_text(app)
+def layout_text(tcp_layout_text):
+    return tcp_layout_text
 
 
 def test_main_page_shell_exists(layout_text):

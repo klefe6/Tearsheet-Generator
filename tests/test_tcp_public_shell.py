@@ -9,13 +9,12 @@ from pathlib import Path
 
 import pytest
 
+from tcp_test_constants import TEST_AUTH_SECRET, TEST_AUTH_TOKEN
 from tcp_admin import SESSION_KEY, AdminAuthManager, SIMULATION_BANNER_TEXT
 from tcp_config import AdminAuthSettings, load_config, resolve_state_paths
 from tcp_public_sections import ACCOUNT_STATISTICS, normalized_gate_title_text, required_copy_fragments, resolve_public_gate_styles
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-TEST_TOKEN = "test-admin-token-public-shell"
-TEST_SECRET = "test-session-secret-public-shell"
 
 V1_BASE_COMMIT = "b5fce4b"
 
@@ -31,31 +30,13 @@ def _port_listening(port: int) -> bool:
 
 
 @pytest.fixture(scope="module")
-def _app_bundle_module():
-    """Load workbook-backed preview app once per module (no monkeypatch dependency)."""
-    import os
-
-    saved = {
-        "TCP_V2_ADMIN_TOKEN": os.environ.get("TCP_V2_ADMIN_TOKEN"),
-        "TCP_V2_SESSION_SECRET": os.environ.get("TCP_V2_SESSION_SECRET"),
-    }
-    os.environ["TCP_V2_ADMIN_TOKEN"] = TEST_TOKEN
-    os.environ["TCP_V2_SESSION_SECRET"] = TEST_SECRET
-    settings = AdminAuthSettings(admin_token=TEST_TOKEN, session_secret=TEST_SECRET)
-    from tcp_ts_v2 import create_app
-
-    bundle = create_app(auth_settings=settings)
-    yield bundle
-    for key, value in saved.items():
-        if value is None:
-            os.environ.pop(key, None)
-        else:
-            os.environ[key] = value
+def _app_bundle_module(tcp_app_bundle):
+    return tcp_app_bundle
 
 
 @pytest.fixture
 def auth_settings():
-    return AdminAuthSettings(admin_token=TEST_TOKEN, session_secret=TEST_SECRET)
+    return AdminAuthSettings(admin_token=TEST_AUTH_TOKEN, session_secret=TEST_AUTH_SECRET)
 
 
 @pytest.fixture
@@ -283,8 +264,8 @@ def test_public_layout_contains_no_admin_token(app_bundle):
     if state.snapshot is None:
         pytest.skip("runtime unavailable")
     layout = _layout_text(app)
-    assert TEST_TOKEN not in layout
-    assert TEST_SECRET not in layout
+    assert TEST_AUTH_TOKEN not in layout
+    assert TEST_AUTH_SECRET not in layout
 
 
 def test_public_gate_separate_from_flask_admin_session(app_bundle, auth_settings):
@@ -292,7 +273,7 @@ def test_public_gate_separate_from_flask_admin_session(app_bundle, auth_settings
     if state.snapshot is None:
         pytest.skip("runtime unavailable")
     flask_session = {}
-    auth_manager.login(flask_session, TEST_TOKEN)
+    auth_manager.login(flask_session, TEST_AUTH_TOKEN)
     layout = _layout_text(_app)
     assert "disclaimer-screen" in layout
     assert auth_manager.is_authenticated(flask_session)
@@ -309,7 +290,7 @@ def test_unauthenticated_user_cannot_see_admin_ledger(client, app_bundle):
 
 
 def test_existing_login_logout_behavior(client, auth_manager):
-    login = client.post("/admin/login", data={"token": TEST_TOKEN}, follow_redirects=False)
+    login = client.post("/admin/login", data={"token": TEST_AUTH_TOKEN}, follow_redirects=False)
     assert login.status_code in (302, 303)
     with client.session_transaction() as sess:
         assert auth_manager.is_authenticated(sess)

@@ -32,28 +32,6 @@ from tcp_dashboard import (
 from tcp_ledger import load_ledger
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-_SESSION_LEDGER = None
-
-
-def _get_session_ledger():
-    global _SESSION_LEDGER
-    if _SESSION_LEDGER is None:
-        cfg = load_config()
-        wb = Path(cfg.workbook_path)
-        if not wb.is_file():
-            pytest.skip("TCP workbook not available")
-        _SESSION_LEDGER = load_ledger(cfg.workbook_path, cfg.sheet_name)
-    return _SESSION_LEDGER
-
-
-@pytest.fixture(scope="session")
-def ledger():
-    return _get_session_ledger()
-
-
-@pytest.fixture(scope="session")
-def canonical(ledger):
-    return canonical_nav_records_from_ledger(ledger.completed_records)
 
 
 @pytest.fixture(scope="session")

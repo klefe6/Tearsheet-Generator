@@ -22,6 +22,7 @@ from tcp_daily_values import (
     resolve_daily_values_toolbar_style,
 )
 from tcp_public_sections import build_public_accept_gate, normalized_gate_title_text
+from tcp_test_constants import TEST_AUTH_SECRET, TEST_AUTH_TOKEN
 from tearsheet_gate_auth import (
     GATE_PASSWORD_INPUT_ID,
     GATE_PASSWORD_ROW_ID,
@@ -35,8 +36,8 @@ from tearsheet_gate_auth import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-TEST_TOKEN = "test-runtime-admin-token"
-TEST_SECRET = "test-runtime-session-secret"
+TEST_TOKEN = TEST_AUTH_TOKEN
+TEST_SECRET = TEST_AUTH_SECRET
 PREVIEW_PORT_TCP = 8312
 
 
@@ -59,30 +60,13 @@ def _auth_env(monkeypatch):
 
 
 @pytest.fixture
-def layout_text():
-    from tcp_ts_v2 import create_app
-
-    app, *_ = create_app()
-    return _layout_text(app)
+def layout_text(tcp_layout_text):
+    return tcp_layout_text
 
 
 @pytest.fixture
-def tcp_app():
-    from tcp_ts_v2 import create_app
-
-    return create_app()
-
-
-@pytest.fixture
-def ledger():
-    from tcp_config import load_config
-    from tcp_ledger import load_ledger
-
-    cfg = load_config()
-    wb = Path(cfg.workbook_path)
-    if not wb.is_file():
-        pytest.skip("TCP workbook not available")
-    return load_ledger(cfg.workbook_path, cfg.sheet_name)
+def tcp_app(tcp_app_bundle):
+    return tcp_app_bundle
 
 
 def test_heading_normalizes_to_important_notice():

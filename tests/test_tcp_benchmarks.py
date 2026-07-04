@@ -25,13 +25,11 @@ from tcp_benchmarks import (
     load_spxtr_benchmark,
     normalize_provider_returns,
 )
-from tcp_dashboard import canonical_nav_records_from_ledger, propagate_tcp_dashboard
+from tcp_dashboard import propagate_tcp_dashboard
 from tcp_drawdown import SPXTR_INCEPTION_COLUMN as DD_SPXTR_COL, build_drawdown_dataframe
-from tcp_ledger import load_ledger
 from tcp_public_sections import resolve_public_gate_styles
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-_SESSION_LEDGER = None
 
 
 class MockBenchmarkProvider:
@@ -55,25 +53,6 @@ class MockBenchmarkProvider:
 def _returns_series(values, start="2026-01-20"):
     idx = pd.bdate_range(start=start, periods=len(values))
     return pd.Series(values, index=idx, dtype=float)
-
-
-@pytest.fixture(scope="session")
-def ledger():
-    global _SESSION_LEDGER
-    if _SESSION_LEDGER is None:
-        from tcp_config import load_config
-
-        cfg = load_config()
-        wb = Path(cfg.workbook_path)
-        if not wb.is_file():
-            pytest.skip("TCP workbook not available")
-        _SESSION_LEDGER = load_ledger(cfg.workbook_path, cfg.sheet_name)
-    return _SESSION_LEDGER
-
-
-@pytest.fixture(scope="session")
-def canonical(ledger):
-    return canonical_nav_records_from_ledger(ledger.completed_records)
 
 
 # --- normalize_provider_returns (focused) ---
@@ -327,33 +306,8 @@ def test_unavailable_benchmark_tcp_only(canonical):
 
 
 @pytest.fixture(scope="module")
-def layout_text():
-    import os
-
-    saved = {
-        "TCP_V2_ADMIN_TOKEN": os.environ.get("TCP_V2_ADMIN_TOKEN"),
-        "TCP_V2_SESSION_SECRET": os.environ.get("TCP_V2_SESSION_SECRET"),
-    }
-    os.environ["TCP_V2_ADMIN_TOKEN"] = "benchmark-test-token"
-    os.environ["TCP_V2_SESSION_SECRET"] = "benchmark-test-secret"
-    from tcp_config import AdminAuthSettings
-    from tcp_ts_v2 import create_app
-
-    app, _cfg, state, _auth, _holder = create_app(
-        auth_settings=AdminAuthSettings(
-            admin_token="benchmark-test-token",
-            session_secret="benchmark-test-secret",
-        )
-    )
-    if state.snapshot is None:
-        pytest.skip("runtime unavailable")
-    text = str(app.layout)
-    for key, value in saved.items():
-        if value is None:
-            os.environ.pop(key, None)
-        else:
-            os.environ[key] = value
-    return text
+def layout_text(tcp_layout_text):
+    return tcp_layout_text
 
 
 def test_benchmark_store_present(layout_text):

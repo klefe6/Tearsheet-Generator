@@ -65,11 +65,8 @@ def _port_listening(port: int) -> bool:
 
 
 @pytest.fixture
-def layout_text():
-    from tcp_ts_v2 import create_app
-
-    app, *_ = create_app()
-    return _layout_text(app)
+def layout_text(tcp_layout_text):
+    return tcp_layout_text
 
 
 @pytest.fixture
@@ -195,11 +192,10 @@ def test_public_gate_usable_contract(css_text, layout_text):
     assert "#disclaimer-screen" in css_text
 
 
-def test_e_reveals_password_row_callback_registered():
-    from tcp_ts_v2 import create_app
+def test_e_reveals_password_row_callback_registered(tcp_app):
     from tearsheet_gate_auth import GATE_PASSWORD_VISIBLE_STORE_ID
 
-    app, *_ = create_app()
+    app = tcp_app
     assert any(
         GATE_PASSWORD_VISIBLE_STORE_ID in str(cb.get("output", ""))
         and any(inp.get("id") == GATE_NOTICE_E_ID for inp in cb.get("inputs", []))

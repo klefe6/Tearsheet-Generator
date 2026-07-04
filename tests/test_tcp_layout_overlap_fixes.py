@@ -8,7 +8,6 @@ import pytest
 
 from tcp_admin import AdminAuthManager, ledger_records_to_rows
 from tcp_config import AdminAuthSettings, load_config, resolve_state_paths
-from tcp_ledger import load_ledger
 from tcp_daily_values import (
     DAILY_VALUES_SECTION_ID,
     DAILY_VALUES_TABLE_ID,
@@ -54,20 +53,8 @@ def _port_listening(port: int) -> bool:
 
 
 @pytest.fixture
-def layout_text():
-    from tcp_ts_v2 import create_app
-
-    app, *_ = create_app()
-    return _layout_text(app)
-
-
-@pytest.fixture(scope="session")
-def ledger():
-    cfg = load_config()
-    wb = Path(cfg.workbook_path)
-    if not wb.is_file():
-        pytest.skip("TCP workbook not available")
-    return load_ledger(cfg.workbook_path, cfg.sheet_name)
+def layout_text(tcp_layout_text):
+    return tcp_layout_text
 
 
 @pytest.fixture
@@ -106,11 +93,10 @@ def test_gate_e_does_not_use_visible_absolute_positioning(css_text):
     assert "position: fixed" not in block
 
 
-def test_gate_e_reveals_password_row_callback():
-    from tcp_ts_v2 import create_app
+def test_gate_e_reveals_password_row_callback(tcp_app):
     from tearsheet_gate_auth import GATE_PASSWORD_VISIBLE_STORE_ID
 
-    app, *_ = create_app()
+    app = tcp_app
     assert any(
         inp.get("id") == GATE_NOTICE_E_ID
         for cb in app.callback_map.values()

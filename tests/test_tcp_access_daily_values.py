@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from tcp_test_constants import TEST_AUTH_SECRET, TEST_AUTH_TOKEN
 from tcp_admin import (
     SESSION_KEY,
     AdminAuthManager,
@@ -39,8 +40,8 @@ from tcp_runtime_state import persist_add_row
 from tcp_state import StatePaths
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-TEST_TOKEN = "test-admin-token-access-dv"
-TEST_SECRET = "test-session-secret-access-dv"
+TEST_TOKEN = TEST_AUTH_TOKEN
+TEST_SECRET = TEST_AUTH_SECRET
 PRODUCTION_PORT = 8302
 PREVIEW_PORT = 8312
 
@@ -55,28 +56,6 @@ def _port_listening(port: int) -> bool:
         return sock.connect_ex(("127.0.0.1", port)) == 0
 
 
-@pytest.fixture(scope="module")
-def _app_bundle_module():
-    import os
-
-    saved = {
-        "TCP_V2_ADMIN_TOKEN": os.environ.get("TCP_V2_ADMIN_TOKEN"),
-        "TCP_V2_SESSION_SECRET": os.environ.get("TCP_V2_SESSION_SECRET"),
-    }
-    os.environ["TCP_V2_ADMIN_TOKEN"] = TEST_TOKEN
-    os.environ["TCP_V2_SESSION_SECRET"] = TEST_SECRET
-    settings = AdminAuthSettings(admin_token=TEST_TOKEN, session_secret=TEST_SECRET)
-    from tcp_ts_v2 import create_app
-
-    bundle = create_app(auth_settings=settings)
-    yield bundle
-    for key, value in saved.items():
-        if value is None:
-            os.environ.pop(key, None)
-        else:
-            os.environ[key] = value
-
-
 @pytest.fixture
 def auth_settings():
     return AdminAuthSettings(admin_token=TEST_TOKEN, session_secret=TEST_SECRET)
@@ -88,35 +67,23 @@ def auth_manager(auth_settings):
 
 
 @pytest.fixture
-def app_bundle(_app_bundle_module):
-    return _app_bundle_module
+def app_bundle(tcp_app_bundle):
+    return tcp_app_bundle
 
 
 @pytest.fixture
-def app(app_bundle):
-    return app_bundle[0]
+def app(tcp_app):
+    return tcp_app
 
 
 @pytest.fixture
-def client(app):
-    return app.server.test_client()
+def client(tcp_client):
+    return tcp_client
 
 
 @pytest.fixture
-def layout_text(app_bundle):
-    app, _cfg, state, _auth, _holder = app_bundle
-    if state.snapshot is None:
-        pytest.skip("runtime unavailable")
-    return _layout_text(app)
-
-
-@pytest.fixture(scope="session")
-def ledger():
-    cfg = load_config()
-    wb = Path(cfg.workbook_path)
-    if not wb.is_file():
-        pytest.skip("TCP workbook not available")
-    return load_ledger(cfg.workbook_path, cfg.sheet_name)
+def layout_text(tcp_layout_text):
+    return tcp_layout_text
 
 
 # --- Access flow ---

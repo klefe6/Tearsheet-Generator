@@ -26,18 +26,14 @@ from tcp_admin import (
 )
 from tcp_config import AdminAuthSettings, load_config, resolve_state_paths
 from tcp_dashboard import propagate_tcp_dashboard
-from tcp_ledger import load_ledger
+from tcp_test_constants import TEST_AUTH_SECRET, TEST_AUTH_TOKEN
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-_SESSION_LEDGER = None
-
-TEST_TOKEN = "test-admin-token-step8"
-TEST_SECRET = "test-session-secret-step8"
 
 
 @pytest.fixture
 def auth_settings():
-    return AdminAuthSettings(admin_token=TEST_TOKEN, session_secret=TEST_SECRET)
+    return AdminAuthSettings(admin_token=TEST_AUTH_TOKEN, session_secret=TEST_AUTH_SECRET)
 
 
 @pytest.fixture
@@ -46,38 +42,22 @@ def auth_manager(auth_settings):
 
 
 @pytest.fixture
-def app_bundle(auth_settings, monkeypatch):
-    monkeypatch.setenv("TCP_V2_ADMIN_TOKEN", TEST_TOKEN)
-    monkeypatch.setenv("TCP_V2_SESSION_SECRET", TEST_SECRET)
-    from tcp_ts_v2 import create_app
-
-    return create_app(auth_settings=auth_settings)
+def app_bundle(tcp_app_bundle):
+    return tcp_app_bundle
 
 
 @pytest.fixture
-def app(app_bundle):
-    return app_bundle[0]
+def app(tcp_app):
+    return tcp_app
 
 
 @pytest.fixture
-def client(app):
-    return app.server.test_client()
-
-
-@pytest.fixture(scope="session")
-def ledger():
-    global _SESSION_LEDGER
-    if _SESSION_LEDGER is None:
-        cfg = load_config()
-        wb = Path(cfg.workbook_path)
-        if not wb.is_file():
-            pytest.skip("TCP workbook not available")
-        _SESSION_LEDGER = load_ledger(cfg.workbook_path, cfg.sheet_name)
-    return _SESSION_LEDGER
+def client(tcp_client):
+    return tcp_client
 
 
 def test_missing_admin_token_disables_login(auth_manager):
-    unconfigured = AdminAuthManager(AdminAuthSettings(admin_token=None, session_secret=TEST_SECRET))
+    unconfigured = AdminAuthManager(AdminAuthSettings(admin_token=None, session_secret=TEST_AUTH_SECRET))
     session = {}
     ok, message = unconfigured.login(session, "anything")
     assert not ok
@@ -85,16 +65,16 @@ def test_missing_admin_token_disables_login(auth_manager):
 
 
 def test_missing_session_secret_disables_login():
-    unconfigured = AdminAuthManager(AdminAuthSettings(admin_token=TEST_TOKEN, session_secret=None))
+    unconfigured = AdminAuthManager(AdminAuthSettings(admin_token=TEST_AUTH_TOKEN, session_secret=None))
     assert not unconfigured.is_configured
     session = {}
-    ok, message = unconfigured.login(session, TEST_TOKEN)
+    ok, message = unconfigured.login(session, TEST_AUTH_TOKEN)
     assert not ok
 
 
 def test_correct_token_authenticates(auth_manager):
     session = {}
-    ok, message = auth_manager.login(session, TEST_TOKEN)
+    ok, message = auth_manager.login(session, TEST_AUTH_TOKEN)
     assert ok
     assert message == ""
     assert auth_manager.is_authenticated(session)
@@ -110,7 +90,7 @@ def test_incorrect_token_rejected(auth_manager):
 
 def test_logout_clears_authorization(auth_manager):
     session = {}
-    auth_manager.login(session, TEST_TOKEN)
+    auth_manager.login(session, TEST_AUTH_TOKEN)
     auth_manager.logout(session)
     assert SESSION_KEY not in session
     assert not auth_manager.is_authenticated(session)
@@ -119,8 +99,8 @@ def test_logout_clears_authorization(auth_manager):
 def test_token_absent_from_healthz(client, app_bundle):
     _app, _cfg, state, _auth, _holder = app_bundle
     payload = client.get("/healthz").get_json()
-    assert TEST_TOKEN not in json.dumps(payload)
-    assert TEST_SECRET not in json.dumps(payload)
+    assert TEST_AUTH_TOKEN not in json.dumps(payload)
+    assert TEST_AUTH_SECRET not in json.dumps(payload)
     assert payload["admin_auth"] == "configured"
     assert payload["state_mode"] in ("workbook", "json_active")
     assert payload["row_save"] in ("disabled", "enabled")
@@ -131,8 +111,8 @@ def test_token_absent_from_layout_serialization(app_bundle):
     if state.snapshot is None:
         pytest.skip("runtime unavailable")
     layout = str(app.layout)
-    assert TEST_TOKEN not in layout
-    assert TEST_SECRET not in layout
+    assert TEST_AUTH_TOKEN not in layout
+    assert TEST_AUTH_SECRET not in layout
 
 
 def test_unauthenticated_admin_editor_hidden(client, app_bundle):
@@ -160,7 +140,7 @@ def test_login_route_rejects_bad_token(client):
 
 
 def test_login_route_accepts_good_token(client):
-    response = client.post("/admin/login", data={"token": TEST_TOKEN}, follow_redirects=False)
+    response = client.post("/admin/login", data={"token": TEST_AUTH_TOKEN}, follow_redirects=False)
     assert response.status_code in {302, 303}
 
 

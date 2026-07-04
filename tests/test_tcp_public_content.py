@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from tcp_test_constants import TEST_AUTH_SECRET, TEST_AUTH_TOKEN
 from tcp_admin import SESSION_KEY, AdminAuthManager, SIMULATION_BANNER_TEXT
 from tcp_config import AdminAuthSettings, load_config, resolve_state_paths
 from tcp_public_sections import (
@@ -17,8 +18,6 @@ from tcp_public_sections import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-TEST_TOKEN = "test-admin-token-public-content"
-TEST_SECRET = "test-session-secret-public-content"
 
 
 def _layout_text(app) -> str:
@@ -47,25 +46,8 @@ def _trading_universe_pre_fee_footnote(layout_text: str) -> str:
 
 
 @pytest.fixture(scope="module")
-def _app_bundle_module():
-    import os
-
-    saved = {
-        "TCP_V2_ADMIN_TOKEN": os.environ.get("TCP_V2_ADMIN_TOKEN"),
-        "TCP_V2_SESSION_SECRET": os.environ.get("TCP_V2_SESSION_SECRET"),
-    }
-    os.environ["TCP_V2_ADMIN_TOKEN"] = TEST_TOKEN
-    os.environ["TCP_V2_SESSION_SECRET"] = TEST_SECRET
-    settings = AdminAuthSettings(admin_token=TEST_TOKEN, session_secret=TEST_SECRET)
-    from tcp_ts_v2 import create_app
-
-    bundle = create_app(auth_settings=settings)
-    yield bundle
-    for key, value in saved.items():
-        if value is None:
-            os.environ.pop(key, None)
-        else:
-            os.environ[key] = value
+def _app_bundle_module(tcp_app_bundle):
+    return tcp_app_bundle
 
 
 @pytest.fixture
@@ -88,7 +70,7 @@ def client(app_bundle):
 
 @pytest.fixture
 def auth_manager():
-    return AdminAuthManager(AdminAuthSettings(admin_token=TEST_TOKEN, session_secret=TEST_SECRET))
+    return AdminAuthManager(AdminAuthSettings(admin_token=TEST_AUTH_TOKEN, session_secret=TEST_AUTH_SECRET))
 
 
 # --- Trading Universe ---
@@ -278,7 +260,7 @@ def test_canonical_store(layout_text):
 
 
 def test_admin_login_logout(client, auth_manager):
-    login = client.post("/admin/login", data={"token": TEST_TOKEN}, follow_redirects=False)
+    login = client.post("/admin/login", data={"token": TEST_AUTH_TOKEN}, follow_redirects=False)
     assert login.status_code in (302, 303)
     with client.session_transaction() as sess:
         assert auth_manager.is_authenticated(sess)
