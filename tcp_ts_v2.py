@@ -112,8 +112,25 @@ from tcp_state import StatePaths
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("tcp_ts_v2")
 
+ADMIN_AUTH_REVISION_STORE_ID = "admin-auth-revision-store"
+
 WHITE_BG = "#ffffff"
 REPO_ROOT = Path(__file__).resolve().parent
+
+
+def authoritative_server_revision(runtime_holder: Dict[str, Any]) -> Optional[int]:
+    snap = runtime_holder.get("snapshot")
+    if snap is None:
+        return None
+    return snap.state_revision
+
+
+def next_admin_auth_revision(current: Optional[int]) -> int:
+    return (current or 0) + 1
+
+
+def explicit_button_click(triggered_id: Optional[str], button_id: str, n_clicks: Optional[int]) -> bool:
+    return triggered_id == button_id and bool(n_clicks)
 
 LOGO_PATH = (
     r"C:\Users\H&CDanHughes\Hughes & Company\Hughes & Company - Documents"
@@ -323,6 +340,7 @@ def build_preview_layout(cfg: TCPConfig, state: PreviewState, benchmark_result: 
         dcc.Store(id="canonical-nav-store", storage_type="memory", data=snapshot.canonical_nav),
         dcc.Store(id="benchmark-store", storage_type="memory", data=benchmark_result.to_store_dict()),
         dcc.Store(id="admin-proposed-row-store", storage_type="memory", data=None),
+        dcc.Store(id=ADMIN_AUTH_REVISION_STORE_ID, storage_type="memory", data=0),
         dcc.Store(id="admin-state-revision-store", storage_type="memory", data=snapshot.state_revision),
         dcc.Store(
             id="admin-delete-final-date-store",
@@ -453,7 +471,11 @@ def _health_payload(cfg: TCPConfig, state: PreviewState, auth_manager: AdminAuth
     return base
 
 
-def _register_access_callbacks(app: dash.Dash, auth_manager: AdminAuthManager) -> None:
+def _register_access_callbacks(
+    app: dash.Dash,
+    auth_manager: AdminAuthManager,
+    runtime_holder: Dict[str, Any],
+) -> None:
     @app.callback(
         Output(GATE_PASSWORD_VISIBLE_STORE_ID, "data"),
         Input("secret-notice-e", "n_clicks"),
@@ -479,14 +501,14 @@ def _register_access_callbacks(app: dash.Dash, auth_manager: AdminAuthManager) -
         Output("main-app", "style", allow_duplicate=True),
         Output(DAILY_VALUES_SECTION_ID, "style", allow_duplicate=True),
         Output(PUBLIC_GATE_ACCEPTED_STORE_ID, "data", allow_duplicate=True),
-        Output("admin-state-revision-store", "data", allow_duplicate=True),
+        Output(ADMIN_AUTH_REVISION_STORE_ID, "data"),
         Input(GATE_PASSWORD_SUBMIT_ID, "n_clicks"),
         Input(GATE_PASSWORD_INPUT_ID, "n_submit"),
         State(GATE_PASSWORD_INPUT_ID, "value"),
-        State("admin-state-revision-store", "data"),
+        State(ADMIN_AUTH_REVISION_STORE_ID, "data"),
         prevent_initial_call=True,
     )
-    def _gate_admin_login(submit_clicks, _n_submit, password, revision):
+    def _gate_admin_login(submit_clicks, _n_submit, password, auth_revision):
         _ = submit_clicks
         ok, _msg = auth_manager.login(session, password or "")
         if not ok:
@@ -496,8 +518,31 @@ def _register_access_callbacks(app: dash.Dash, auth_manager: AdminAuthManager) -
             admin_authenticated=True,
             public_accepted=False,
         )
-        next_revision = (revision or 0) + 1
-        return "", False, gate_style, main_style, daily_style, store_value, next_revision
+        return "", False, gate_style, main_style, daily_style, store_value, next_admin_auth_revision(auth_revision)
+
+    @app.callback(
+        Output("admin-add-modal", "is_open", allow_duplicate=True),
+        Output("admin-add-preview-modal", "is_open", allow_duplicate=True),
+        Output("admin-delete-modal", "is_open", allow_duplicate=True),
+        Output("admin-proposed-row-store", "data", allow_duplicate=True),
+        Output("admin-delete-final-date-store", "data", allow_duplicate=True),
+        Output("admin-delete-result", "is_open", allow_duplicate=True),
+        Output("admin-delete-result", "children", allow_duplicate=True),
+        Output("admin-add-save-result", "is_open", allow_duplicate=True),
+        Output("admin-add-save-result", "children", allow_duplicate=True),
+        Output("admin-state-revision-store", "data", allow_duplicate=True),
+        Input(ADMIN_AUTH_REVISION_STORE_ID, "data"),
+        prevent_initial_call=True,
+    )
+    def _reset_admin_mutation_state(_auth_revision):
+        snap = runtime_holder.get("snapshot")
+        latest_iso = None
+        server_revision = None
+        if snap is not None:
+            latest_date = snap.ledger.metadata.latest_completed_date
+            latest_iso = latest_date.isoformat() if latest_date else None
+            server_revision = snap.state_revision
+        return False, False, False, None, latest_iso, False, "", False, "", server_revision
 
     @app.callback(
         Output("disclaimer-screen", "style"),
@@ -520,9 +565,10 @@ def _register_access_callbacks(app: dash.Dash, auth_manager: AdminAuthManager) -
     @app.callback(
         Output(DAILY_VALUES_TOOLBAR_ID, "style"),
         Input("url", "pathname"),
+        Input(ADMIN_AUTH_REVISION_STORE_ID, "data"),
         Input("admin-state-revision-store", "data"),
     )
-    def _toggle_daily_values_admin_toolbar(_pathname, _revision):
+    def _toggle_daily_values_admin_toolbar(_pathname, _auth_revision, _revision):
         return resolve_daily_values_toolbar_style(
             admin_authenticated=auth_manager.is_authenticated(session),
         )
@@ -576,9 +622,10 @@ def _register_admin_callbacks(
         Output("admin-editor-container", "children"),
         Output("admin-editor-container", "style"),
         Input("url", "pathname"),
+        Input(ADMIN_AUTH_REVISION_STORE_ID, "data"),
         Input("admin-state-revision-store", "data"),
     )
-    def _render_admin_editor(_pathname, _revision):
+    def _render_admin_editor(_pathname, _auth_revision, _revision):
         if not auth_manager.is_authenticated(session):
             return [], {"display": "none"}
         snap = current_snapshot()
@@ -638,11 +685,13 @@ def _register_admin_callbacks(
         if not auth_manager.is_authenticated(session):
             return no_update, no_update, no_update, no_update, no_update
         triggered = dash.callback_context.triggered_id
-        if triggered == "admin-add-cancel-btn":
+        if explicit_button_click(triggered, "admin-add-cancel-btn", cancel_clicks):
             return False, no_update, no_update, no_update, no_update
-        latest_record = state_record_to_fields(current_snapshot().records[-1].fields)
-        defaults = default_add_row_values(latest_record)
-        return True, defaults["date"], defaults["cash_balance"], defaults["cash_transfers"], defaults["tranche_count"]
+        if explicit_button_click(triggered, "admin-open-add-modal", open_clicks):
+            latest_record = state_record_to_fields(current_snapshot().records[-1].fields)
+            defaults = default_add_row_values(latest_record)
+            return True, defaults["date"], defaults["cash_balance"], defaults["cash_transfers"], defaults["tranche_count"]
+        return no_update, no_update, no_update, no_update, no_update
 
     @app.callback(
         Output("admin-add-preview-modal", "is_open"),
@@ -730,7 +779,8 @@ def _register_admin_callbacks(
             authenticated=True,
         )
         if not result.success or result.snapshot is None:
-            return no_update, no_update, result.error_message or "Save failed.", True, True
+            refreshed_revision = current_snapshot().state_revision
+            return no_update, refreshed_revision, result.error_message or "Save failed.", True, True
         set_snapshot(result.snapshot)
         message = f"Saved row {result.saved_date} · NAV {result.saved_nav:.3f} · revision {result.revision}"
         return result.snapshot.canonical_nav, result.revision, message, True, False
@@ -756,16 +806,16 @@ def _register_admin_callbacks(
             return (no_update,) * 7
         triggered = dash.callback_context.triggered_id
         snap = current_snapshot()
-        if triggered == "admin-open-delete-modal":
+        if explicit_button_click(triggered, "admin-open-delete-modal", open_clicks):
             preview = simulate_delete_last_row(snap.records)
             deleted_date = None
             if preview.deleted_row:
                 raw = preview.deleted_row.get("Date")
                 deleted_date = raw.isoformat() if hasattr(raw, "isoformat") else str(raw)
             return True, delete_preview_content(preview), False, "", deleted_date, no_update, no_update
-        if triggered == "admin-delete-close-btn":
+        if explicit_button_click(triggered, "admin-delete-close-btn", close_clicks):
             return False, no_update, False, "", no_update, no_update, no_update
-        if triggered == "admin-delete-confirm-btn":
+        if explicit_button_click(triggered, "admin-delete-confirm-btn", confirm_clicks):
             if cfg.persistence_enabled and snap.writable and expected_revision is not None and final_date:
                 result = persist_delete_last_row(
                     cfg,
@@ -786,10 +836,18 @@ def _register_admin_callbacks(
                         result.snapshot.canonical_nav,
                         result.revision,
                     )
-                return True, no_update, True, result.error_message or "Delete failed.", no_update, no_update, no_update
+                return (
+                    True,
+                    no_update,
+                    True,
+                    result.error_message or "Delete failed.",
+                    no_update,
+                    no_update,
+                    snap.state_revision,
+                )
             preview = simulate_delete_last_row(snap.records)
             return True, delete_preview_content(preview), True, DELETE_CONFIRM_MESSAGE, no_update, no_update, no_update
-        return False, no_update, False, "", no_update, no_update, no_update
+        return no_update, no_update, no_update, no_update, no_update, no_update, no_update
 
 
 def _register_auth_routes(app: dash.Dash, auth_manager: AdminAuthManager) -> None:
@@ -842,7 +900,7 @@ def create_app(
     if state.snapshot is not None:
         benchmark_result = _resolve_benchmark_result(runtime_holder)
         app.layout = build_preview_layout(cfg, state, benchmark_result)
-        _register_access_callbacks(app, auth_manager)
+        _register_access_callbacks(app, auth_manager, runtime_holder)
         _register_dashboard_callback(app, runtime_holder)
         _register_admin_callbacks(app, cfg, paths, runtime_holder, auth_manager)
     else:
