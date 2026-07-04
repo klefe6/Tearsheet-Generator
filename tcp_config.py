@@ -74,6 +74,14 @@ def _env_bool(name: str, default: bool) -> bool:
     return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def resolve_benchmark_cache_path(base_dir: str | Path) -> Path:
+    """Resolve SPXTR benchmark cache path. Override with TCP_V2_BENCHMARK_CACHE_PATH."""
+    override = os.environ.get("TCP_V2_BENCHMARK_CACHE_PATH")
+    if override:
+        return Path(override)
+    return Path(base_dir) / "_runtime" / "tcp_benchmark_cache.json"
+
+
 def load_config() -> TCPConfig:
     """Build config from defaults and optional environment overrides."""
     workbook_path = os.environ.get("TCP_V2_WORKBOOK_PATH", DEFAULT_WORKBOOK_PATH)

@@ -5,7 +5,7 @@ Safe to import: no server start, no workbook/JSON writes, no secrets.
 """
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from typing import Any, Dict, List, Mapping, Optional, Sequence
 
 import dash_bootstrap_components as dbc
@@ -32,7 +32,15 @@ DAILY_VALUES_TABLE_ID = "tcp-daily-values-table"
 DAILY_VALUES_TOOLBAR_ID = "tcp-daily-values-admin-toolbar"
 DAILY_VALUES_SUMMARY_ID = "tcp-daily-values-summary"
 PUBLIC_GATE_ACCEPTED_STORE_ID = "public-gate-accepted-store"
+TCP_UI_MODE_STORE_ID = "tcp-ui-mode-store"
+UI_MODE_PUBLIC = "public"
+UI_MODE_ADMIN = "admin"
 GATE_NOTICE_E_ID = "secret-notice-e"
+
+DAILY_VALUES_DEFAULT_SORT: List[Dict[str, str]] = [
+    {"column_id": "Date", "direction": "desc"},
+    {"column_id": "#", "direction": "desc"},
+]
 
 # TCP public column contract (TKP PUBLIC_DAILY_COLUMNS analog).
 PUBLIC_DAILY_COLUMN_MAP: Sequence[tuple[str, str]] = (
@@ -55,6 +63,38 @@ def public_daily_column_defs(visible_columns: Optional[Sequence[str]] = None) ->
     for col_def in defs:
         col_def["name"] = label_by_id.get(col_def["id"], col_def["name"])
     return defs
+
+
+def _row_date_ordinal(row: Mapping[str, Any]) -> int:
+    date_val = row.get("Date")
+    if isinstance(date_val, date):
+        return date_val.toordinal()
+    if isinstance(date_val, datetime):
+        return date_val.date().toordinal()
+    if isinstance(date_val, str) and date_val:
+        try:
+            return datetime.fromisoformat(date_val[:10]).date().toordinal()
+        except ValueError:
+            return 0
+    return 0
+
+
+def _row_sequence_number(row: Mapping[str, Any]) -> int:
+    seq = row.get("#")
+    try:
+        return int(seq) if seq not in (None, "") else 0
+    except (TypeError, ValueError):
+        return 0
+
+
+def sort_rows_for_display(rows: Sequence[Mapping[str, Any]]) -> List[Dict[str, Any]]:
+    """Presentation-only newest-first ordering; canonical storage order is unchanged."""
+    materialized = [dict(row) for row in rows]
+    return sorted(
+        materialized,
+        key=lambda row: (_row_date_ordinal(row), _row_sequence_number(row)),
+        reverse=True,
+    )
 
 
 def project_public_daily_rows(rows: Sequence[Mapping[str, Any]]) -> List[Dict[str, Any]]:
@@ -102,7 +142,8 @@ def build_daily_values_datatable(
     *,
     visible_columns: Optional[Sequence[str]] = None,
 ) -> dash_table.DataTable:
-    display_rows = project_public_daily_rows(rows)
+    sorted_rows = sort_rows_for_display(rows)
+    display_rows = project_public_daily_rows(sorted_rows)
     return dash_table.DataTable(
         id=DAILY_VALUES_TABLE_ID,
         columns=public_daily_column_defs(visible_columns),
@@ -110,6 +151,7 @@ def build_daily_values_datatable(
         page_action="native",
         page_size=DEFAULT_PAGE_SIZE,
         sort_action="native",
+        sort_by=DAILY_VALUES_DEFAULT_SORT,
         editable=False,
         style_table={"overflowX": "auto"},
         style_cell={
@@ -130,7 +172,7 @@ def build_daily_values_datatable(
             "fontSize": "11px",
             "textAlign": "center",
         },
-        style_data_conditional=ledger_table_style_conditional(list(rows)),
+        style_data_conditional=ledger_table_style_conditional(sorted_rows),
     )
 
 
@@ -139,7 +181,7 @@ def build_daily_values_admin_toolbar() -> html.Div:
         [
             dbc.Button("Add Row", id="admin-open-add-modal", color="success", size="sm", className="me-2"),
             dbc.Button(
-                "Delete Last Row",
+                "Delete Latest Row",
                 id="admin-open-delete-modal",
                 color="danger",
                 size="sm",
@@ -155,25 +197,23 @@ def build_daily_values_admin_toolbar() -> html.Div:
 
 def resolve_access_visibility(
     *,
-    accept_clicks: Optional[int],
-    admin_authenticated: bool,
-    public_accepted: Optional[bool],
-) -> tuple[Dict[str, str], Dict[str, str], Dict[str, str], bool]:
-    """Presentation-only access gate (not an admin authorization signal)."""
-    if admin_authenticated:
-        return {"display": "none"}, {"display": "block"}, {"display": "block"}, True
-    if accept_clicks and accept_clicks > 0:
-        return {"display": "none"}, {"display": "block"}, {"display": "block"}, True
-    if public_accepted:
-        return {"display": "none"}, {"display": "block"}, {"display": "block"}, True
+    ui_mode: Optional[str],
+) -> tuple[Dict[str, str], Dict[str, str], Dict[str, str]]:
+    """Presentation-only access gate driven by explicit per-visit UI mode selection."""
+    if ui_mode in (UI_MODE_PUBLIC, UI_MODE_ADMIN):
+        return {"display": "none"}, {"display": "block"}, {"display": "block"}
     from tcp_public_sections import resolve_public_gate_styles
 
     gate_style, main_style = resolve_public_gate_styles(None)
-    return gate_style, main_style, {"display": "none"}, False
+    return gate_style, main_style, {"display": "none"}
 
 
-def resolve_daily_values_toolbar_style(*, admin_authenticated: bool) -> Dict[str, str]:
-    if admin_authenticated:
+def resolve_daily_values_toolbar_style(
+    *,
+    ui_mode: Optional[str],
+    admin_authenticated: bool,
+) -> Dict[str, str]:
+    if ui_mode == UI_MODE_ADMIN and admin_authenticated:
         return {"display": "block"}
     return {"display": "none"}
 

@@ -23,6 +23,9 @@ from tcp_daily_values import (
     DAILY_VALUES_TOOLBAR_ID,
     GATE_NOTICE_E_ID,
     PUBLIC_GATE_ACCEPTED_STORE_ID,
+    TCP_UI_MODE_STORE_ID,
+    UI_MODE_ADMIN,
+    UI_MODE_PUBLIC,
     build_daily_values_datatable,
     build_daily_values_section,
     project_public_daily_rows,
@@ -122,32 +125,25 @@ def ledger():
 def test_initial_gate_visible(layout_text):
     assert "disclaimer-screen" in layout_text
     assert "accept-button" in layout_text
-    gate, main, daily, _store = resolve_access_visibility(
-        accept_clicks=0, admin_authenticated=False, public_accepted=False
-    )
+    gate, main, daily = resolve_access_visibility(ui_mode=None)
     assert main == {"display": "none"}
     assert daily == {"display": "none"}
 
 
 def test_accept_reveals_public_site():
-    gate, main, _daily, _store = resolve_access_visibility(
-        accept_clicks=1, admin_authenticated=False, public_accepted=False
-    )
+    gate, main, _daily = resolve_access_visibility(ui_mode=UI_MODE_PUBLIC)
     assert gate == {"display": "none"}
     assert main == {"display": "block"}
 
 
 def test_accept_reveals_daily_values():
-    _gate, _main, daily, store = resolve_access_visibility(
-        accept_clicks=1, admin_authenticated=False, public_accepted=False
-    )
+    _gate, _main, daily = resolve_access_visibility(ui_mode=UI_MODE_PUBLIC)
     assert daily == {"display": "block"}
-    assert store is True
 
 
 def test_accept_does_not_authenticate_admin(auth_manager):
     session = {}
-    resolve_access_visibility(accept_clicks=1, admin_authenticated=False, public_accepted=False)
+    resolve_access_visibility(ui_mode=UI_MODE_PUBLIC)
     assert not auth_manager.is_authenticated(session)
 
 
@@ -179,14 +175,18 @@ def test_correct_login_establishes_admin_session(client, auth_manager):
         assert auth_manager.is_authenticated(sess)
 
 
-def test_admin_sees_public_page_without_second_accept():
-    gate, main, daily, store = resolve_access_visibility(
-        accept_clicks=0, admin_authenticated=True, public_accepted=False
-    )
+def test_admin_requires_explicit_ui_mode_even_with_session():
+    gate, main, daily = resolve_access_visibility(ui_mode=None)
+    assert gate != {"display": "none"}
+    assert main == {"display": "none"}
+    assert daily == {"display": "none"}
+
+
+def test_admin_ui_mode_reveals_public_page():
+    gate, main, daily = resolve_access_visibility(ui_mode=UI_MODE_ADMIN)
     assert gate == {"display": "none"}
     assert main == {"display": "block"}
     assert daily == {"display": "block"}
-    assert store is True
 
 
 def test_logout_removes_admin_controls(client, auth_manager):
@@ -196,42 +196,31 @@ def test_logout_removes_admin_controls(client, auth_manager):
     assert logout.status_code in {302, 303}
     with client.session_transaction() as sess:
         assert not auth_manager.is_authenticated(sess)
-    assert resolve_daily_values_toolbar_style(admin_authenticated=False) == {"display": "none"}
+    assert resolve_daily_values_toolbar_style(ui_mode=None, admin_authenticated=False) == {"display": "none"}
 
 
 def test_accepted_public_user_sees_daily_values():
-    _gate, _main, daily, _store = resolve_access_visibility(
-        accept_clicks=0, admin_authenticated=False, public_accepted=True
-    )
+    _gate, _main, daily = resolve_access_visibility(ui_mode=UI_MODE_PUBLIC)
     assert daily == {"display": "block"}
 
 
-def test_authenticated_admin_sees_daily_values():
-    _gate, _main, daily, _store = resolve_access_visibility(
-        accept_clicks=0, admin_authenticated=True, public_accepted=False
-    )
+def test_authenticated_admin_sees_daily_values_with_ui_mode():
+    _gate, _main, daily = resolve_access_visibility(ui_mode=UI_MODE_ADMIN)
     assert daily == {"display": "block"}
 
 
 def test_unaccepted_unauthenticated_hides_daily_values():
-    gate, main, daily, store = resolve_access_visibility(
-        accept_clicks=0, admin_authenticated=False, public_accepted=False
-    )
+    gate, main, daily = resolve_access_visibility(ui_mode=None)
     assert daily == {"display": "none"}
-    assert store is False
     assert main == {"display": "none"}
     assert gate == GATE_SCREEN_STYLE
 
 
-def test_logout_keeps_public_mode_when_accepted(auth_manager):
-    """After logout, accepted public users remain in read-only public mode."""
-    gate, main, daily, store = resolve_access_visibility(
-        accept_clicks=0, admin_authenticated=False, public_accepted=True
-    )
+def test_logout_returns_to_gate_on_fresh_visit(auth_manager):
+    gate, main, daily = resolve_access_visibility(ui_mode=None)
     assert not auth_manager.is_authenticated({})
-    assert main == {"display": "block"}
-    assert daily == {"display": "block"}
-    assert store is True
+    assert main == {"display": "none"}
+    assert daily == {"display": "none"}
 
 
 # --- Daily Values placement and structure ---
@@ -257,11 +246,11 @@ def test_public_table_is_read_only(ledger):
 
 
 def test_public_user_sees_no_add_delete_controls():
-    assert resolve_daily_values_toolbar_style(admin_authenticated=False) == {"display": "none"}
+    assert resolve_daily_values_toolbar_style(ui_mode=UI_MODE_PUBLIC, admin_authenticated=False) == {"display": "none"}
 
 
 def test_admin_sees_add_delete_controls(layout_text):
-    assert resolve_daily_values_toolbar_style(admin_authenticated=True) == {"display": "block"}
+    assert resolve_daily_values_toolbar_style(ui_mode=UI_MODE_ADMIN, admin_authenticated=True) == {"display": "block"}
     assert "admin-open-add-modal" in layout_text
     assert "admin-open-delete-modal" in layout_text
 
@@ -270,7 +259,7 @@ def test_client_store_cannot_reveal_admin_controls(auth_manager):
     """Session store flags do not grant server-side admin authorization."""
     fake_session = {PUBLIC_GATE_ACCEPTED_STORE_ID: True, "disclaimer-accepted": True}
     assert not auth_manager.is_authenticated(fake_session)
-    assert resolve_daily_values_toolbar_style(admin_authenticated=False) == {"display": "none"}
+    assert resolve_daily_values_toolbar_style(ui_mode=None, admin_authenticated=False) == {"display": "none"}
 
 
 def test_direct_unauthenticated_mutation_rejected():
@@ -413,7 +402,7 @@ def test_accept_performs_no_state_write(monkeypatch):
 
     monkeypatch.setattr("tcp_ts_v2.persist_add_row", _fake_add)
     monkeypatch.setattr("tcp_ts_v2.persist_delete_last_row", _fake_delete)
-    resolve_access_visibility(accept_clicks=1, admin_authenticated=False, public_accepted=False)
+    resolve_access_visibility(ui_mode=UI_MODE_PUBLIC)
     assert calls == {"add": 0, "delete": 0}
 
 
@@ -470,7 +459,7 @@ def test_public_daily_columns_contract():
 def test_access_callbacks_registered(app):
     outputs = [str(cb.get("output", "")) for cb in app.callback_map.values()]
     assert any(DAILY_VALUES_SECTION_ID in out for out in outputs)
-    assert any(PUBLIC_GATE_ACCEPTED_STORE_ID in out for out in outputs)
+    assert any(TCP_UI_MODE_STORE_ID in out for out in outputs)
 
 
 def test_health_payload_contains_no_token(client):

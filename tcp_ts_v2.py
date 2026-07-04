@@ -50,6 +50,7 @@ from tcp_config import (
     is_production_runtime,
     load_admin_auth_settings,
     load_config,
+    resolve_benchmark_cache_path,
     resolve_bind_port,
     resolve_state_paths,
     validate_bind_port,
@@ -110,12 +111,16 @@ from tcp_daily_values import (
     DAILY_VALUES_TABLE_ID,
     DAILY_VALUES_TOOLBAR_ID,
     PUBLIC_GATE_ACCEPTED_STORE_ID,
+    TCP_UI_MODE_STORE_ID,
+    UI_MODE_ADMIN,
+    UI_MODE_PUBLIC,
     build_daily_values_section,
     project_public_daily_rows,
     public_daily_column_defs,
     resolve_access_visibility,
     resolve_daily_values_toolbar_style,
     rows_from_records,
+    sort_rows_for_display,
 )
 from tcp_state import StatePaths
 
@@ -283,7 +288,7 @@ def build_error_layout(cfg: TCPConfig, state: PreviewState) -> html.Div:
 
 
 def _benchmark_cache_path() -> Path:
-    return REPO_ROOT / "_runtime" / DEFAULT_CACHE_FILENAME
+    return resolve_benchmark_cache_path(REPO_ROOT)
 
 
 def _unavailable_benchmark_result() -> BenchmarkResult:
@@ -520,12 +525,23 @@ def _register_access_callbacks(
         return gate_password_row_style(bool(visible))
 
     @app.callback(
+        Output(GATE_PASSWORD_INPUT_ID, "value", allow_duplicate=True),
+        Input(GATE_PASSWORD_VISIBLE_STORE_ID, "data"),
+        prevent_initial_call=True,
+    )
+    def _clear_password_when_hidden(visible):
+        if not visible:
+            return ""
+        return no_update
+
+    @app.callback(
         Output(GATE_PASSWORD_ERROR_ID, "children"),
         Output(GATE_PASSWORD_VISIBLE_STORE_ID, "data", allow_duplicate=True),
+        Output(GATE_PASSWORD_INPUT_ID, "value", allow_duplicate=True),
         Output("disclaimer-screen", "style", allow_duplicate=True),
         Output("main-app", "style", allow_duplicate=True),
         Output(DAILY_VALUES_SECTION_ID, "style", allow_duplicate=True),
-        Output(PUBLIC_GATE_ACCEPTED_STORE_ID, "data", allow_duplicate=True),
+        Output(TCP_UI_MODE_STORE_ID, "data", allow_duplicate=True),
         Output(ADMIN_AUTH_REVISION_STORE_ID, "data"),
         Input(GATE_PASSWORD_SUBMIT_ID, "n_clicks"),
         Input(GATE_PASSWORD_INPUT_ID, "n_submit"),
@@ -537,13 +553,9 @@ def _register_access_callbacks(
         _ = submit_clicks
         ok, _msg = auth_manager.login(session, password or "")
         if not ok:
-            return INVALID_PASSWORD_MESSAGE, no_update, no_update, no_update, no_update, no_update, no_update
-        gate_style, main_style, daily_style, store_value = resolve_access_visibility(
-            accept_clicks=0,
-            admin_authenticated=True,
-            public_accepted=False,
-        )
-        return "", False, gate_style, main_style, daily_style, store_value, next_admin_auth_revision(auth_revision)
+            return INVALID_PASSWORD_MESSAGE, no_update, "", no_update, no_update, no_update, no_update, no_update
+        gate_style, main_style, daily_style = resolve_access_visibility(ui_mode=UI_MODE_ADMIN)
+        return "", False, "", gate_style, main_style, daily_style, UI_MODE_ADMIN, next_admin_auth_revision(auth_revision)
 
     @app.callback(
         Output("admin-add-modal", "is_open", allow_duplicate=True),
@@ -573,28 +585,30 @@ def _register_access_callbacks(
         Output("disclaimer-screen", "style"),
         Output("main-app", "style"),
         Output(DAILY_VALUES_SECTION_ID, "style"),
-        Output(PUBLIC_GATE_ACCEPTED_STORE_ID, "data"),
+        Output(TCP_UI_MODE_STORE_ID, "data"),
         Input("accept-button", "n_clicks"),
         Input("url", "pathname"),
-        Input("admin-state-revision-store", "data"),
-        State(PUBLIC_GATE_ACCEPTED_STORE_ID, "data"),
+        State(TCP_UI_MODE_STORE_ID, "data"),
+        prevent_initial_call=False,
     )
-    def _control_public_access(accept_clicks, _pathname, _revision, public_accepted):
-        gate_style, main_style, daily_style, store_value = resolve_access_visibility(
-            accept_clicks=accept_clicks,
-            admin_authenticated=auth_manager.is_authenticated(session),
-            public_accepted=bool(public_accepted),
-        )
-        return gate_style, main_style, daily_style, store_value
+    def _control_public_access(accept_clicks, _pathname, ui_mode):
+        triggered = dash.callback_context.triggered_id
+        if triggered == "accept-button" and accept_clicks:
+            auth_manager.logout(session)
+            ui_mode = UI_MODE_PUBLIC
+        gate_style, main_style, daily_style = resolve_access_visibility(ui_mode=ui_mode)
+        return gate_style, main_style, daily_style, ui_mode
 
     @app.callback(
         Output(DAILY_VALUES_TOOLBAR_ID, "style"),
         Input("url", "pathname"),
         Input(ADMIN_AUTH_REVISION_STORE_ID, "data"),
         Input("admin-state-revision-store", "data"),
+        Input(TCP_UI_MODE_STORE_ID, "data"),
     )
-    def _toggle_daily_values_admin_toolbar(_pathname, _auth_revision, _revision):
+    def _toggle_daily_values_admin_toolbar(_pathname, _auth_revision, _revision, ui_mode):
         return resolve_daily_values_toolbar_style(
+            ui_mode=ui_mode,
             admin_authenticated=auth_manager.is_authenticated(session),
         )
 
@@ -649,9 +663,10 @@ def _register_admin_callbacks(
         Input("url", "pathname"),
         Input(ADMIN_AUTH_REVISION_STORE_ID, "data"),
         Input("admin-state-revision-store", "data"),
+        Input(TCP_UI_MODE_STORE_ID, "data"),
     )
-    def _render_admin_editor(_pathname, _auth_revision, _revision):
-        if not auth_manager.is_authenticated(session):
+    def _render_admin_editor(_pathname, _auth_revision, _revision, ui_mode):
+        if ui_mode != UI_MODE_ADMIN or not auth_manager.is_authenticated(session):
             return [], {"display": "none"}
         snap = current_snapshot()
         rows = ledger_records_to_rows(snap.records)
@@ -672,13 +687,20 @@ def _register_admin_callbacks(
     @app.callback(
         Output(DAILY_VALUES_TABLE_ID, "data"),
         Output(DAILY_VALUES_TABLE_ID, "style_data_conditional"),
+        Output(DAILY_VALUES_TABLE_ID, "sort_by"),
         Input("admin-state-revision-store", "data"),
         prevent_initial_call=False,
     )
     def _refresh_daily_values_table(_revision):
         snap = current_snapshot()
-        rows = ledger_records_to_rows(snap.records)
-        return project_public_daily_rows(rows), ledger_table_style_conditional(rows)
+        rows = sort_rows_for_display(ledger_records_to_rows(snap.records))
+        from tcp_daily_values import DAILY_VALUES_DEFAULT_SORT
+
+        return (
+            project_public_daily_rows(rows),
+            ledger_table_style_conditional(rows),
+            DAILY_VALUES_DEFAULT_SORT,
+        )
 
     @app.callback(
         Output(DAILY_VALUES_TABLE_ID, "columns"),
@@ -919,7 +941,11 @@ def create_app(
         suppress_callback_exceptions=True,
         title="H&C – TCP v2 Preview",
     )
-    configure_flask_session_secret(app.server, auth_settings)
+    configure_flask_session_secret(
+        app.server,
+        auth_settings,
+        secure_cookies=is_production_runtime(cfg),
+    )
     _register_auth_routes(app, auth_manager)
 
     if state.snapshot is not None:

@@ -14,6 +14,7 @@ from tcp_daily_values import (
     DAILY_VALUES_TABLE_ID,
     GATE_NOTICE_E_ID,
     PUBLIC_GATE_ACCEPTED_STORE_ID,
+    UI_MODE_PUBLIC,
     build_daily_values_datatable,
     resolve_access_visibility,
     resolve_daily_values_toolbar_style,
@@ -123,7 +124,7 @@ def test_gate_e_reveals_password_row_callback():
 
 
 def test_accept_remains_public_only():
-    resolve_access_visibility(accept_clicks=1, admin_authenticated=False, public_accepted=False)
+    resolve_access_visibility(ui_mode=UI_MODE_PUBLIC)
     auth = AdminAuthManager(AdminAuthSettings(admin_token="t", session_secret="s"))
     assert not auth.is_authenticated({})
 
@@ -203,7 +204,7 @@ def test_public_daily_values_remains_read_only(ledger):
 
 
 def test_admin_toolbar_remains_session_protected():
-    assert resolve_daily_values_toolbar_style(admin_authenticated=False) == {"display": "none"}
+    assert resolve_daily_values_toolbar_style(ui_mode=None, admin_authenticated=False) == {"display": "none"}
     auth = AdminAuthManager(AdminAuthSettings(admin_token="t", session_secret="s"))
     fake = {PUBLIC_GATE_ACCEPTED_STORE_ID: True, "disclaimer-accepted": True}
     assert not auth.is_authenticated(fake)

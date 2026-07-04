@@ -99,7 +99,7 @@ class AdminAuthManager:
         if self.verify_token(token):
             session[self._session_key] = True
             if hasattr(session, "permanent"):
-                session.permanent = True
+                session.permanent = False
             return True, ""
         return False, "Invalid password"
 
@@ -110,9 +110,18 @@ class AdminAuthManager:
         return self.is_configured and bool(session.get(self._session_key))
 
 
-def configure_flask_session_secret(server: Any, settings: AdminAuthSettings) -> None:
+def configure_flask_session_secret(
+    server: Any,
+    settings: AdminAuthSettings,
+    *,
+    secure_cookies: bool = False,
+) -> None:
     if settings.session_secret:
         server.secret_key = settings.session_secret
+    server.config.setdefault("SESSION_COOKIE_HTTPONLY", True)
+    server.config.setdefault("SESSION_COOKIE_SAMESITE", "Lax")
+    if secure_cookies:
+        server.config.setdefault("SESSION_COOKIE_SECURE", True)
 
 
 def map_calculator_error(exc: Exception) -> str:
@@ -437,10 +446,10 @@ def build_add_row_preview_modal(*, persistence_enabled: bool = False) -> dbc.Mod
 
 
 def build_delete_modal(*, persistence_enabled: bool = False) -> dbc.Modal:
-    confirm_label = "Delete Last Row" if persistence_enabled else "Confirm Simulation"
+    confirm_label = "Delete Latest Row" if persistence_enabled else "Confirm Simulation"
     return dbc.Modal(
         [
-            dbc.ModalHeader("Delete Last Row"),
+            dbc.ModalHeader("Delete Latest Row"),
             dbc.ModalBody(
                 [
                     html.P(

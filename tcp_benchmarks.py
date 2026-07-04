@@ -262,10 +262,25 @@ def _read_cache(cache_path: Path) -> Optional[Dict[str, Any]]:
     if not cache_path.is_file():
         return None
     try:
-        return json.loads(cache_path.read_text(encoding="utf-8"))
+        payload = json.loads(cache_path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError) as exc:
         logger.warning("Ignoring corrupt benchmark cache: %s", exc)
         return None
+    if not isinstance(payload, dict):
+        return None
+    if not payload.get("returns"):
+        return None
+    cached_symbol = str(payload.get("symbol") or "")
+    if cached_symbol and cached_symbol not in _symbol_match_variants(SPXTR_SYMBOL):
+        logger.warning("Ignoring benchmark cache with unexpected symbol %s", cached_symbol)
+        return None
+    try:
+        series = _deserialize_returns(payload["returns"])
+        _validate_returns_series(series, SPXTR_SYMBOL)
+    except (KeyError, TypeError, ValueError) as exc:
+        logger.warning("Ignoring invalid benchmark cache payload: %s", exc)
+        return None
+    return payload
 
 
 def _write_cache_atomic(cache_path: Path, payload: Dict[str, Any]) -> None:

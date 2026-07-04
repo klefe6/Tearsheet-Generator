@@ -15,6 +15,8 @@ from tcp_daily_values import (
     DAILY_VALUES_TOOLBAR_ID,
     GATE_NOTICE_E_ID,
     PUBLIC_GATE_ACCEPTED_STORE_ID,
+    UI_MODE_ADMIN,
+    UI_MODE_PUBLIC,
     build_daily_values_datatable,
     resolve_access_visibility,
     resolve_daily_values_toolbar_style,
@@ -175,7 +177,7 @@ def test_correct_runtime_token_authenticates():
 
 
 def test_accept_remains_public_only():
-    resolve_access_visibility(accept_clicks=1, admin_authenticated=False, public_accepted=False)
+    resolve_access_visibility(ui_mode=UI_MODE_PUBLIC)
     auth = AdminAuthManager(AdminAuthSettings(admin_token=TEST_TOKEN, session_secret=TEST_SECRET))
     assert not auth.is_authenticated({})
 
@@ -189,11 +191,11 @@ def test_public_daily_values_read_only(ledger):
 
 
 def test_admin_toolbar_hidden_without_session():
-    assert resolve_daily_values_toolbar_style(admin_authenticated=False) == {"display": "none"}
+    assert resolve_daily_values_toolbar_style(ui_mode=None, admin_authenticated=False) == {"display": "none"}
 
 
 def test_admin_toolbar_visible_when_authenticated():
-    assert resolve_daily_values_toolbar_style(admin_authenticated=True) == {"display": "block"}
+    assert resolve_daily_values_toolbar_style(ui_mode=UI_MODE_ADMIN, admin_authenticated=True) == {"display": "block"}
 
 
 def test_client_store_cannot_grant_admin():

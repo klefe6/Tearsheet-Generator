@@ -62,7 +62,7 @@ def build_gate_password_row() -> html.Div:
                         type="password",
                         placeholder=GATE_PASSWORD_PLACEHOLDER,
                         className=GATE_PASSWORD_INPUT_CLASS,
-                        autocomplete="off",
+                        autoComplete="new-password",
                         n_submit=0,
                     ),
                     dbc.Button(

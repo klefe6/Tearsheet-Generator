@@ -14,6 +14,7 @@ from tcp_daily_values import (
     DAILY_VALUES_TABLE_ID,
     DAILY_VALUES_TOOLBAR_ID,
     GATE_NOTICE_E_ID,
+    UI_MODE_PUBLIC,
     build_daily_values_datatable,
     resolve_access_visibility,
     resolve_daily_values_toolbar_style,
@@ -144,7 +145,7 @@ def test_admin_toolbar_wrapping_layout(css_text, layout_text):
 
 def test_add_delete_controls_admin_only(layout_text):
     assert "admin-open-add-modal" in layout_text
-    assert resolve_daily_values_toolbar_style(admin_authenticated=False) == {"display": "none"}
+    assert resolve_daily_values_toolbar_style(ui_mode=None, admin_authenticated=False) == {"display": "none"}
 
 
 def test_login_form_mobile_safe_input_sizing():
@@ -211,7 +212,7 @@ def test_accept_does_not_authenticate_admin():
     from tcp_config import AdminAuthSettings
 
     auth = AdminAuthManager(AdminAuthSettings(admin_token="t", session_secret="s"))
-    resolve_access_visibility(accept_clicks=1, admin_authenticated=False, public_accepted=False)
+    resolve_access_visibility(ui_mode=UI_MODE_PUBLIC)
     assert not auth.is_authenticated({})
 
 
