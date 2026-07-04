@@ -2,13 +2,14 @@
 from __future__ import annotations
 
 import socket
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
 from tcp_config import AdminAuthSettings, load_config, resolve_state_paths
-from tcp_runtime_state import persist_delete_last_row
-from tcp_state import StatePaths
+from tcp_runtime_state import bootstrap_state_from_workbook, persist_delete_last_row
+from tcp_state import StatePaths, save_state
 from tcp_ts_v2 import (
     ADMIN_AUTH_REVISION_STORE_ID,
     authoritative_server_revision,
@@ -17,6 +18,7 @@ from tcp_ts_v2 import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+TMP_DIR = REPO_ROOT / "tests" / "_tmp_mutation_state"
 TEST_TOKEN = "test-admin-mutation-token"
 TEST_SECRET = "test-admin-mutation-secret"
 PREVIEW_PORT = 8312
@@ -26,6 +28,43 @@ def _port_listening(port: int) -> bool:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.settimeout(0.5)
         return sock.connect_ex(("127.0.0.1", port)) == 0
+
+
+@pytest.fixture
+def state_tmp(request):
+    import shutil
+
+    TMP_DIR.mkdir(parents=True, exist_ok=True)
+    safe = "".join(c if c.isalnum() or c in "-_" else "_" for c in request.node.name)
+    path = TMP_DIR / safe
+    if path.exists():
+        shutil.rmtree(path)
+    path.mkdir(parents=True)
+    yield path
+    if path.exists():
+        shutil.rmtree(path)
+
+
+@pytest.fixture(scope="session")
+def workbook_ledger():
+    cfg = load_config()
+    wb = Path(cfg.workbook_path)
+    if not wb.is_file():
+        pytest.skip("TCP workbook not available")
+    from tcp_ledger import load_ledger
+
+    return load_ledger(str(wb))
+
+
+def _json_cfg(state_tmp: Path) -> object:
+    base = load_config()
+    return replace(
+        base,
+        state_mode="json_active",
+        state_active_path=str(state_tmp / "tcp_test_state.json"),
+        state_backup_path=str(state_tmp / "tcp_test_state.backup.json"),
+        state_lock_path=str(state_tmp / "tcp_test_state.lock"),
+    )
 
 
 @pytest.fixture(scope="module")
@@ -140,15 +179,23 @@ def test_add_callback_uses_explicit_click_guard():
     assert "explicit_button_click" in add_block
 
 
-def test_stale_explicit_delete_rejected_without_mutation():
-    cfg = load_config()
-    active, backup, lock = resolve_state_paths(cfg, REPO_ROOT / "tests" / "_tmp_canary_layout")
-    paths = StatePaths(active_path=active, backup_path=backup, lock_path=lock)
+def test_stale_explicit_delete_rejected_without_mutation(state_tmp, workbook_ledger):
+    cfg = _json_cfg(state_tmp)
+    paths = StatePaths(
+        active_path=Path(cfg.state_active_path),
+        backup_path=Path(cfg.state_backup_path),
+        lock_path=Path(cfg.state_lock_path),
+    )
+    state = bootstrap_state_from_workbook(cfg, workbook_ledger)
+    save_state(state, paths)
+    latest_date = workbook_ledger.completed_records[-1].fields["Date"]
+    if hasattr(latest_date, "isoformat"):
+        latest_date = latest_date.isoformat()
     result = persist_delete_last_row(
         cfg,
         paths,
         expected_revision=2,
-        expected_final_date="2026-06-24",
+        expected_final_date=str(latest_date),
         authenticated=True,
     )
     assert not result.success

@@ -1,6 +1,7 @@
 """Password-gated hidden admin entry tests for TCP v2 and TKP."""
 from __future__ import annotations
 
+import importlib
 import os
 import socket
 from pathlib import Path
@@ -260,7 +261,7 @@ def test_tkp_session_key_distinct():
 
 
 def test_tkp_layout_has_password_gate_contract():
-    import tkp_ts
+    tkp_ts = importlib.import_module("tkp_ts")
 
     layout = str(tkp_ts.dynamic_layout())
     assert GATE_PASSWORD_ROW_ID in layout
@@ -270,7 +271,7 @@ def test_tkp_layout_has_password_gate_contract():
 
 
 def test_tkp_secret_mode_not_granted_by_e_click():
-    import tkp_ts
+    tkp_ts = importlib.import_module("tkp_ts")
 
     source = Path(tkp_ts.__file__).read_text(encoding="utf-8")
     show_main_block = source.split("def show_main", 1)[1].split("\ndef ", 1)[0]
