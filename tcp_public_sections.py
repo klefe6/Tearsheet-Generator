@@ -23,6 +23,16 @@ SECONDARY_COLOR = "#CCCCCC"
 LEFT_TABLE_GAPS = "20px"
 HEADER_ROW_CLASS = "bg-light"
 
+# Step 11G mobile/responsive contract markers (presentation only).
+PUBLIC_ROOT_CLASS = "tcp-public-root"
+CONTROLLED_TABLE_OVERFLOW_CLASS = "tcp-table-scroll"
+ADMIN_TOOLBAR_CLASS = "tcp-admin-toolbar"
+ADMIN_MODAL_CLASS = "tcp-admin-modal"
+GATE_SECRET_E_CLASS = "tcp-gate-secret-e"
+ACCOUNT_STATS_TABLE_CLASS = "tcp-account-stats-table"
+TERMS_FEES_TABLE_CLASS = "tcp-terms-fees-table"
+FOOTER_WRAP_CLASS = "tcp-public-footer-wrap"
+
 # Step 11F desktop visual contract markers (presentation only).
 PUBLIC_CARD_CLASS = "mb-4 tcp-public-card"
 DESKTOP_TWO_COLUMN_ROW_CLASS = "mb-2 tcp-two-column-row"
@@ -171,6 +181,26 @@ def benchmark_notice_class(status: str) -> str:
     return f"py-2 mb-2 small tcp-benchmark-notice {mapping.get(status, 'tcp-benchmark-notice-stale')}"
 
 
+def mobile_responsive_contract() -> Dict[str, str]:
+    """Stable mobile/responsive presentation markers for structural tests."""
+    return {
+        "public_root": PUBLIC_ROOT_CLASS,
+        "controlled_table_overflow": CONTROLLED_TABLE_OVERFLOW_CLASS,
+        "admin_toolbar": ADMIN_TOOLBAR_CLASS,
+        "admin_modal": ADMIN_MODAL_CLASS,
+        "gate_secret_e": GATE_SECRET_E_CLASS,
+        "account_stats_table": ACCOUNT_STATS_TABLE_CLASS,
+        "terms_fees_table": TERMS_FEES_TABLE_CLASS,
+        "footer_wrap": FOOTER_WRAP_CLASS,
+        "monthly_performance": MONTHLY_PERFORMANCE_CLASS,
+        "drawdown_table": DRAWDOWN_TABLE_CLASS,
+        "nav_chart_container": NAV_CHART_CONTAINER_CLASS,
+        "two_column_row": DESKTOP_TWO_COLUMN_ROW_CLASS,
+        "disclosure_panel": "tcp-public-disclosure-panel",
+        "daily_values_section": "tcp-daily-values-section",
+    }
+
+
 def desktop_visual_contract() -> Dict[str, str]:
     """Stable presentation contract markers for structural tests."""
     return {
@@ -227,7 +257,7 @@ def build_public_accept_gate() -> html.Div:
                             "e",
                             id="secret-notice-e",
                             n_clicks=0,
-                            style={"cursor": "pointer", "userSelect": "none"},
+                            className=GATE_SECRET_E_CLASS,
                         ),
                     ],
                     className="mb-4",
@@ -349,33 +379,36 @@ def build_strategy_overview() -> dbc.Card:
         [
             dbc.CardHeader(html.H6("Strategy Overview", className="mb-0"), className=HEADER_ROW_CLASS),
             dbc.CardBody(
-                dbc.Table(
-                    [
-                        html.Thead(
-                            html.Tr([html.Th("Strategy Description", colSpan=3, className=HEADER_ROW_CLASS)]),
-                            className="bg-light",
-                        ),
-                        html.Tbody(
-                            [
-                                html.Tr(
-                                    [
-                                        html.Td(
-                                            html.P(STRATEGY_DESCRIPTION),
-                                            colSpan=3,
-                                            style={"whiteSpace": "normal", "fontStyle": "italic"},
-                                        )
-                                    ]
-                                ),
-                                html.Tr([html.Td("", colSpan=3, style={"height": LEFT_TABLE_GAPS})]),
-                                *_methodology_rows(),
-                            ]
-                        ),
-                    ],
-                    striped=False,
-                    bordered=True,
-                    hover=True,
-                    size="sm",
-                    className="table-responsive",
+                html.Div(
+                    dbc.Table(
+                        [
+                            html.Thead(
+                                html.Tr([html.Th("Strategy Description", colSpan=3, className=HEADER_ROW_CLASS)]),
+                                className="bg-light",
+                            ),
+                            html.Tbody(
+                                [
+                                    html.Tr(
+                                        [
+                                            html.Td(
+                                                html.P(STRATEGY_DESCRIPTION),
+                                                colSpan=3,
+                                                style={"whiteSpace": "normal", "fontStyle": "italic"},
+                                            )
+                                        ]
+                                    ),
+                                    html.Tr([html.Td("", colSpan=3, style={"height": LEFT_TABLE_GAPS})]),
+                                    *_methodology_rows(),
+                                ]
+                            ),
+                        ],
+                        striped=False,
+                        bordered=True,
+                        hover=True,
+                        size="sm",
+                        className="mb-0",
+                    ),
+                    className="table-responsive tcp-table-scroll",
                 )
             ),
         ],
@@ -403,7 +436,7 @@ def _terms_and_fees_table() -> dbc.Table:
         bordered=True,
         hover=True,
         size="sm",
-        className="mb-3 table-responsive",
+        className=f"mb-3 table-responsive tcp-table-scroll {TERMS_FEES_TABLE_CLASS}",
         id="tcp-terms-and-fees-table",
     )
 
@@ -422,7 +455,7 @@ def _account_stats_table() -> dbc.Table:
         bordered=True,
         hover=True,
         size="sm",
-        className="mb-3 table-responsive",
+        className=f"mb-3 table-responsive tcp-table-scroll {ACCOUNT_STATS_TABLE_CLASS}",
         id="tcp-account-stats-table",
     )
 
@@ -633,14 +666,17 @@ def build_trading_universe() -> dbc.Card:
                 className=HEADER_ROW_CLASS,
             ),
             dbc.CardBody(
-                dbc.Table(
-                    [html.Tbody(tbody_rows)],
-                    striped=False,
-                    bordered=True,
-                    hover=True,
-                    size="sm",
-                    className="table-responsive mb-0",
-                    id="tcp-trading-universe-table",
+                html.Div(
+                    dbc.Table(
+                        [html.Tbody(tbody_rows)],
+                        striped=False,
+                        bordered=True,
+                        hover=True,
+                        size="sm",
+                        className="mb-0",
+                        id="tcp-trading-universe-table",
+                    ),
+                    className="table-responsive tcp-table-scroll",
                 )
             ),
         ],
@@ -661,7 +697,7 @@ def build_drawdown_profile_card(
     else:
         body_children.append(html.Div(id="tcp-benchmark-notice"))
     body_children.append(
-        html.Div(table_children, id="drawdown-profile-container", className="table-responsive"),
+        html.Div(table_children, id="drawdown-profile-container", className="table-responsive tcp-table-scroll"),
     )
     return dbc.Card(
         [
@@ -704,7 +740,7 @@ def build_account_statistics() -> dbc.Card:
                     bordered=True,
                     hover=True,
                     size="sm",
-                    className="mb-0 table-responsive",
+                    className=f"mb-0 table-responsive tcp-table-scroll {ACCOUNT_STATS_TABLE_CLASS}",
                     id="tcp-account-stats-table",
                 )
             ),
@@ -779,7 +815,7 @@ def build_public_disclosure_panel() -> dbc.Row:
 def build_public_footer() -> dbc.Row:
     return dbc.Row(
         dbc.Col(
-            html.P(FOOTER_CONTACT, className="text-center small text-muted", id="tcp-public-footer"),
+            html.P(FOOTER_CONTACT, className=f"text-center small text-muted {FOOTER_WRAP_CLASS}", id="tcp-public-footer"),
             width=12,
         ),
         className="mb-2",
@@ -817,4 +853,5 @@ def build_public_gate_wrapper(main_children: List[Any]) -> html.Div:
             html.Div(id="main-app", style={"display": "none"}, children=main_children),
         ],
         id="tcp-public-root",
+        className=PUBLIC_ROOT_CLASS,
     )

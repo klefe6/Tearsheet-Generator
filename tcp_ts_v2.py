@@ -58,6 +58,7 @@ from tcp_runtime_state import (
     state_record_to_fields,
 )
 from tcp_public_sections import (
+    CONTROLLED_TABLE_OVERFLOW_CLASS,
     DAILY_METRICS_TABLE_CLASS,
     DRAWDOWN_TABLE_CLASS,
     HEADER_ROW_CLASS,
@@ -184,7 +185,12 @@ def _monthly_table_component(monthly_df: pd.DataFrame) -> html.Div:
 def _daily_perf_table_component(daily_df: pd.DataFrame) -> html.Div:
     if daily_df.empty:
         return html.P("No daily performance metrics available.", className="text-muted")
-    return dbc.Table.from_dataframe(daily_df, striped=False, bordered=True, hover=True, size="sm", className=DAILY_METRICS_TABLE_CLASS)
+    return html.Div(
+        dbc.Table.from_dataframe(
+            daily_df, striped=False, bordered=True, hover=True, size="sm", className=DAILY_METRICS_TABLE_CLASS
+        ),
+        className=f"table-responsive {CONTROLLED_TABLE_OVERFLOW_CLASS}",
+    )
 
 
 def _drawdown_table_component(drawdown_df: pd.DataFrame) -> html.Div:

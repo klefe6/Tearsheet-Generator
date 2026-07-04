@@ -357,10 +357,10 @@ def build_tcp_nav_figure(
         xaxis_title="Date",
         yaxis_title="Value Added Daily Index",
         autosize=True,
-        margin={"l": 40, "r": 10, "t": 40, "b": 40},
+        margin={"l": 36, "r": 12, "t": 44, "b": 36},
     )
-    fig.update_xaxes(showgrid=True)
-    fig.update_yaxes(showgrid=True)
+    fig.update_xaxes(showgrid=True, automargin=True, tickangle=-25)
+    fig.update_yaxes(showgrid=True, automargin=True)
     return fig
 
 

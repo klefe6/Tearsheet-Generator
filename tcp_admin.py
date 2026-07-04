@@ -30,7 +30,7 @@ from tcp_calculations import (
     compute_tcp_row,
     public_row,
 )
-from tcp_config import AdminAuthSettings
+from tcp_public_sections import ADMIN_MODAL_CLASS
 from tcp_ledger import CURRENCY_HEADERS, INTEGER_HEADERS, PERCENTAGE_HEADERS, REQUIRED_HEADERS, LedgerRecord
 
 SESSION_KEY = "tcp_v2_admin_authenticated"
@@ -398,6 +398,7 @@ def build_add_row_modal() -> dbc.Modal:
         is_open=False,
         centered=True,
         size="lg",
+        className=ADMIN_MODAL_CLASS,
     )
 
 
@@ -430,6 +431,7 @@ def build_add_row_preview_modal(*, persistence_enabled: bool = False) -> dbc.Mod
         is_open=False,
         centered=True,
         size="lg",
+        className=ADMIN_MODAL_CLASS,
     )
 
 
@@ -460,6 +462,7 @@ def build_delete_modal(*, persistence_enabled: bool = False) -> dbc.Modal:
         is_open=False,
         centered=True,
         size="lg",
+        className=ADMIN_MODAL_CLASS,
     )
 
 
@@ -551,14 +554,45 @@ def build_admin_editor_layout(
 LOGIN_FORM_HTML = """
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><title>TCP v2 Admin Login</title></head>
-<body style="font-family: sans-serif; max-width: 420px; margin: 40px auto;">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TCP v2 Admin Login</title>
+  <style>
+    body.tcp-admin-login-page {
+      font-family: sans-serif;
+      max-width: 28rem;
+      margin: 2rem auto;
+      padding: 0 1rem;
+      box-sizing: border-box;
+    }
+    body.tcp-admin-login-page input,
+    body.tcp-admin-login-page button {
+      font-size: 16px;
+      box-sizing: border-box;
+    }
+    body.tcp-admin-login-page input {
+      width: 100%;
+      margin: 0.5rem 0 1rem;
+      padding: 0.65rem 0.75rem;
+    }
+    body.tcp-admin-login-page button {
+      width: 100%;
+      padding: 0.65rem 1rem;
+    }
+    body.tcp-admin-login-page p {
+      word-wrap: break-word;
+      overflow-wrap: anywhere;
+    }
+  </style>
+</head>
+<body class="tcp-admin-login-page">
   <h2>TCP v2 Admin Login</h2>
   <p>Server-side authentication is required for the simulation editor.</p>
   {% if error %}<p style="color: #b00020;">{{ error }}</p>{% endif %}
   <form method="post">
     <label for="token">Admin token</label><br>
-    <input id="token" name="token" type="password" style="width: 100%; margin: 8px 0;" autocomplete="current-password" required>
+    <input id="token" name="token" type="password" autocomplete="current-password" required>
     <button type="submit">Sign in</button>
   </form>
   <p><a href="/">Return to public preview</a></p>

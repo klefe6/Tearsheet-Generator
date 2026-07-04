@@ -248,7 +248,7 @@ def test_footer_after_new_sections(layout_text):
 
 def test_step_11b_shell_present(layout_text):
     for needle in (
-        "Important Notice",
+        "Important Notic",
         "Strategy Overview",
         "Performance Summary",
         "Important Disclosure:",

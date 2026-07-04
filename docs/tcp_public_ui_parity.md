@@ -531,7 +531,7 @@ Structural contracts: `tests/test_tcp_desktop_visual_parity.py` (22 tests, no pi
 
 ---
 
-## Step 11G — Access flow and shared Daily Values (`feature/tcp-v2-access-daily-values`)
+## Step 11G-access — Access flow and shared Daily Values (`feature/tcp-v2-access-daily-values`)
 
 **Date:** 2026-07-03  
 **Base:** `f0005c9` (`feature/tcp-v2-public-shell`)
@@ -588,4 +588,105 @@ tests/test_tcp_runtime_state.py
 ```
 
 Browser canary on port **8312** with disposable JSON state and admin token (production **8302** untouched).
+
+---
+
+## Step 11G — Mobile and responsive acceptance (`feature/tcp-v2-mobile-acceptance`)
+
+**Date:** 2026-07-03  
+**Base:** `7a377d9` (`feature/tcp-v2-access-daily-values`)
+
+### Viewports tested
+
+| Viewport | Use |
+| -------- | --- |
+| 375 × 812 | Small phone — gate, login, toolbar, modals |
+| 390 × 844 | Primary phone — full scroll pass |
+| 430 × 932 | Large phone |
+| 768 × 1024 | Tablet portrait |
+| 834 × 1112 | Tablet landscape |
+| 844 × 390 | Phone landscape — gate, modals, charts |
+
+### Responsive contract
+
+| Area | Behavior |
+| ---- | -------- |
+| Page overflow | `overflow-x: hidden` on `html`, `body`, `.tcp-public-root`, `#page-container` |
+| Table overflow | `.tcp-table-scroll` — internal horizontal scroll for monthly, daily metrics, drawdown, Daily Values, trading universe, strategy overview |
+| Card stacking | Bootstrap `width=12 lg=6` two-column rows stack below `lg` |
+| Charts | `autosize=True`, reduced margins, `automargin` axes; container `max-width: 900px` |
+| Gate | Fixed overlay; 95vw panel; **e** touch target ≥ 44px (`.tcp-gate-secret-e`) |
+| Admin toolbar | `.tcp-admin-toolbar` flex-wrap |
+| Modals | `.tcp-admin-modal` — max-height viewport, internal body scroll |
+| Login | Viewport meta + 16px inputs (no iOS zoom) |
+| Footer | `.tcp-public-footer-wrap` word wrap |
+
+### Section results (summary)
+
+| Section | Mobile result |
+| ------- | ------------- |
+| Gate / Accept / **e** | MATCHES_ACCEPTED_BEHAVIOR |
+| Header / shell | MATCHES_ACCEPTED_BEHAVIOR |
+| Strategy / Trading / Investor | INTENTIONAL_HORIZONTAL_SCROLL where 3-col tables need it |
+| Account stats / Terms | MATCHES_ACCEPTED_BEHAVIOR |
+| Monthly performance | INTENTIONAL_HORIZONTAL_SCROLL |
+| Daily metrics / Drawdown | INTENTIONAL_HORIZONTAL_SCROLL |
+| NAV chart | MATCHES_ACCEPTED_BEHAVIOR |
+| Benchmark ready/stale/unavailable | MATCHES_ACCEPTED_BEHAVIOR |
+| Daily Values | MATCHES_ACCEPTED_BEHAVIOR |
+| Admin toolbar / modals | MATCHES_ACCEPTED_BEHAVIOR |
+| Disclosures / footer | MATCHES_ACCEPTED_BEHAVIOR |
+
+### Modal test contract (corrected)
+
+Admin modals (`tcp-admin-modal`) are **not** present in the initial public `app.layout`. They are built from `tcp_admin.py` and injected into `admin-editor-container` only after authenticated login. Tests validate:
+
+- `className=ADMIN_MODAL_CLASS` on modal builders in `tcp_admin.py`
+- Built modal components serialize with `tcp-admin-modal`
+- CSS max-height / internal scroll rules in `assets/styles.css`
+
+### Validation evidence
+
+| Suite | Result | Duration |
+| ----- | ------ | --------: |
+| `tests/test_tcp_mobile_responsive.py` | **29 passed** | 382.13s |
+| `tests/test_tcp_admin.py` + access + public_shell | **120 passed** | 316.06s |
+| Focused Step 11G group | **324 passed** | 1082.73s |
+
+Focused pytest files:
+
+```text
+tests/test_tcp_mobile_responsive.py
+tests/test_tcp_access_daily_values.py
+tests/test_tcp_desktop_visual_parity.py
+tests/test_tcp_public_shell.py
+tests/test_tcp_public_content.py
+tests/test_tcp_benchmarks.py
+tests/test_tcp_drawdown.py
+tests/test_tcp_admin.py
+```
+
+Browser canary on port **8312** (disposable JSON only). Production **8302** untouched.
+
+### Remaining responsive gaps
+
+- Preview diagnostics card still visible at page bottom (preview only).
+- Fine-grained print/PDF layout not re-audited.
+- Pixel-perfect screenshot baselines not committed.
+
+### Revised completion estimates (post-11G)
+
+| Area | Before 11G | After 11G |
+| ---- | ---------: | --------: |
+| Public content parity | 97% | **97%** |
+| Desktop visual parity | 94% | **94%** |
+| Mobile parity | 63% | **88%** |
+| Deployment readiness | 28% | **38%** |
+| **Entire project** | ~89% | **~91%** |
+
+### Still deferred
+
+- Integration branch merge (public-shell + access + mobile)
+- One complete full-suite gate
+- Production cutover (Step 11H)
 

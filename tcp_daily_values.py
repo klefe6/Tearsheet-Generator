@@ -19,7 +19,12 @@ from tcp_admin import (
     ledger_table_style_conditional,
 )
 from tcp_ledger import LedgerMetadata, LedgerRecord
-from tcp_public_sections import HEADER_ROW_CLASS, PUBLIC_CARD_CLASS
+from tcp_public_sections import (
+    CONTROLLED_TABLE_OVERFLOW_CLASS,
+    HEADER_ROW_CLASS,
+    PUBLIC_CARD_CLASS,
+    ADMIN_TOOLBAR_CLASS,
+)
 
 DAILY_VALUES_SECTION_ID = "tcp-daily-values-section"
 DAILY_VALUES_TABLE_ID = "tcp-daily-values-table"
@@ -87,6 +92,7 @@ def build_daily_values_summary(
             ),
         ],
         id=DAILY_VALUES_SUMMARY_ID,
+        className="tcp-daily-values-summary",
     )
 
 
@@ -142,7 +148,7 @@ def build_daily_values_admin_toolbar() -> html.Div:
             build_export_disabled_control(),
             html.A("Logout", href="/admin/logout", className="btn btn-link btn-sm"),
         ],
-        className="mb-3",
+        className=f"mb-3 {ADMIN_TOOLBAR_CLASS}",
     )
 
 
@@ -194,7 +200,10 @@ def build_daily_values_section(
                             id=DAILY_VALUES_TOOLBAR_ID,
                             style={"display": "none"},
                         ),
-                        build_daily_values_datatable(rows),
+                        html.Div(
+                            build_daily_values_datatable(rows),
+                            className=CONTROLLED_TABLE_OVERFLOW_CLASS,
+                        ),
                     ]
                 ),
             ],
