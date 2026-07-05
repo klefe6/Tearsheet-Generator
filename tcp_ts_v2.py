@@ -52,6 +52,7 @@ from tcp_config import (
     load_config,
     resolve_benchmark_cache_path,
     resolve_bind_port,
+    resolve_page_title,
     resolve_state_paths,
     validate_bind_port,
     validate_config,
@@ -266,16 +267,23 @@ def _mobile_label_children(header: str, date_line: str) -> List[Any]:
 
 def build_error_layout(cfg: TCPConfig, state: PreviewState) -> html.Div:
     message = state.error or "Unknown runtime error"
+    production_runtime = is_production_runtime(cfg)
+    banner = (
+        []
+        if production_runtime
+        else [dbc.Alert(cfg.preview_label, color="warning", className="text-center fw-bold")]
+    )
+    error_heading = "Service error" if production_runtime else "Preview error"
     return html.Div(
         [
-            dbc.Alert(cfg.preview_label, color="warning", className="text-center fw-bold"),
+            *banner,
             dbc.Container(
                 fluid=True,
                 className="py-4",
                 children=[
                     dbc.Alert(
                         [
-                            html.H4("Preview error", className="alert-heading"),
+                            html.H4(error_heading, className="alert-heading"),
                             html.P(message, className="mb-0"),
                             html.P(f"Status: {state.error_type or 'error'}", className="small text-muted mt-2"),
                         ],
@@ -939,7 +947,7 @@ def create_app(
         __name__,
         external_stylesheets=[dbc.themes.BOOTSTRAP, "/assets/styles.css"],
         suppress_callback_exceptions=True,
-        title="H&C – TCP v2 Preview",
+        title=resolve_page_title(cfg),
     )
     configure_flask_session_secret(
         app.server,

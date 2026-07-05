@@ -24,6 +24,9 @@ TCP_PREVIEW_PORT_MAX = 8312
 SUPPORTED_STATE_MODES = frozenset({"workbook", "json_active"})
 DEFAULT_STATE_MODE = "workbook"
 
+PRODUCTION_PAGE_TITLE = "H&C – TCP"
+PREVIEW_PAGE_TITLE = "H&C – TCP v2 Preview"
+
 
 @dataclass(frozen=True)
 class AdminAuthSettings:
@@ -128,6 +131,13 @@ def validate_bind_port(cfg: TCPConfig, bind_port: int) -> Tuple[bool, str]:
 
 def is_production_runtime(cfg: TCPConfig) -> bool:
     return resolve_bind_port(cfg) == cfg.production_port
+
+
+def resolve_page_title(cfg: TCPConfig) -> str:
+    """Browser tab title: production branding vs preview canary."""
+    if is_production_runtime(cfg):
+        return PRODUCTION_PAGE_TITLE
+    return PREVIEW_PAGE_TITLE
 
 
 def load_admin_auth_settings() -> AdminAuthSettings:
