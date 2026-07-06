@@ -164,6 +164,113 @@ def test_snapshot_json_round_trip() -> None:
     assert snapshots.compute_fee_snapshot(restored) == snapshots.compute_fee_snapshot(original)
 
 
+def test_account_slug_optional_defaults_none() -> None:
+    snapshot = _may_2026_snapshot()
+    assert snapshot.account_slug is None
+
+
+def test_account_slug_validated_when_present() -> None:
+    snapshot = snapshots.AlgomindsV2FeeSnapshot(
+        as_of_date=date(2026, 5, 31),
+        account_balance=D("50125.21"),
+        fee_removal=D("0"),
+        prior_high_water_mark=D("44483.423270"),
+        spx_start=D("7209.01"),
+        spx_end=D("7580.06"),
+        benchmark_base=D("30000"),
+        account_slug="prop",
+    )
+    assert snapshot.account_slug == "prop"
+    snapshots.compute_fee_snapshot(snapshot)
+
+
+def test_acct_60k_account_slug_accepted() -> None:
+    snapshot = snapshots.AlgomindsV2FeeSnapshot(
+        as_of_date=date(2026, 5, 31),
+        account_balance=D("60868.19"),
+        fee_removal=D("0"),
+        prior_high_water_mark=D("60000"),
+        spx_start=D("7408.5"),
+        spx_end=D("7580.06"),
+        benchmark_base=D("60000"),
+        account_slug="acct-60k",
+    )
+    assert snapshot.account_slug == "acct-60k"
+    result = snapshots.compute_fee_snapshot(snapshot)
+    assert abs(result.current_estimated_fee - D("86.819")) < TOLERANCE
+
+
+@pytest.mark.parametrize("slug", ["PROP", "prop acct", "12345678901"])
+def test_invalid_account_slug_rejected_on_snapshot(slug: str) -> None:
+    snapshot = snapshots.AlgomindsV2FeeSnapshot(
+        as_of_date=date(2026, 5, 31),
+        account_balance=D("100"),
+        fee_removal=D("0"),
+        prior_high_water_mark=D("0"),
+        spx_start=D("100"),
+        spx_end=D("110"),
+        account_slug=slug,
+    )
+    with pytest.raises(ValueError):
+        snapshots.compute_fee_snapshot(snapshot)
+
+
+def test_json_round_trip_preserves_account_slug() -> None:
+    original = snapshots.AlgomindsV2FeeSnapshot(
+        as_of_date=date(2026, 5, 31),
+        account_balance=D("50125.21"),
+        fee_removal=D("0"),
+        prior_high_water_mark=D("44483.423270"),
+        spx_start=D("7209.01"),
+        spx_end=D("7580.06"),
+        benchmark_base=D("30000"),
+        account_slug="prop",
+    )
+    payload = snapshots.snapshot_to_dict(original)
+    assert payload["account_slug"] == "prop"
+    restored = snapshots.snapshot_from_dict(payload)
+    assert restored.account_slug == "prop"
+    assert restored == original
+
+
+def test_snapshot_from_dict_without_account_slug_backward_compatible() -> None:
+    payload = snapshots.snapshot_to_dict(_may_2026_snapshot())
+    assert "account_slug" not in payload
+    restored = snapshots.snapshot_from_dict(payload)
+    assert restored.account_slug is None
+
+
+def test_compute_fee_ignores_account_slug_identity() -> None:
+    base = _may_2026_snapshot()
+    with_slug = snapshots.AlgomindsV2FeeSnapshot(
+        as_of_date=base.as_of_date,
+        account_balance=base.account_balance,
+        fee_removal=base.fee_removal,
+        prior_high_water_mark=base.prior_high_water_mark,
+        spx_start=base.spx_start,
+        spx_end=base.spx_end,
+        benchmark_base=base.benchmark_base,
+        account_slug="prop",
+    )
+    assert snapshots.compute_fee_snapshot(base) == snapshots.compute_fee_snapshot(with_slug)
+
+
+def test_snapshot_to_json_preserves_account_slug() -> None:
+    original = snapshots.AlgomindsV2FeeSnapshot(
+        as_of_date=date(2026, 5, 31),
+        account_balance=D("50125.21"),
+        fee_removal=D("0"),
+        prior_high_water_mark=D("44483.423270"),
+        spx_start=D("7209.01"),
+        spx_end=D("7580.06"),
+        benchmark_base=D("30000"),
+        account_slug="prop",
+    )
+    restored = snapshots.snapshot_from_dict(json.loads(snapshots.snapshot_to_json(original)))
+    assert restored.account_slug == "prop"
+    assert restored == original
+
+
 def test_forbidden_import_scan() -> None:
     source_path = Path(snapshots.__file__)
     tree = ast.parse(source_path.read_text(encoding="utf-8"))

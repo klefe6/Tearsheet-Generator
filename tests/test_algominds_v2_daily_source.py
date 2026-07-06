@@ -97,6 +97,7 @@ def test_build_snapshot_from_prop_row() -> None:
     )
     assert snapshot.benchmark_base == D("30000")
     assert snapshot.account_balance == row.account_balance
+    assert snapshot.account_slug == "prop"
 
 
 def test_build_snapshot_from_60k_account() -> None:
@@ -116,6 +117,7 @@ def test_build_snapshot_from_60k_account() -> None:
         prior_high_water_mark=D("60000"),
     )
     assert snapshot.benchmark_base == D("60000")
+    assert snapshot.account_slug == "acct-60k"
 
 
 def test_different_starting_spx_by_profile() -> None:
@@ -200,6 +202,23 @@ def test_profile_row_slug_mismatch_rejected() -> None:
             spx_end=D("110"),
             prior_high_water_mark=D("0"),
         )
+
+
+def test_build_fee_snapshot_for_account_slug_sets_identity() -> None:
+    snapshot = daily_source.build_fee_snapshot_for_account_slug(
+        "prop",
+        daily_source.DailyBalanceRow(
+            account_slug="prop",
+            as_of_date=date(2026, 5, 31),
+            account_balance=D("50125.21"),
+            fee_removal=D("0"),
+            source_label="manual-entry",
+        ),
+        spx_start=D("7209.01"),
+        spx_end=D("7580.06"),
+        prior_high_water_mark=D("44483.423270"),
+    )
+    assert snapshot.account_slug == "prop"
 
 
 def test_forbidden_import_scan() -> None:
