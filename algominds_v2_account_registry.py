@@ -24,6 +24,8 @@ _PROFILES: Tuple[AccountProfile, ...] = (
         benchmark_base=D("30000"),
         starting_spx=D("6737.49"),
         starting_balance=D("30000"),
+        number_of_units=1,
+        exchange_fee_tier="non-member",
         is_default=True,
     ),
     AccountProfile(
@@ -33,6 +35,8 @@ _PROFILES: Tuple[AccountProfile, ...] = (
         benchmark_base=D("60000"),
         starting_spx=D("7408.5"),
         starting_balance=D("60000"),
+        number_of_units=2,
+        exchange_fee_tier="member",
     ),
 )
 
