@@ -14,9 +14,8 @@ from algominds_v2.fee_engine import (
 D = Decimal
 TOLERANCE = D("0.01")
 
-
-# Aggregate fund-level inputs extracted read-only from Momentum Fee Calculation.xlsx
-# monthly sheets (Nov 2025 – Apr 2026). Tests do not read the workbook at runtime.
+# Proprietary aggregate inputs (Sri All Accts / Summary Proprietary lineage).
+# Hard-coded from read-only workbook extraction; tests do not read the workbook at runtime.
 GOLDEN_MONTHS = [
     {
         "month": "2025-11",
@@ -100,39 +99,104 @@ GOLDEN_MONTHS = [
             "0",
         ),
     },
+    {
+        "month": "2026-05",
+        "raw_gross": "50125.21",
+        "crystallized_outstanding": "0",
+        "prior_hwm": "44483.423270",
+        "spx_start": "7209.01",
+        "spx_end": "7580.06",
+        "benchmark_base": "30000",
+        "expected_fee": "1330.249061",
+        "expected_after_fee_nlv": "48794.960939",
+        "expected_next_hwm": "48794.960939",
+        "slab_amounts": (
+            "1544.109385",
+            "1544.109385",
+            "1544.109385",
+            "1009.458515",
+            "0",
+        ),
+    },
+    {
+        "month": "2026-06",
+        "raw_gross": "48049.07",
+        "crystallized_outstanding": "0",
+        "prior_hwm": "48794.960939",
+        "spx_start": "7580.06",
+        "spx_end": "7499.36",
+        "benchmark_base": "30000",
+        "expected_fee": "0",
+        "expected_after_fee_nlv": "48049.07",
+        "expected_next_hwm": "48794.960939",
+    },
 ]
 
-# May 2026 is excluded: workbook contains an unexplained manual adjustment (~$425)
-# on the Summary row and is not used as a crystallized golden oracle.
+# July 2026 is excluded: placeholder month with carried SPX and carried balance.
+
+VARIABLE_BASE_CASES = [
+    {
+        "case": "acct-60k-2026-05",
+        "raw_gross": "60868.19",
+        "crystallized_outstanding": "0",
+        "prior_hwm": "60000",
+        "spx_start": "7408.5",
+        "spx_end": "7580.06",
+        "benchmark_base": "60000",
+        "expected_fee": "86.819",
+        "expected_after_fee_nlv": "60781.371",
+        "expected_next_hwm": "60781.371",
+    },
+]
+
+INCEPTION_CASES = [
+    {
+        "case": "acct-midmonth-2026-05",
+        "raw_gross": "32417.03",
+        "crystallized_outstanding": "0",
+        "prior_hwm": "30000",
+        "spx_start": "7365.12",
+        "spx_end": "7580.06",
+        "benchmark_base": "30000",
+        "expected_fee": "462.457475",
+        "expected_after_fee_nlv": "31954.572525",
+        "expected_next_hwm": "31954.572525",
+    },
+]
 
 
 def _within_cent(actual: Decimal, expected: str) -> bool:
     return abs(actual - D(expected)) < TOLERANCE
 
 
+def _crystallize(case: dict):
+    kwargs = dict(
+        raw_gross_account_balance=D(case["raw_gross"]),
+        crystallized_fee_payable_outstanding=D(case["crystallized_outstanding"]),
+        prior_high_water_mark=D(case["prior_hwm"]),
+        spx_start=D(case["spx_start"]),
+        spx_end=D(case["spx_end"]),
+    )
+    if "benchmark_base" in case:
+        kwargs["benchmark_base"] = D(case["benchmark_base"])
+    return crystallize_month(**kwargs)
+
+
 @pytest.mark.parametrize("case", GOLDEN_MONTHS, ids=[c["month"] for c in GOLDEN_MONTHS])
 def test_golden_month_fee_parity(case: dict) -> None:
-    result = crystallize_month(
-        D(case["raw_gross"]),
-        D(case["crystallized_outstanding"]),
-        D(case["prior_hwm"]),
-        D(case["spx_start"]),
-        D(case["spx_end"]),
-    )
+    result = _crystallize(case)
     assert _within_cent(result.current_period_fee, case["expected_fee"])
     assert _within_cent(result.after_fee_nlv, case["expected_after_fee_nlv"])
     assert _within_cent(result.next_high_water_mark, case["expected_next_hwm"])
 
 
-@pytest.mark.parametrize("case", [c for c in GOLDEN_MONTHS if "slab_fees" in c], ids=[c["month"] for c in GOLDEN_MONTHS if "slab_fees" in c])
-def test_golden_slab_allocation(case: dict) -> None:
-    result = crystallize_month(
-        D(case["raw_gross"]),
-        D(case["crystallized_outstanding"]),
-        D(case["prior_hwm"]),
-        D(case["spx_start"]),
-        D(case["spx_end"]),
-    )
+@pytest.mark.parametrize(
+    "case",
+    [c for c in GOLDEN_MONTHS if "slab_fees" in c],
+    ids=[c["month"] for c in GOLDEN_MONTHS if "slab_fees" in c],
+)
+def test_golden_slab_fee_allocation(case: dict) -> None:
+    result = _crystallize(case)
     expected_fees = case["slab_fees"]
     actual_fees = (
         result.slab.slab_1_fee,
@@ -145,19 +209,72 @@ def test_golden_slab_allocation(case: dict) -> None:
         assert _within_cent(actual, exp)
 
 
-def test_hwm_chain_ratchet() -> None:
-    hwm = D("30000")
-    for case in GOLDEN_MONTHS:
-        result = crystallize_month(
-            D(case["raw_gross"]),
-            D(case["crystallized_outstanding"]),
-            hwm,
-            D(case["spx_start"]),
-            D(case["spx_end"]),
+@pytest.mark.parametrize(
+    "case",
+    [c for c in GOLDEN_MONTHS if "slab_amounts" in c],
+    ids=[c["month"] for c in GOLDEN_MONTHS if "slab_amounts" in c],
+)
+def test_golden_slab_amount_allocation(case: dict) -> None:
+    result = _crystallize(case)
+    expected_amounts = case["slab_amounts"]
+    actual_amounts = (
+        result.slab.slab_1_amount,
+        result.slab.slab_2_amount,
+        result.slab.slab_3_amount,
+        result.slab.slab_4_amount,
+        result.slab.slab_5_amount,
+    )
+    for actual, exp in zip(actual_amounts, expected_amounts):
+        assert _within_cent(actual, exp)
+
+
+@pytest.mark.parametrize("case", VARIABLE_BASE_CASES, ids=[c["case"] for c in VARIABLE_BASE_CASES])
+def test_variable_benchmark_base_golden(case: dict) -> None:
+    result = _crystallize(case)
+    assert _within_cent(result.current_period_fee, case["expected_fee"])
+    assert _within_cent(result.after_fee_nlv, case["expected_after_fee_nlv"])
+    assert _within_cent(result.next_high_water_mark, case["expected_next_hwm"])
+
+
+@pytest.mark.parametrize("case", INCEPTION_CASES, ids=[c["case"] for c in INCEPTION_CASES])
+def test_mid_month_inception_golden(case: dict) -> None:
+    result = _crystallize(case)
+    assert _within_cent(result.current_period_fee, case["expected_fee"])
+    assert _within_cent(result.after_fee_nlv, case["expected_after_fee_nlv"])
+    assert _within_cent(result.next_high_water_mark, case["expected_next_hwm"])
+
+
+def test_proprietary_spx_chain_nov_2025_through_jun_2026() -> None:
+    """Each month's spx_start equals the prior month's spx_end."""
+    for prior, current in zip(GOLDEN_MONTHS, GOLDEN_MONTHS[1:]):
+        assert D(current["spx_start"]) == D(prior["spx_end"]), (
+            f"SPX chain break between {prior['month']} and {current['month']}"
         )
-        assert result.next_high_water_mark >= hwm
-        hwm = result.next_high_water_mark
-    assert _within_cent(hwm, GOLDEN_MONTHS[-1]["expected_next_hwm"])
+
+
+def test_manual_waiver_is_not_engine_behavior() -> None:
+    """Engine returns formulaic fee; operator waivers are layered on top."""
+    # Workbook hazard: formula produces ~43.379 but a manual waiver hard-types zero.
+    result = crystallize_month(
+        D("30433.79"),
+        D("0"),
+        D("30000"),
+        D("7408.5"),
+        D("7580.06"),
+        D("30000"),
+    )
+    assert _within_cent(result.current_period_fee, "43.379")
+    assert result.current_period_fee != D("0")
+    # Manual fee waivers are operator overrides layered on top of engine output.
+    # The pure fee engine must not reproduce waived zero-fee rows automatically.
+
+
+def test_hwm_chain_ratchet() -> None:
+    for case in GOLDEN_MONTHS:
+        prior = D(case["prior_hwm"])
+        result = _crystallize(case)
+        assert result.next_high_water_mark >= prior - TOLERANCE
+        assert _within_cent(result.next_high_water_mark, case["expected_next_hwm"])
 
 
 def test_benchmark_dollar_return() -> None:
@@ -181,7 +298,13 @@ def test_positive_bdr_five_slab_tiers() -> None:
     slab = calculate_slab_fee(D("10000"), D("1000"))
     assert slab.slab_1_amount == D("1000")
     assert slab.slab_5_amount == D("6000")
-    assert slab.total_fee == D("1000") * D("0.10") + D("1000") * D("0.20") + D("1000") * D("0.30") + D("1000") * D("0.40") + D("6000") * D("0.50")
+    assert slab.total_fee == (
+        D("1000") * D("0.10")
+        + D("1000") * D("0.20")
+        + D("1000") * D("0.30")
+        + D("1000") * D("0.40")
+        + D("6000") * D("0.50")
+    )
 
 
 def test_zero_bdr_flat_fifty_percent() -> None:
@@ -286,6 +409,8 @@ def test_gross_less_than_outstanding_rejected() -> None:
         crystallize_month(D("100"), D("200"), D("0"), D("100"), D("110"))
 
 
-def test_may_2026_not_in_golden_table() -> None:
+def test_july_2026_not_in_golden_table() -> None:
     months = {c["month"] for c in GOLDEN_MONTHS}
-    assert "2026-05" not in months
+    assert "2026-05" in months
+    assert "2026-06" in months
+    assert "2026-07" not in months
