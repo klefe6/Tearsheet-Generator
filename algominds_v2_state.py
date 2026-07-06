@@ -39,6 +39,7 @@ class AlgomindsV2PreviewState:
     account_balance: Optional[Decimal] = None
     fee_removal: Optional[Decimal] = None
     notes: Optional[str] = None
+    latest_snapshot: Optional[dict[str, Any]] = None
 
 
 def empty_preview_state() -> AlgomindsV2PreviewState:
@@ -168,12 +169,19 @@ def _parse_state_payload(payload: Any, path: Path) -> AlgomindsV2PreviewState:
             f"state file {path}: notes must be a string or null"
         )
 
+    latest_snapshot = payload.get("latest_snapshot")
+    if latest_snapshot is not None and not isinstance(latest_snapshot, dict):
+        raise PreviewStateSchemaError(
+            f"state file {path}: latest_snapshot must be a JSON object or null"
+        )
+
     unknown_keys = set(payload) - {
         "schema_version",
         "last_updated_utc",
         "account_balance",
         "fee_removal",
         "notes",
+        "latest_snapshot",
     }
     if unknown_keys:
         raise PreviewStateSchemaError(
@@ -187,6 +195,7 @@ def _parse_state_payload(payload: Any, path: Path) -> AlgomindsV2PreviewState:
         ),
         fee_removal=_parse_decimal_field("fee_removal", payload.get("fee_removal"), path),
         notes=notes,
+        latest_snapshot=latest_snapshot,
     )
 
 
@@ -200,4 +209,6 @@ def _state_to_dict(state: AlgomindsV2PreviewState) -> dict[str, Any]:
         payload["fee_removal"] = _decimal_to_json(state.fee_removal)
     if state.notes is not None:
         payload["notes"] = state.notes
+    if state.latest_snapshot is not None:
+        payload["latest_snapshot"] = state.latest_snapshot
     return payload

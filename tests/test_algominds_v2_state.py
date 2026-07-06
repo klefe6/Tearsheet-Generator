@@ -134,6 +134,17 @@ def test_empty_state_round_trip(tmp_path: Path) -> None:
     assert loaded == state.empty_preview_state()
 
 
+def test_backward_compatible_without_latest_snapshot_field(tmp_path: Path) -> None:
+    path = tmp_path / "preview.json"
+    path.write_text(
+        json.dumps({"schema_version": 1, "account_balance": "100"}),
+        encoding="utf-8",
+    )
+    loaded = state.read_preview_state(path)
+    assert loaded.latest_snapshot is None
+    assert loaded.account_balance == Decimal("100")
+
+
 @pytest.fixture
 def repo_root(tmp_path: Path) -> Path:
     return tmp_path
