@@ -43,3 +43,19 @@ tests/_canary_state/
 tests/_canary_state_step11d/
 *.json.tmp
 
+# Algominds v2 isolation — repo-root runtime state, credentials, worktrees
+/.worktrees/
+/daily_returns_secret_state.json
+/daily_returns_secret_state.json.bak*
+/tcp_daily_returns_secret_state.json
+/tcp_daily_returns_secret_state.json.bak*
+/agm_daily_returns_secret_state.json
+/agm_daily_returns_secret_state.json.bak*
+/algominds_daily_returns_secret_state.json
+/algominds_daily_returns_secret_state.json.bak*
+/.tcp_production.env
+/.agm_production.env
+/.algominds_production.env
+/tests/_agm_preview_state/
+/tests/_algominds_preview_state/
+
