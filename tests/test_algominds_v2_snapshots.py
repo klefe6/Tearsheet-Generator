@@ -184,6 +184,22 @@ def test_account_slug_validated_when_present() -> None:
     snapshots.compute_fee_snapshot(snapshot)
 
 
+def test_acct_60k_account_slug_accepted() -> None:
+    snapshot = snapshots.AlgomindsV2FeeSnapshot(
+        as_of_date=date(2026, 5, 31),
+        account_balance=D("60868.19"),
+        fee_removal=D("0"),
+        prior_high_water_mark=D("60000"),
+        spx_start=D("7408.5"),
+        spx_end=D("7580.06"),
+        benchmark_base=D("60000"),
+        account_slug="acct-60k",
+    )
+    assert snapshot.account_slug == "acct-60k"
+    result = snapshots.compute_fee_snapshot(snapshot)
+    assert abs(result.current_estimated_fee - D("86.819")) < TOLERANCE
+
+
 @pytest.mark.parametrize("slug", ["PROP", "prop acct", "12345678901"])
 def test_invalid_account_slug_rejected_on_snapshot(slug: str) -> None:
     snapshot = snapshots.AlgomindsV2FeeSnapshot(
@@ -237,6 +253,22 @@ def test_compute_fee_ignores_account_slug_identity() -> None:
         account_slug="prop",
     )
     assert snapshots.compute_fee_snapshot(base) == snapshots.compute_fee_snapshot(with_slug)
+
+
+def test_snapshot_to_json_preserves_account_slug() -> None:
+    original = snapshots.AlgomindsV2FeeSnapshot(
+        as_of_date=date(2026, 5, 31),
+        account_balance=D("50125.21"),
+        fee_removal=D("0"),
+        prior_high_water_mark=D("44483.423270"),
+        spx_start=D("7209.01"),
+        spx_end=D("7580.06"),
+        benchmark_base=D("30000"),
+        account_slug="prop",
+    )
+    restored = snapshots.snapshot_from_dict(json.loads(snapshots.snapshot_to_json(original)))
+    assert restored.account_slug == "prop"
+    assert restored == original
 
 
 def test_forbidden_import_scan() -> None:
