@@ -70,6 +70,20 @@ def test_acct_60k_benchmark_base_is_60000() -> None:
     assert registry.get_account_profile("acct-60k").benchmark_base == D("60000")
 
 
+def test_prop_profile_settings() -> None:
+    profile = registry.get_account_profile("prop")
+    assert profile.number_of_units == 1
+    assert profile.exchange_fee_tier == "non-member"
+    assert profile.benchmark_base == D("30000")
+
+
+def test_acct_60k_profile_settings() -> None:
+    profile = registry.get_account_profile("acct-60k")
+    assert profile.number_of_units == 2
+    assert profile.exchange_fee_tier == "member"
+    assert profile.benchmark_base == D("60000")
+
+
 def test_registry_output_is_immutable() -> None:
     profiles = registry.list_account_profiles()
     assert isinstance(profiles, tuple)

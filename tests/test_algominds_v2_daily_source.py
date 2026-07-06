@@ -23,6 +23,8 @@ def _prop_profile() -> accounts.AccountProfile:
         benchmark_base=D("30000"),
         starting_spx=D("6737.49"),
         starting_balance=D("30000"),
+        number_of_units=1,
+        exchange_fee_tier="non-member",
         is_default=True,
     )
 
@@ -35,6 +37,8 @@ def _acct_60k_profile() -> accounts.AccountProfile:
         benchmark_base=D("60000"),
         starting_spx=D("7408.5"),
         starting_balance=D("60000"),
+        number_of_units=2,
+        exchange_fee_tier="member",
     )
 
 
@@ -129,6 +133,8 @@ def test_different_starting_spx_by_profile() -> None:
         benchmark_base=D("30000"),
         starting_spx=D("7365.12"),
         starting_balance=D("30000"),
+        number_of_units=1,
+        exchange_fee_tier="non-member",
     )
     assert prop.starting_spx == D("6737.49")
     assert midmonth.starting_spx == D("7365.12")
