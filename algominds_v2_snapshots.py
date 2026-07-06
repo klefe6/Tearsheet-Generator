@@ -11,6 +11,7 @@ from typing import Any, Optional
 
 from algominds_v2.fee_engine import crystallize_month
 from algominds_v2.fee_ledger import calculate_liability
+from algominds_v2_accounts import validate_account_slug
 
 DEFAULT_BENCHMARK_BASE = Decimal("30000")
 
@@ -25,6 +26,7 @@ class AlgomindsV2FeeSnapshot:
     spx_end: Decimal
     benchmark_base: Decimal = DEFAULT_BENCHMARK_BASE
     notes: Optional[str] = None
+    account_slug: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -68,6 +70,8 @@ def validate_snapshot_inputs(snapshot: AlgomindsV2FeeSnapshot) -> None:
         raise ValueError("spx_start must be positive")
     if benchmark_base <= 0:
         raise ValueError("benchmark_base must be positive")
+    if snapshot.account_slug is not None:
+        validate_account_slug(snapshot.account_slug)
 
 
 def compute_fee_snapshot(snapshot: AlgomindsV2FeeSnapshot) -> AlgomindsV2FeeSnapshotResult:
@@ -122,6 +126,8 @@ def snapshot_to_dict(snapshot: AlgomindsV2FeeSnapshot) -> dict[str, Any]:
     }
     if snapshot.notes is not None:
         payload["notes"] = snapshot.notes
+    if snapshot.account_slug is not None:
+        payload["account_slug"] = snapshot.account_slug
     return payload
 
 
@@ -142,6 +148,12 @@ def snapshot_from_dict(payload: dict[str, Any]) -> AlgomindsV2FeeSnapshot:
     if notes is not None and not isinstance(notes, str):
         raise ValueError("notes must be a string or null")
 
+    account_slug = payload.get("account_slug")
+    if account_slug is not None:
+        if not isinstance(account_slug, str):
+            raise ValueError("account_slug must be a string or null")
+        account_slug = validate_account_slug(account_slug)
+
     return AlgomindsV2FeeSnapshot(
         as_of_date=as_of_date,
         account_balance=account_balance,
@@ -151,6 +163,7 @@ def snapshot_from_dict(payload: dict[str, Any]) -> AlgomindsV2FeeSnapshot:
         spx_end=spx_end,
         benchmark_base=benchmark_base,
         notes=notes,
+        account_slug=account_slug,
     )
 
 

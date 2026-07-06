@@ -150,6 +150,38 @@ def test_backward_compatible_state_without_latest_snapshot(tmp_path: Path) -> No
     assert snapshot_state.load_latest_snapshot(path) is None
 
 
+def test_save_load_preserves_account_slug(tmp_path: Path) -> None:
+    path = tmp_path / "preview.json"
+    original = AlgomindsV2FeeSnapshot(
+        as_of_date=date(2026, 5, 31),
+        account_balance=D("50125.21"),
+        fee_removal=D("0"),
+        prior_high_water_mark=D("44483.423270"),
+        spx_start=D("7209.01"),
+        spx_end=D("7580.06"),
+        benchmark_base=D("30000"),
+        notes="may preview",
+        account_slug="prop",
+    )
+    snapshot_state.save_latest_snapshot(path, original)
+    loaded = snapshot_state.load_latest_snapshot(path)
+    assert loaded == original
+    assert loaded is not None
+    assert loaded.account_slug == "prop"
+
+
+def test_load_snapshot_without_account_slug_backward_compatible(tmp_path: Path) -> None:
+    path = tmp_path / "preview.json"
+    legacy = _may_2026_snapshot()
+    snapshot_state.save_latest_snapshot(path, legacy)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    assert "account_slug" not in payload["latest_snapshot"]
+    loaded = snapshot_state.load_latest_snapshot(path)
+    assert loaded == legacy
+    assert loaded is not None
+    assert loaded.account_slug is None
+
+
 def test_forbidden_import_scan() -> None:
     source_path = Path(snapshot_state.__file__)
     tree = ast.parse(source_path.read_text(encoding="utf-8"))

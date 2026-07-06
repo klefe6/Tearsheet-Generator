@@ -54,8 +54,7 @@ def build_fee_snapshot(
     """
     Build a fee snapshot from account profile, daily row, and market inputs.
 
-    account_slug is carried on the row/profile models only; the pure fee snapshot
-    carries the numeric inputs required by the fee engine.
+    account_slug is copied onto the fee snapshot for identity; fee math ignores it.
     """
     if row.account_slug != profile.account_slug:
         raise ValueError("daily row account_slug must match account profile")
@@ -76,6 +75,7 @@ def build_fee_snapshot(
         spx_end=spx_end,
         benchmark_base=profile.benchmark_base,
         notes=row.notes,
+        account_slug=profile.account_slug,
     )
 
 
