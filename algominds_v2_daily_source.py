@@ -9,6 +9,7 @@ from decimal import Decimal
 from typing import Optional
 
 from algominds_v2_accounts import AccountProfile, validate_account_slug
+from algominds_v2_account_registry import get_account_profile
 from algominds_v2_snapshots import AlgomindsV2FeeSnapshot, compute_fee_snapshot
 
 
@@ -95,3 +96,41 @@ def compute_daily_fee_result(
         prior_high_water_mark=prior_high_water_mark,
     )
     return compute_fee_snapshot(snapshot)
+
+
+def build_fee_snapshot_for_account_slug(
+    account_slug: str,
+    row: DailyBalanceRow,
+    *,
+    spx_start: Decimal,
+    spx_end: Decimal,
+    prior_high_water_mark: Decimal,
+) -> AlgomindsV2FeeSnapshot:
+    """Resolve profile from registry and build a fee snapshot."""
+    profile = get_account_profile(account_slug)
+    return build_fee_snapshot(
+        profile,
+        row,
+        spx_start=spx_start,
+        spx_end=spx_end,
+        prior_high_water_mark=prior_high_water_mark,
+    )
+
+
+def compute_daily_fee_result_for_account_slug(
+    account_slug: str,
+    row: DailyBalanceRow,
+    *,
+    spx_start: Decimal,
+    spx_end: Decimal,
+    prior_high_water_mark: Decimal,
+):
+    """Resolve profile from registry and compute fee result in one step."""
+    profile = get_account_profile(account_slug)
+    return compute_daily_fee_result(
+        profile,
+        row,
+        spx_start=spx_start,
+        spx_end=spx_end,
+        prior_high_water_mark=prior_high_water_mark,
+    )
