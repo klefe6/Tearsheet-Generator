@@ -49,6 +49,7 @@ from tearsheet_gate_auth import (
 from tcp_admin import AdminAuthManager, configure_flask_session_secret
 from tearsheet_portal import render_portal_page
 import algominds_portal_registry as agm_registry
+import algominds_daily_balances as agm_daily
 
 import numpy as np
 import pandas as pd
@@ -220,6 +221,28 @@ except Exception as _e:
     STARTING_CAPITAL = 30_000.0
     LATEST_DATE      = PROGRAM_INCEPTION
     LOAD_ERROR = str(_e)
+
+
+# ── Daily TradeStation balances (ADMIN-ONLY raw NLV; never client-facing) ──────
+# Loaded once at import, mirroring the monthly summary_df pattern. Failure here is
+# non-fatal: the daily admin table/graph fall back to an honest empty state.
+DAILY_BALANCES_LOAD_ERROR = None
+try:
+    daily_balances_df = agm_daily.load_daily_balances()
+except Exception as _de:  # pragma: no cover - defensive
+    traceback.print_exc()
+    daily_balances_df = pd.DataFrame()
+    DAILY_BALANCES_LOAD_ERROR = str(_de)
+
+# Logging is kept out of the load try/except above so a console-encoding hiccup
+# can never blank an otherwise-good dataframe. ASCII only (Windows cp1252 safe).
+if DAILY_BALANCES_LOAD_ERROR is None and not daily_balances_df.empty:
+    print(
+        f"[mp_ts] Loaded {len(daily_balances_df)} daily balance rows "
+        f"({daily_balances_df['Date'].min().date()} to {daily_balances_df['Date'].max().date()})"
+    )
+elif DAILY_BALANCES_LOAD_ERROR is None:
+    print("[mp_ts] Daily balances CSV not found or empty - admin daily view will show empty state.")
 
 
 def months_trading_elapsed_approx() -> str:
@@ -843,6 +866,113 @@ def build_agm_nlv_figure() -> go.Figure:
     return fig
 
 
+# ── Admin-only DAILY view builders (raw TradeStation NLV — never client-facing) ──
+
+def build_agm_daily_nlv_figure() -> go.Figure:
+    """Admin only. Actual daily account NLV straight from the TradeStation
+    balances CSV ("Net Worth"). This is the real operational account value, not
+    the client-facing performance curve, so it is clearly labelled and only ever
+    rendered inside admin TearSheet mode."""
+    if daily_balances_df is None or daily_balances_df.empty:
+        return _empty_admin_figure(
+            "Admin NLV / TradeStation Net Worth",
+            "Daily balances CSV not loaded — no NLV series to show.",
+        )
+    df = daily_balances_df
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=df["Date"], y=df["Net Worth"], mode="lines",
+        name="TradeStation Net Worth",
+        line=dict(color=PRIMARY_COLOR, width=2),
+        hovertemplate="%{x|%b %d, %Y}<br>$%{y:,.2f}<extra></extra>",
+    ))
+    fig.update_layout(
+        title="Admin NLV / TradeStation Net Worth (daily — admin only, raw account value)",
+        xaxis_title="Date",
+        yaxis=dict(title="Net Worth ($)", tickprefix="$", tickformat=",.0f"),
+        height=340,
+        margin=dict(t=60, b=40),
+        showlegend=False,
+    )
+    return fig
+
+
+def _fmt_money(v) -> str:
+    if v is None or (isinstance(v, float) and pd.isna(v)):
+        return "—"
+    return f"${v:,.2f}"
+
+
+def _fmt_pct(v) -> str:
+    if v is None or (isinstance(v, float) and pd.isna(v)):
+        return "—"
+    return f"{v:+.2f}%"
+
+
+def build_agm_daily_balances_table():
+    """Admin-only daily balances table (newest date at top). Columns per spec:
+    Date, Net Worth, Cash Balance, Unrealized P/L, Initial/Maint Margin,
+    Buying Power/Margin Deficit, Daily $, Daily %, Since inception %."""
+    if daily_balances_df is None or daily_balances_df.empty:
+        return dbc.Alert(
+            "Daily balances CSV not loaded — no daily rows to display.",
+            color="secondary", className="mb-0",
+        )
+    display_cols = [
+        ("Date", lambda r: r["Date"].strftime("%Y-%m-%d")),
+        ("Net Worth", lambda r: _fmt_money(r["Net Worth"])),
+        ("Cash Balance", lambda r: _fmt_money(r.get("Cash Balance"))),
+        ("Unrealized P/L", lambda r: _fmt_money(r.get("Unrealized P/L"))),
+        ("Initial Margin Req.", lambda r: _fmt_money(r.get("Initial Margin Req."))),
+        ("Maint Margin Req.", lambda r: _fmt_money(r.get("Maint Margin Req."))),
+        ("Buying Power/Margin Deficit", lambda r: _fmt_money(r.get("Buying Power/Margin Deficit"))),
+        ("Daily $", lambda r: _fmt_money(r.get("daily_net_worth_change"))),
+        ("Daily %", lambda r: _fmt_pct(r.get("daily_net_worth_change_pct"))),
+        ("Since inception %", lambda r: _fmt_pct(r.get("since_inception_pct"))),
+    ]
+    header = html.Thead(html.Tr([html.Th(name) for name, _ in display_cols]))
+    # Newest first.
+    ordered = daily_balances_df.iloc[::-1]
+    body_rows = []
+    for _, r in ordered.iterrows():
+        body_rows.append(html.Tr([html.Td(fn(r)) for _, fn in display_cols]))
+    return dbc.Table(
+        [header, html.Tbody(body_rows)],
+        bordered=True, hover=True, striped=True, responsive=True, size="sm",
+        className="mb-0",
+    )
+
+
+def build_agm_daily_kpi_cards():
+    """Small KPI summary from the latest daily row (admin only)."""
+    row = agm_daily.latest_row(daily_balances_df)
+    if row is None:
+        return html.Div()
+    cards = [
+        ("Latest Net Worth (NLV)", _fmt_money(row["Net Worth"])),
+        ("Daily $", _fmt_money(row.get("daily_net_worth_change"))),
+        ("Daily %", _fmt_pct(row.get("daily_net_worth_change_pct"))),
+        ("Since inception %", _fmt_pct(row.get("since_inception_pct"))),
+        ("As of", row["Date"].strftime("%b %d, %Y")),
+    ]
+    return dbc.Row(
+        [
+            dbc.Col(
+                dbc.Card(
+                    dbc.CardBody([
+                        html.Div(label, className="small text-muted"),
+                        html.Div(value, className="fw-bold"),
+                    ]),
+                    className="text-center",
+                ),
+                xs=6, md=True, className="mb-2",
+            )
+            for label, value in cards
+        ],
+        className="g-2",
+    )
+
+
 def build_drawdown_figure() -> go.Figure:
     """Drawdown from peak. Mirrors Y&Q's build_drawdown_figure()."""
     fig = go.Figure()
@@ -1363,6 +1493,26 @@ def serve_layout():
                             "marginLeft": "auto",
                             "marginRight": "auto",
                         },
+                    ),
+
+                    # ── Admin-only: DAILY TradeStation balances (TearSheet mode only, AGM only) ──
+                    # Raw NLV / Net Worth values from the daily CSV. NEVER client-facing.
+                    # The sensitive content (table/graph/KPIs) is rendered into
+                    # `agm-admin-daily-content` by a SERVER-SIDE, auth-gated callback so
+                    # the raw NLV values are never shipped to a non-admin browser at all
+                    # (not merely hidden via CSS).
+                    html.Div(
+                        id="agm-admin-daily-container",
+                        style={"display": "none"},
+                        className="mt-2 mb-4",
+                        children=[
+                            dbc.Alert(
+                                "Admin — daily TradeStation balances (raw account NLV; admin-only, not shown to clients)",
+                                color="warning",
+                                className="text-center fw-bold mb-3",
+                            ),
+                            html.Div(id="agm-admin-daily-content"),
+                        ],
                     ),
 
                     # ── Admin-only: Accrued Fees + NLV (TearSheet mode only, AGM only) ──
@@ -1962,11 +2112,38 @@ def _gate_admin_portal_login(_portal_clicks, password):
 @app.callback(
     Output("agm-admin-data-entry-container", "style"),
     Output("agm-admin-fee-charts-container", "style"),
+    Output("agm-admin-daily-container", "style"),
     Input("access-mode", "data"),
 )
 def _toggle_admin_data_entry(access_mode):
     style = {"display": "block"} if access_mode == "secret" else {"display": "none"}
-    return style, style
+    return style, style, style
+
+
+@app.callback(
+    Output("agm-admin-daily-content", "children"),
+    Input("access-mode", "data"),
+)
+def _render_admin_daily_content(access_mode):
+    """Render the raw daily NLV table/graph/KPIs ONLY when the request carries a
+    genuine authenticated admin session. access-mode is client-side, so it is
+    re-verified server-side here — a spoofed store value yields nothing."""
+    if access_mode != "secret" or not agm_admin_auth_manager.is_authenticated(session):
+        return []
+    return [
+        build_agm_daily_kpi_cards(),
+        dcc.Graph(
+            id="agm-daily-nlv-graph",
+            figure=build_agm_daily_nlv_figure(),
+            config={"displayModeBar": False, "responsive": True},
+            style={"width": "100%", "minHeight": "340px", "marginBottom": "1rem"},
+        ),
+        html.H6("Daily Balances", className="fw-bold mt-2 mb-2"),
+        html.Div(
+            build_agm_daily_balances_table(),
+            style={"maxHeight": "480px", "overflowY": "auto"},
+        ),
+    ]
 
 
 def _render_agm_pending_rows_table():
@@ -2037,8 +2214,17 @@ def agm_admin_portal():
     latest_row = _display_summary_df.iloc[-1] if not _display_summary_df.empty else None
     since_inception_display = perf_metrics.get("Cumulative Net Return") if perf_metrics else None
 
-    after_fee_nlv = float(latest_row["bot_end_after_fees"]) if latest_row is not None else None
-    last_updated = LATEST_DATE.strftime("%Y-%m-%d") if LATEST_DATE is not None else "—"
+    # Portal is admin/accounting-only, so the "current account value" here is the
+    # real latest daily TradeStation Net Worth (raw NLV) when available, falling
+    # back to the monthly workbook after-fee value only if the daily CSV is missing.
+    daily_row = agm_daily.latest_row(daily_balances_df)
+    if daily_row is not None:
+        after_fee_nlv = float(daily_row["Net Worth"])
+        last_updated = daily_row["Date"].strftime("%Y-%m-%d")
+        since_inception_display = f"{float(daily_row['since_inception_pct']):.2f}%"
+    else:
+        after_fee_nlv = float(latest_row["bot_end_after_fees"]) if latest_row is not None else None
+        last_updated = LATEST_DATE.strftime("%Y-%m-%d") if LATEST_DATE is not None else "—"
 
     accounts = agm_registry.build_participating_accounts(
         program_name="Momentum Pacer",
@@ -2055,6 +2241,17 @@ def agm_admin_portal():
 @app.server.route("/admin/logout")
 def agm_admin_logout():
     agm_admin_auth_manager.logout(session)
+    return redirect("/")
+
+
+@app.server.route("/monthly")
+def agm_monthly_backup():
+    """Stable entry point for the monthly (legacy/backup) AGM experience.
+
+    The monthly workbook view is currently also the client-facing default at "/";
+    this route guarantees a permanent "Monthly backup" URL that keeps working if
+    the daily-driven experience later becomes the default at "/".
+    """
     return redirect("/")
 
 

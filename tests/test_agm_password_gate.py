@@ -313,3 +313,130 @@ def test_fee_charts_isolated_from_tkp_and_tcp():
     tkp_layout = str(tkp_ts.dynamic_layout())
     assert "agm-admin-fee-charts-container" not in tkp_layout
     assert "Accrued Fees" not in tkp_layout
+
+
+# ── Admin-only DAILY TradeStation balances view (raw NLV, AGM only) ──────────
+
+DAILY_LATEST_NW = "45,675.81"  # latest daily Net Worth from the CSV (2026-07-01)
+
+
+def test_daily_container_present_but_content_not_shipped_publicly(agm_app):
+    """The daily container exists and is hidden by default; the sensitive raw-NLV
+    content is NOT baked into the initial layout (it renders server-side only when
+    authenticated), so a public browser never receives it."""
+    import mp_ts
+
+    layout = mp_ts.serve_layout()
+    container = _find_by_id(layout, "agm-admin-daily-container")
+    assert container is not None
+    assert container.style == {"display": "none"}
+    # Placeholder present, but no raw NLV value and no daily graph in the shipped layout.
+    assert _find_by_id(layout, "agm-admin-daily-content") is not None
+    layout_str = str(layout)
+    assert DAILY_LATEST_NW not in layout_str
+    assert "agm-daily-nlv-graph" not in layout_str
+
+
+def test_client_view_has_no_raw_daily_nlv(agm_app):
+    """Client-facing (public/standard) render must not expose raw TradeStation NLV."""
+    import mp_ts
+
+    with mp_ts.app.server.test_request_context("/"):
+        # No admin session -> public. Even a spoofed 'secret' store yields nothing.
+        assert mp_ts._render_admin_daily_content("standard") == []
+        assert mp_ts._render_admin_daily_content("secret") == []
+
+
+def test_admin_tearsheet_renders_daily_table_and_raw_nlv(agm_app):
+    """In authenticated admin TearSheet mode, the daily table + raw NLV graph render."""
+    import mp_ts
+
+    with mp_ts.app.server.test_request_context("/"):
+        from flask import session as fsession
+        fsession[AGM_SESSION_KEY] = True
+        content = mp_ts._render_admin_daily_content("secret")
+        assert content, "authenticated admin should get daily content"
+        content_str = str(content)
+        assert "agm-daily-nlv-graph" in content_str
+        assert "Daily Balances" in content_str
+        assert DAILY_LATEST_NW in content_str
+        assert "TradeStation Net Worth" in content_str
+
+
+def test_daily_table_columns_match_spec(agm_app):
+    import mp_ts
+
+    table = mp_ts.build_agm_daily_balances_table()
+    table_str = str(table)
+    for col in ["Date", "Net Worth", "Cash Balance", "Unrealized P/L",
+                "Initial Margin Req.", "Maint Margin Req.",
+                "Buying Power/Margin Deficit", "Daily $", "Daily %", "Since inception %"]:
+        assert col in table_str, f"missing daily table column: {col}"
+
+
+def test_daily_table_newest_date_at_top(agm_app):
+    import mp_ts
+
+    table = mp_ts.build_agm_daily_balances_table()
+    # tbody first data row should be the latest date (2026-07-01).
+    tbody = table.children[1]
+    first_row = tbody.children[0]
+    first_cell = first_row.children[0]
+    assert first_cell.children == "2026-07-01"
+
+
+def test_portal_uses_latest_daily_net_worth(agm_app):
+    """Portal (admin-only) current value must come from the daily CSV, not the
+    monthly workbook."""
+    with agm_app.server.test_client() as client:
+        with client.session_transaction() as sess:
+            sess[AGM_SESSION_KEY] = True
+        response = client.get("/admin")
+        assert response.status_code == 200
+        assert DAILY_LATEST_NW.encode("utf-8") in response.data
+        # The old monthly workbook after-fee value must no longer be the shown NLV.
+        assert b"44,895.63" not in response.data
+
+
+def test_daily_nlv_graph_uses_csv_net_worth(agm_app):
+    import mp_ts
+
+    fig = mp_ts.build_agm_daily_nlv_figure()
+    assert len(fig.data) == 1
+    assert len(fig.data[0].x) == len(mp_ts.daily_balances_df)
+    assert float(fig.data[0].y[-1]) == pytest.approx(45675.81, abs=0.01)
+
+
+def test_daily_logic_isolated_from_tkp_and_tcp():
+    """AGM daily CSV logic must not be imported or rendered by TKP or TCP."""
+    import tkp_ts
+    import tcp_ts_v2
+
+    assert not hasattr(tkp_ts, "daily_balances_df")
+    assert not hasattr(tcp_ts_v2, "daily_balances_df")
+    assert not hasattr(tkp_ts, "build_agm_daily_nlv_figure")
+    assert not hasattr(tcp_ts_v2, "build_agm_daily_nlv_figure")
+    tkp_layout = str(tkp_ts.dynamic_layout())
+    assert "agm-admin-daily-container" not in tkp_layout
+    assert "TradeStation Net Worth" not in tkp_layout
+
+
+def test_monthly_backup_view_preserved(agm_app):
+    """The monthly performance view (client-facing) and its NAV chart remain intact
+    -- the monthly workbook stays as fee-calc source + backup."""
+    import mp_ts
+
+    layout = mp_ts.serve_layout()
+    # The client performance NAV chart is still present.
+    assert _find_by_id(layout, "mp-nav-graph") is not None
+    # Monthly workbook is still the fee source (accrued-fees chart still monthly).
+    assert not mp_ts._display_summary_df.empty
+
+
+def test_monthly_backup_route_available(agm_app):
+    """/monthly is a stable Monthly-backup entry point (currently redirects to the
+    monthly client view at "/"), guaranteed to survive a later daily-first default."""
+    with agm_app.server.test_client() as client:
+        response = client.get("/monthly", follow_redirects=False)
+        assert response.status_code == 302
+        assert response.headers["Location"].endswith("/")
