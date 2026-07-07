@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 from flask import render_template_string
+from markupsafe import Markup, escape
 
 PORTAL_COLUMNS: List[str] = [
     "Account",
@@ -23,7 +24,11 @@ PORTAL_COLUMNS: List[str] = [
     "Since inception %",
     "Exchange fee tier",
     "Last updated",
+    "Tearsheet",
 ]
+
+# Placeholder for registry rows whose per-account tearsheet is not wired up yet.
+TEARSHEET_NOT_WIRED_TEXT = "Coming soon"
 
 # Keys read off each account dict, in column order. Missing/None values render as EMPTY_CELL.
 PORTAL_ROW_FIELDS: List[str] = [
@@ -38,6 +43,7 @@ PORTAL_ROW_FIELDS: List[str] = [
     "since_inception_pct",
     "fee_tier",
     "last_updated",
+    "tearsheet",
 ]
 
 EMPTY_CELL = "—"
@@ -141,6 +147,18 @@ def _format_cell(value: Any) -> str:
     return str(value)
 
 
+def _tearsheet_cell(account: Dict[str, Any]) -> Any:
+    """Action cell: link to the account's tearsheet when wired, else placeholder.
+
+    Accounts opt in by providing "tearsheet_href"; everything else shows the
+    shared "Coming soon" placeholder (backend links do not all exist yet).
+    """
+    href = account.get("tearsheet_href")
+    if href:
+        return Markup(f'<a href="{escape(href)}">Open tearsheet</a>')
+    return TEARSHEET_NOT_WIRED_TEXT
+
+
 def render_portal_page(
     *,
     program_name: str,
@@ -158,7 +176,10 @@ def render_portal_page(
         for the account registry itself.
     """
     rows = [
-        [_format_cell(account.get(field)) for field in PORTAL_ROW_FIELDS]
+        [
+            _tearsheet_cell(account) if field == "tearsheet" else _format_cell(account.get(field))
+            for field in PORTAL_ROW_FIELDS
+        ]
         for account in (accounts or [])
     ]
     return render_template_string(

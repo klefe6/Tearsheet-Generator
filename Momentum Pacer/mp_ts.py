@@ -2246,13 +2246,10 @@ def agm_admin_logout():
 
 @app.server.route("/monthly")
 def agm_monthly_backup():
-    """Stable entry point for the monthly (legacy/backup) AGM experience.
-
-    The monthly workbook view is currently also the client-facing default at "/";
-    this route guarantees a permanent "Monthly backup" URL that keeps working if
-    the daily-driven experience later becomes the default at "/".
-    """
-    return redirect("/")
+    """The monthly workbook is a BACKEND source only — it is not exposed as a
+    client- or admin-facing website experience. This route exists solely to make
+    that decision explicit (a plain 404 instead of the Dash catch-all page)."""
+    return "Not found", 404
 
 
 @app.server.route("/healthz")

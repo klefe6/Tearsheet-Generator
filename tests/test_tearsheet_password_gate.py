@@ -83,6 +83,47 @@ def test_password_row_initially_hidden():
     assert row.style == gate_password_row_style(False)
 
 
+def _find_by_id(component, target_id):
+    if getattr(component, "id", None) == target_id:
+        return component
+    children = getattr(component, "children", None)
+    if children is None:
+        return None
+    if not isinstance(children, (list, tuple)):
+        children = [children]
+    for child in children:
+        found = _find_by_id(child, target_id)
+        if found is not None:
+            return found
+    return None
+
+
+def test_portal_button_disabled_placeholder_mode():
+    """portal_enabled=False renders a disabled/greyed Portal button (TKP/TCP)."""
+    row = build_gate_password_row(portal_enabled=False)
+    button = _find_by_id(row, GATE_PASSWORD_PORTAL_ID)
+    assert button is not None
+    assert button.disabled is True
+    assert button.color == "secondary"
+
+
+def test_portal_button_enabled_by_default():
+    """Default (AGM) keeps the Portal button active."""
+    row = build_gate_password_row()
+    button = _find_by_id(row, GATE_PASSWORD_PORTAL_ID)
+    assert button is not None
+    assert getattr(button, "disabled", False) is not True
+    assert button.color == "primary"
+
+
+def test_tcp_public_gate_portal_button_disabled():
+    """TCP's public gate uses the disabled Portal placeholder."""
+    gate = build_public_accept_gate()
+    button = _find_by_id(gate, GATE_PASSWORD_PORTAL_ID)
+    assert button is not None
+    assert button.disabled is True
+
+
 def test_e_click_does_not_authenticate(tcp_app):
     app, *_ = tcp_app
     auth = AdminAuthManager(load_admin_auth_settings(), session_key=SESSION_KEY)

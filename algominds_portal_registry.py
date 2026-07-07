@@ -46,5 +46,8 @@ def build_participating_accounts(
             "since_inception_pct": since_inception_pct_display,
             "fee_tier": FEE_TIER_LABEL,
             "last_updated": last_updated,
+            # The single CSV-backed live account links to the current daily
+            # admin tearsheet entry; future accounts default to "Coming soon".
+            "tearsheet_href": "/",
         }
     ]

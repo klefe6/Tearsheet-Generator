@@ -3241,7 +3241,9 @@ dcc_store = dcc.Store(id="disclaimer-accepted", storage_type="session")
 access_mode_store = dcc.Store(id="access-mode", storage_type="session", data=None)
 
 # Accept gate — proprietary tier (no strategy inquiry contact on gate)
-disclaimer_screen = build_sibling_accept_gate("TKP", extra_children=[build_gate_password_row()])
+disclaimer_screen = build_sibling_accept_gate(
+    "TKP", extra_children=[build_gate_password_row(portal_enabled=False)]
+)
 
 # Make layout dynamic - this function is called on every page load
 # This ensures fresh data is loaded when the app restarts

@@ -421,22 +421,52 @@ def test_daily_logic_isolated_from_tkp_and_tcp():
     assert "TradeStation Net Worth" not in tkp_layout
 
 
-def test_monthly_backup_view_preserved(agm_app):
-    """The monthly performance view (client-facing) and its NAV chart remain intact
-    -- the monthly workbook stays as fee-calc source + backup."""
+def test_monthly_workbook_is_internal_backend_source_only(agm_app):
+    """The monthly workbook stays alive as a BACKEND source (fee/accrual math,
+    client performance figures) but is not a navigable website experience."""
     import mp_ts
 
-    layout = mp_ts.serve_layout()
-    # The client performance NAV chart is still present.
-    assert _find_by_id(layout, "mp-nav-graph") is not None
-    # Monthly workbook is still the fee source (accrued-fees chart still monthly).
+    # Workbook file intact and still loaded internally.
+    assert mp_ts.EXCEL_PATH.is_file()
     assert not mp_ts._display_summary_df.empty
+    # Internal fee/accrual calculations still work off it.
+    rows = mp_ts._compute_agm_fee_series(mp_ts._display_summary_df)
+    assert rows and all("fee_dollars" in r for r in rows)
+    # The client performance view (investor NAV chart) is still served.
+    layout = mp_ts.serve_layout()
+    assert _find_by_id(layout, "mp-nav-graph") is not None
 
 
-def test_monthly_backup_route_available(agm_app):
-    """/monthly is a stable Monthly-backup entry point (currently redirects to the
-    monthly client view at "/"), guaranteed to survive a later daily-first default."""
+def test_monthly_route_not_exposed(agm_app):
+    """/monthly is not a visible backup website — it returns a plain 404."""
     with agm_app.server.test_client() as client:
         response = client.get("/monthly", follow_redirects=False)
-        assert response.status_code == 302
-        assert response.headers["Location"].endswith("/")
+        assert response.status_code == 404
+
+
+def test_no_monthly_backup_navigation_labels(agm_app):
+    """No client- or admin-facing 'Monthly backup' tab/link/button exists."""
+    import mp_ts
+
+    layout_str = str(mp_ts.serve_layout())
+    assert "Monthly backup" not in layout_str
+    assert "/monthly" not in layout_str
+
+
+def test_portal_is_account_registry_with_tearsheet_action(agm_app):
+    """Portal = account/user registry (not a monthly view); the CSV-backed live
+    account links to the current daily admin tearsheet."""
+    from tearsheet_portal import PORTAL_COLUMNS
+
+    with agm_app.server.test_client() as client:
+        with client.session_transaction() as sess:
+            sess[AGM_SESSION_KEY] = True
+        response = client.get("/admin")
+        assert response.status_code == 200
+        assert b"portal-account-registry" in response.data
+        assert b"Tearsheet" in response.data
+        assert b"Open tearsheet" in response.data
+        # Portal carries no monthly-backup navigation.
+        assert b"Monthly backup" not in response.data
+        assert b"/monthly" not in response.data
+        assert "Tearsheet" in PORTAL_COLUMNS

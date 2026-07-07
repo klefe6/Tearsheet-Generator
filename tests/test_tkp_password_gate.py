@@ -51,6 +51,30 @@ def test_gate_renders_tearsheet_and_portal_buttons(tkp_app):
     assert GATE_PASSWORD_PORTAL_LABEL in layout
 
 
+def test_tkp_portal_button_is_disabled_placeholder(tkp_app):
+    """TKP's Portal is not live yet — the gate button is a disabled placeholder."""
+    import tkp_ts
+
+    def find(component, target_id):
+        if getattr(component, "id", None) == target_id:
+            return component
+        children = getattr(component, "children", None)
+        if children is None:
+            return None
+        if not isinstance(children, (list, tuple)):
+            children = [children]
+        for child in children:
+            found = find(child, target_id)
+            if found is not None:
+                return found
+        return None
+
+    button = find(tkp_ts.disclaimer_screen, GATE_PASSWORD_PORTAL_ID)
+    assert button is not None
+    assert button.disabled is True
+    assert button.color == "secondary"
+
+
 def test_password_row_initially_hidden(tkp_app):
     import tkp_ts
 

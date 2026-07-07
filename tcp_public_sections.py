@@ -289,7 +289,7 @@ def build_public_accept_gate() -> html.Div:
         accept_text=GATE_ACCEPT_TEXT,
         title_id="tcp-public-gate-title",
         copy_lead_id="tcp-public-gate-copy",
-        extra_children=[build_gate_password_row()],
+        extra_children=[build_gate_password_row(portal_enabled=False)],
     )
 
 

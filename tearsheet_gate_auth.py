@@ -63,7 +63,15 @@ def load_agm_admin_auth_settings() -> AdminAuthSettings:
     )
 
 
-def build_gate_password_row() -> html.Div:
+PORTAL_COMING_SOON_TITLE = "Portal — coming soon"
+
+
+def build_gate_password_row(*, portal_enabled: bool = True) -> html.Div:
+    """Password row with TearSheet + Portal actions.
+
+    portal_enabled=False renders the Portal button disabled/greyed out
+    (placeholder for siblings whose Portal is not yet live, e.g. TKP/TCP).
+    """
     return html.Div(
         [
             html.Div(
@@ -89,10 +97,12 @@ def build_gate_password_row() -> html.Div:
                             dbc.Button(
                                 GATE_PASSWORD_PORTAL_LABEL,
                                 id=GATE_PASSWORD_PORTAL_ID,
-                                color="primary",
+                                color="primary" if portal_enabled else "secondary",
                                 size="sm",
                                 className=GATE_PASSWORD_PORTAL_CLASS,
                                 n_clicks=0,
+                                disabled=not portal_enabled,
+                                title=None if portal_enabled else PORTAL_COMING_SOON_TITLE,
                             ),
                         ],
                         className=GATE_PASSWORD_ACTIONS_CLASS,
