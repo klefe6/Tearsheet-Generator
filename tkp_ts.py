@@ -33,6 +33,9 @@ import yfinance as yf
 
 import quantstats as qs
 from quantstats import utils
+
+import tearsheet_disclosure as tsd
+from tearsheet_gate_ui import build_sibling_accept_gate
 from collections import OrderedDict
 
 # ==============================================================================
@@ -1633,10 +1636,7 @@ disclaimer_text = (
     "THE HIGH DEGREE OF LEVERAGE IN COMMODITY INTEREST TRADING MEANS INVESTMENTS SHOULD BE MADE WITH RISK "
     "CAPITAL ONLY. ALL INFORMATION ABOVE IS COMPILED WITH THE INTENTION OF BEING FULLY CORRECT, THOUGH THERE "
     "IS NO GUARANTEE ALL INFORMATION IS CORRECT AND COULD BE SUBJECT TO UNINTENTIONAL CLERICAL ITEMS. "
-    "PAST PERFORMANCE IS NOT NECESSARILY INDICATIVE OF FUTURE RESULTS.\n\n"
-    "PLEASE ENSURE THAT YOU ARE FULLY AWARE AND UNDERSTAND ALL RISKS, FEES, AND OTHER CONCERNS RELATED TO YOUR "
-    "INVESTMENT BY REQUESTING THE COMPLETE DISCLOSURE DOCUMENT & INVESTMENT MANAGEMENT AGREEMENT MATERIALS BY "
-    "REACHING OUT DIRECTLY TO THE ADVISOR."
+    "PAST PERFORMANCE IS NOT NECESSARILY INDICATIVE OF FUTURE RESULTS."
 )
 footer_contact = (
     "HUGHES & COMPANY LLC • NFA ID 0423388 • 330 Himmararshee, Ste 110, FTL, FL 33312 • 954-500-0500 • www.hughesandco.ltd"
@@ -1832,14 +1832,14 @@ def serve_layout(records=None):
                                 "height": "auto",
                                 "width": "auto",
                             },
-                            alt="Hughes & Company Logo"
+                            alt=f"{tsd.HNC_LEGAL_NAME} Logo"
                         ),
                         width=2,
                     ),
                     dbc.Col(
                         html.Div(
                             [
-                                html.H2("Hughes & Company LLC", className="text-center"),
+                                html.H2(tsd.HNC_LEGAL_NAME, className="text-center"),
                                 html.H5("The Keymaker Program", className="text-center text-muted"),
                             ],
                             style={"lineHeight": "1.2", "paddingTop": "20px"},
@@ -1900,7 +1900,7 @@ def serve_layout(records=None):
             html.Div(
                 [
                     html.P(
-                        "Hughes & Company LLC is an introducing brokerage firm with expertise in the futures options industry. ",
+                        f"{tsd.HNC_LEGAL_NAME} is an introducing brokerage firm with expertise in the futures options industry. ",
                         className="lead text-center",
                     ),
                     html.P(
@@ -1987,7 +1987,7 @@ dbc.Row(
                                         html.Td(
                                             [
                                                 html.P(
-                                                    "The Keymaker Program (TKP) is a unique offering by Hughes & Company LLC which utilizes specific strike daily options on the S&P 500 Index. It is oriented to achieve long-biased stable returns through intraday scalping of a proprietarily selected Put strikes in the nearest expiring option chain of the Micro ES product suite, and is most active in Volatile environments. The strategy simultaneously was built to allow for Put assignments for underlying Micro Futures Contracts, writing proprietarily selected Call strikes in sequential fashion to mitigate both drawdown depth and duration regardless of market environment. TKP has been designed as a long term, positively performing, market-neutral offering, with daily visibility and liquidity."
+                                                    f"The Keymaker Program (TKP) is a unique offering by {tsd.HNC_LEGAL_NAME} which utilizes specific strike daily options on the S&P 500 Index. It is oriented to achieve long-biased stable returns through intraday scalping of a proprietarily selected Put strikes in the nearest expiring option chain of the Micro ES product suite, and is most active in Volatile environments. The strategy simultaneously was built to allow for Put assignments for underlying Micro Futures Contracts, writing proprietarily selected Call strikes in sequential fashion to mitigate both drawdown depth and duration regardless of market environment. TKP has been designed as a long term, positively performing, market-neutral offering, with daily visibility and liquidity."
                                                 ),
                                             ],
                                             colSpan=3,
@@ -3190,24 +3190,13 @@ dbc.Row(
                 ),
             ]),
 
-            # ── Important Disclosure ──────────────────────────────────────────────────
+            # Important Disclosure section (proprietary tier — bottom panel)
             dbc.Row(
                 dbc.Col(
                     html.Div(
-                        [
-                            html.Strong("Important Disclosure: ", className="text-dark"),
-                            "This tear sheet is provided for informational purposes only. "
-                            "The TKP program is not currently available for investor participation. "
-                            "Performance information, if shown, is presented for informational and "
-                            "reporting purposes only and should not be interpreted as an offer, "
-                            "solicitation, or recommendation to invest.",
-                        ],
-                        className="p-3 border rounded",
-                        style={
-                            "backgroundColor": "#f8f9fa",
-                            "borderLeft": "4px solid #6c757d",
-                            "fontSize": "0.875rem",
-                        },
+                        tsd.proprietary_bottom_disclosure_children("TKP"),
+                        className=tsd.DISCLOSURE_PANEL_CLASS,
+                        style=tsd.DISCLOSURE_PANEL_STYLE,
                     ),
                     width=12,
                 ),
@@ -3226,37 +3215,8 @@ dcc_store = dcc.Store(id="disclaimer-accepted", storage_type="session")
 # "standard" = Accept & Continue; "secret" = last letter of "Notice" (same UI for now; branch later via this store)
 access_mode_store = dcc.Store(id="access-mode", storage_type="session", data=None)
 
-disclaimer_screen = html.Div(
-    id="disclaimer-screen",
-    children=html.Div(
-        children=[
-            html.H2(
-                [
-                    "Important Notic",
-                    html.Span(
-                        "e",
-                        id="secret-notice-e",
-                        n_clicks=0,
-                        style={
-                            "cursor": "default",
-                            "userSelect": "none",
-                        },
-                    ),
-                ],
-                className="mb-4",
-            ),
-            html.P(
-                "By clicking “Accept,” you agree that the performance figures shown are strictly informational and do not amount to investment advice, a solicitation, or an offer to invest or participate in this strategy. This material is not intended to solicit funds.",
-                className="lead mb-5"
-            ),
-            dbc.Button(
-                "Accept & Continue",
-                id="accept-button",
-                color="primary"
-            )
-        ]
-    )
-)
+# Accept gate — proprietary tier (no strategy inquiry contact on gate)
+disclaimer_screen = build_sibling_accept_gate("TKP")
 
 # Make layout dynamic - this function is called on every page load
 # This ensures fresh data is loaded when the app restarts
@@ -3293,14 +3253,14 @@ app.layout = dynamic_layout
 def show_main(n_accept, n_secret):
     ctx = dash.callback_context
     if not ctx.triggered:
-        return {"padding": "4rem", "textAlign": "center"}, {"display": "none"}, None
+        return tsd.GATE_SCREEN_STYLE, {"display": "none"}, None
     prop_id = ctx.triggered[0]["prop_id"]
     button_id = prop_id.split(".")[0]
     if button_id == "accept-button" and (n_accept or 0) > 0:
         return {"display": "none"}, {"display": "block"}, "standard"
     if button_id == "secret-notice-e" and (n_secret or 0) > 0:
         return {"display": "none"}, {"display": "block"}, "secret"
-    return {"padding": "4rem", "textAlign": "center"}, {"display": "none"}, None
+    return tsd.GATE_SCREEN_STYLE, {"display": "none"}, None
 
 @app.callback(
     Output("secret-table-container", "style"),
