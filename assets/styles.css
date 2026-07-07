@@ -131,8 +131,17 @@ body, #page-container {
   max-width: 30rem;
   margin: 0 auto 2rem;
   font-size: 0.9rem;
-  line-height: 1.5;
+  line-height: 1.55;
   color: #6c757d;
+}
+#disclaimer-screen .tearsheet-gate-copy-bold {
+  font-weight: 700;
+}
+#disclaimer-screen .tearsheet-gate-copy-contact {
+  margin-bottom: 2rem;
+}
+#disclaimer-screen .tearsheet-gate-copy-contact a {
+  color: #0D3562;
 }
 @media (max-width: 480px) {
   #disclaimer-screen > div,

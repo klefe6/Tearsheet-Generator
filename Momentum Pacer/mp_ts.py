@@ -31,7 +31,7 @@ _TS_ROOT = Path(__file__).resolve().parent.parent
 if str(_TS_ROOT) not in sys.path:
     sys.path.insert(0, str(_TS_ROOT))
 import tearsheet_disclosure as tsd
-import tearsheet_gate_ui as tsg
+from tearsheet_gate_ui import build_manager_accept_gate
 from tearsheet_gate_auth import (
     build_gate_password_row,
     gate_password_row_style,
@@ -1183,9 +1183,15 @@ def _fee_slab_structure_rows() -> list:
 # ==============================================================================
 # DASH APP  –  structure mirrors Y&Q serve_layout()
 # ==============================================================================
+# Serve the SHARED repo-root assets (the same styles.css TKP/TCP load) so the
+# Important Notice gate renders with the exact sibling design system — modal
+# backdrop, centered rounded card, typography scale, navy accept button.
+# mp_ts.py lives in "Momentum Pacer/" which has no assets folder of its own;
+# without assets_folder the gate-card CSS classes would 404 and never load.
 app = dash.Dash(
     __name__,
-    external_stylesheets=[dbc.themes.BOOTSTRAP, "/assets/styles.css"],
+    assets_folder=str(_TS_ROOT / "assets"),
+    external_stylesheets=[dbc.themes.BOOTSTRAP],
     suppress_callback_exceptions=True,
     title="Algominds – Momentum Pacer",
 )
@@ -1257,26 +1263,9 @@ def serve_layout():
             dcc.Location(id="url", refresh=False),
 
             # Accept gate — MANAGER tier: Algominds Financial LLC / Momentum Pacer (port 8304)
-            html.Div(
-                id="disclaimer-screen",
-                style=tsd.GATE_SCREEN_STYLE,
-                children=html.Div(
-                    [
-                        tsg.build_gate_title_h2(),
-                        *tsd.manager_gate_notice_body(program_name="Momentum Pacer"),
-                        dbc.Button(
-                            "Accept & Continue", id="accept-button",
-                            color="success",
-                            style={"backgroundColor": PRIMARY_COLOR,
-                                   "borderColor": PRIMARY_COLOR},
-                        ),
-                        build_gate_password_row(),
-                    ],
-                    style={
-                        **tsd.GATE_INNER_CARD_STYLE,
-                        "backgroundColor": GREY_BG,
-                    },
-                ),
+            build_manager_accept_gate(
+                "Momentum Pacer",
+                extra_children=[build_gate_password_row()],
             ),
 
             # ── Main content ────────────────────────────────────────────────────

@@ -14,6 +14,7 @@ from dash import html
 from tearsheet_disclosure import (
     GATE_SCREEN_STYLE,
     PROPRIETARY_GATE_ACCEPT_TEXT,
+    manager_gate_notice_body,
     proprietary_participation_text,
 )
 
@@ -123,6 +124,33 @@ def build_gate_title_h2(
     if title_id is not None:
         kwargs["id"] = title_id
     return html.H2(**kwargs)
+
+
+def build_manager_accept_gate(
+    program_name: str,
+    *,
+    extra_children: Optional[Sequence[Any]] = None,
+    title_id: Optional[str] = None,
+    gate_screen_id: str = GATE_SCREEN_ID,
+) -> html.Div:
+    """Centered manager-tier accept gate (Momentum Pacer / Y&Q-style disclosure copy)."""
+    children: list[Any] = [
+        build_gate_title_h2(title_id=title_id),
+        *manager_gate_notice_body(program_name=program_name),
+        dbc.Button(
+            GATE_ACCEPT_BUTTON_LABEL,
+            id="accept-button",
+            color="primary",
+            className=GATE_ACCEPT_BUTTON_CLASS,
+        ),
+    ]
+    if extra_children:
+        children.extend(extra_children)
+    return html.Div(
+        id=gate_screen_id,
+        style=GATE_SCREEN_STYLE,
+        children=html.Div(children=children, className=GATE_INNER_CARD_CLASS),
+    )
 
 
 def build_sibling_accept_gate(

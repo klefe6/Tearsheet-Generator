@@ -141,19 +141,23 @@ def manager_gate_proprietary_bold_text(program_name=None):
 
 def manager_gate_notice_body(program_name=None):
     """
-    Accept gate — Hr through contact line, no title (manager tier).
+    Accept gate — bold notice through contact line, no title (manager tier).
 
     program_name: e.g. \"Momentum Pacer\" for Algominds Momentum Pacer (port 8304).
     """
     return [
-        html.Hr(),
         html.P(
             manager_gate_proprietary_bold_text(program_name),
-            className="mb-2",
-            style={"fontWeight": "bold"},
+            className="lead mb-4 tearsheet-gate-copy-lead tearsheet-gate-copy-bold",
         ),
-        html.P(MANAGER_GATE_PROPRIETARY_MUTED, className="text-muted mb-4"),
-        html.P(gate_contact_children(), className="mb-4"),
+        html.P(
+            MANAGER_GATE_PROPRIETARY_MUTED,
+            className="text-muted mb-4 tearsheet-gate-copy-muted",
+        ),
+        html.P(
+            gate_contact_children(),
+            className="text-muted mb-5 tearsheet-gate-copy-muted tearsheet-gate-copy-contact",
+        ),
     ]
 
 
