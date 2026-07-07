@@ -1848,9 +1848,24 @@ def _tkp_admin_board_stats():
             break
     return latest_date, len(records)
 
+
+def _build_tkp_date_status_label_children(latest_date: str) -> tuple[list, list]:
+    """Desktop/mobile children for the top-right 'Data current to' status block."""
+    desktop = [
+        html.Div("Data current to", className="tkp-header-date-label"),
+        html.Div(f"{latest_date} close", className="tkp-header-date-value"),
+    ]
+    mobile = [
+        html.Div("Data current to", className="tkp-header-date-label"),
+        html.Div(f"{latest_date} close", className="tkp-header-date-value"),
+    ]
+    return desktop, mobile
+
+
 def serve_layout(records=None):
     if records is None:
         records = secret_table_records
+    desktop_date_label, mobile_date_label = _build_tkp_date_status_label_children(DAILY_RETURNS_LATEST_DATE)
     return dbc.Container(
         id="page-container",
         fluid=True,        # ⇒ always 100% on xs, sm; constrained on md+ breakpoints
@@ -1885,41 +1900,15 @@ def serve_layout(records=None):
                     dbc.Col(
                     html.Div(
                         [
-                            # desktop (md+): two-line “Data current to” / “{date} close”
                             html.Div(
                                 id="data-current-label-desktop",
-                                className="d-none d-md-block text-end",
-                                style={"paddingTop": "30px", "color": PRIMARY_COLOR},
-                                children=[
-                                    html.Div(
-                                        "Data current to",
-                                        className="d-block",
-                                        style={"fontSize": "20px", "lineHeight": "1.2"},
-                                    ),
-                                    html.Div(
-                                        f"{DAILY_RETURNS_LATEST_DATE} close",
-                                        className="d-block",
-                                        style={"fontSize": "20px", "lineHeight": "1.2", "marginTop": "2px"},
-                                    ),
-                                ],
+                                className="d-none d-md-block tkp-header-date-block",
+                                children=desktop_date_label,
                             ),
-                            # mobile: same copy, tighter type
                             html.Div(
                                 id="data-current-label-mobile",
-                                className="d-block d-md-none text-end",
-                                style={"paddingTop": "20px", "color": PRIMARY_COLOR},
-                                children=[
-                                    html.Div(
-                                        "Data current to",
-                                        className="d-block",
-                                        style={"fontSize": "16px", "lineHeight": "1.2"},
-                                    ),
-                                    html.Div(
-                                        f"{DAILY_RETURNS_LATEST_DATE} close",
-                                        className="d-block",
-                                        style={"fontSize": "16px", "lineHeight": "1.2", "marginTop": "2px"},
-                                    ),
-                                ],
+                                className="d-block d-md-none tkp-header-date-block",
+                                children=mobile_date_label,
                             ),
                         ]
                     ),
@@ -4147,30 +4136,7 @@ def propagate_dashboard(canonical_nav_rows, secret_store_rows):
                 pass
     if latest == "unavailable" and len(nav_s) > 0:
         latest = nav_s.index.max().strftime("%B %d, %Y")
-    desktop_label_children = [
-        html.Div(
-            "Data current to",
-            className="d-block",
-            style={"fontSize": "20px", "lineHeight": "1.2"},
-        ),
-        html.Div(
-            f"{latest} close",
-            className="d-block",
-            style={"fontSize": "20px", "lineHeight": "1.2", "marginTop": "2px"},
-        ),
-    ]
-    mobile_label_children = [
-        html.Div(
-            "Data current to",
-            className="d-block",
-            style={"fontSize": "16px", "lineHeight": "1.2"},
-        ),
-        html.Div(
-            f"{latest} close",
-            className="d-block",
-            style={"fontSize": "16px", "lineHeight": "1.2", "marginTop": "2px"},
-        ),
-    ]
+    desktop_label_children, mobile_label_children = _build_tkp_date_status_label_children(latest)
 
     return (
         _build_monthly_table(monthly_recs),

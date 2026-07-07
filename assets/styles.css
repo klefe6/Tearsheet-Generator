@@ -20,8 +20,8 @@ body, #page-container {
   padding: var(--spacing-unit);
 }
 
-/* Responsive header */
-#page-container > .row:first-child {
+/* Responsive header — TCP v2 public shell only (do not override TKP date block) */
+#tcp-public-header-row {
   padding: calc(var(--spacing-unit) / 2) 0;
   text-align: center;
 }
@@ -170,6 +170,50 @@ body, #page-container {
   #disclaimer-screen .tearsheet-gate-copy-lead,
   #disclaimer-screen p {
     font-size: 0.85rem;
+  }
+}
+
+/* TKP header — top-right “Data current to” status block */
+.tkp-header-date-block {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 1.25rem 0.25rem 0.5rem;
+  min-width: 9.5rem;
+  color: var(--primary-color);
+}
+
+.tkp-header-date-label {
+  font-size: 0.875rem;
+  font-weight: 400;
+  line-height: 1.35;
+  color: #6c757d;
+  margin: 0 0 0.25rem;
+}
+
+.tkp-header-date-value {
+  font-size: 1.125rem;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--primary-color);
+  margin: 0;
+}
+
+@media (max-width: 767.98px) {
+  .tkp-header-date-block {
+    padding: 0.75rem 0.25rem 0.25rem;
+    min-width: 0;
+    width: 100%;
+  }
+
+  .tkp-header-date-label {
+    font-size: 0.8125rem;
+  }
+
+  .tkp-header-date-value {
+    font-size: 1rem;
   }
 }
 
