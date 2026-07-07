@@ -24,6 +24,10 @@ os.environ.setdefault("TKP_SESSION_SECRET", "test-runtime-session-secret")
 os.environ.setdefault("AGM_ADMIN_TOKEN", "test-runtime-admin-token")
 os.environ.setdefault("AGM_SESSION_SECRET", "test-runtime-session-secret")
 
+# Tests must never hit yfinance: the daily SPX/NDX benchmark loader serves the
+# committed cache CSVs (Momentum Pacer/data/benchmarks) only.
+os.environ.setdefault("AGM_BENCHMARK_CACHE_ONLY", "1")
+
 # mp_ts.py lives in "Momentum Pacer/" (a directory with a space) which isn't on
 # sys.path by default; add it once here so any test can `import mp_ts`.
 _MOMENTUM_PACER_DIR = str(Path(__file__).resolve().parent.parent / "Momentum Pacer")

@@ -218,13 +218,10 @@ def test_fee_charts_container_present_but_hidden_by_default(agm_app):
     container = _find_by_id(layout, "agm-admin-fee-charts-container")
     assert container is not None
     assert container.style == {"display": "none"}
-    graph_ids = {"agm-accrued-fees-graph", "agm-nlv-graph"}
-    found_ids = {
-        getattr(g, "id", None)
-        for g in [_find_by_id(container, gid) for gid in graph_ids]
-        if g is not None
-    }
-    assert found_ids == graph_ids
+    assert _find_by_id(container, "agm-accrued-fees-graph") is not None
+    # The old monthly-resolution NLV chart is gone (daily NLV lives in the
+    # auth-gated daily container instead).
+    assert _find_by_id(container, "agm-nlv-graph") is None
 
 
 def test_fee_charts_toggle_wired_to_access_mode(agm_app):
@@ -237,70 +234,58 @@ def test_fee_charts_toggle_wired_to_access_mode(agm_app):
     assert matching, "fee-charts container is not toggled by the access-mode store"
 
 
-def test_fee_dollars_reconciles_against_workbook_detail_sheets():
-    """Cross-checked by hand against the 'Apr 2026' and 'Jan 2026' per-month
-    detail sheets in Momentum Fee Calculation.xlsx (Net Fees$ / BOT Closing
-    before fees), not fabricated."""
+def test_fee_dollars_reconcile_against_workbook_detail_sheets():
+    """The DAILY fee engine's crystallized month-end fees must still match the
+    workbook per-month detail sheets to the cent (Apr 2026 Net Fees$
+    $2,967.85; Jan 2026 $31.56 — cross-checked by hand, not fabricated)."""
     import mp_ts
 
-    rows = mp_ts._compute_agm_fee_series(mp_ts._display_summary_df)
-    by_month = {r["date"].strftime("%Y-%m"): r for r in rows}
-
-    apr = by_month["2026-04"]
-    assert apr["fee_dollars"] == pytest.approx(2967.846349, abs=0.01)
-    assert apr["nlv_before_fees"] == pytest.approx(47451.27, abs=0.01)
-    assert apr["nlv_after_fees"] == pytest.approx(44483.42, abs=0.01)
-
-    jan = by_month["2026-01"]
-    assert jan["fee_dollars"] == pytest.approx(31.56190398, abs=0.01)
-    assert jan["nlv_before_fees"] == pytest.approx(34654.12, abs=0.05)
+    fees = {c["month"]: c["fee"] for c in mp_ts.daily_fee_accrual.crystallized}
+    assert fees["2026-04"] == pytest.approx(2967.846349, abs=0.01)
+    assert fees["2026-01"] == pytest.approx(31.56190398, abs=0.01)
+    assert fees["2025-11"] == pytest.approx(3344.66, abs=0.01)
+    assert fees["2026-02"] == pytest.approx(718.59, abs=0.01)
 
 
-def test_accrued_fees_resets_to_zero_after_each_payment():
-    """Accounting invariant: accrued_fees_after_payment == 0 for every month."""
+def test_accrued_fees_reset_only_on_evidenced_payments():
+    """The daily accrued series drops to the remaining balance exactly on
+    evidenced payment days (e.g. Feb's $718.59 left the account on 2026-03-27)
+    and never resets on a fabricated date."""
     import mp_ts
 
-    fig = mp_ts.build_agm_accrued_fees_figure()
-    y = list(fig.data[0].y)
-    # Every third point in the (start, month-end-peak, reset) triad must be 0.
-    resets = y[2::3]
-    assert all(v == 0 for v in resets)
+    acc = mp_ts.daily_fee_accrual.daily.set_index("Date")
+    # Mar 27: exact Net-Worth match payment of the Feb fee -> accrued drops to 0
+    # (Mar itself is under the HWM, so no new accrual).
+    assert acc.loc["2026-03-27", "accrued_total"] == pytest.approx(0.0, abs=0.01)
+    day_before = acc.loc["2026-03-26", "accrued_total"]
+    assert day_before == pytest.approx(718.59, abs=0.01)
+    # Apr/May fees have no payment evidence -> still carried at the end.
+    assert acc["accrued_total"].iloc[-1] >= 2967.0
 
 
-def test_nlv_drops_by_exactly_the_paid_fee_amount():
-    """Accounting invariant: actual_nlv_after_payment == actual_nlv_before_payment - fee_paid."""
+def test_accrued_fees_never_negative():
     import mp_ts
 
-    rows = mp_ts._compute_agm_fee_series(mp_ts._display_summary_df)
-    for row in rows:
-        drop = row["nlv_before_fees"] - row["nlv_after_fees"]
-        assert drop == pytest.approx(row["fee_dollars"], abs=1e-6)
+    assert (mp_ts.daily_fee_accrual.daily["accrued_total"] >= -1e-9).all()
 
 
-def test_public_nav_chart_unaffected_by_fee_charts(agm_app):
-    """The client-facing equity curve must still be built only from
-    bot_end_after_fees values (never pre-fee values) -- no extra
-    fee-payment-only hit layered on top by this session's changes.
-
-    Note: build_nav_figure() pre-existingly omits the second-to-last month's
-    point when the latest month is in progress (cosmetic tick-spacing fix,
-    unrelated to fees -- see its "avoids two points 1 day apart" comment), so
-    this doesn't assert every month appears, only that nothing pre-fee does."""
+def test_public_nav_chart_is_daily_equity_net_of_fees(agm_app):
+    """The client-facing equity curve is the actual daily account value
+    (net of all fees paid to date) from the balances CSV — daily resolution,
+    with the daily SPX benchmark alongside."""
     import mp_ts
+    import pandas as pd
 
     nav_fig = mp_ts.build_nav_figure()
     bot_trace = next(t for t in nav_fig.data if t.name == "Momentum Pacer (Net of Fees)")
-    rows = mp_ts._compute_agm_fee_series(mp_ts._display_summary_df)
-    starting_capital = mp_ts.STARTING_CAPITAL
-
-    after_fees_values = {round(v, 2) for v in mp_ts._display_summary_df["bot_end_after_fees"]}
-    before_fees_values = {round(r["nlv_before_fees"], 2) for r in rows if r["fee_dollars"] > 0}
-    nav_values = {round(v, 2) for v in bot_trace.y if v is not None}
-
-    # Every point actually plotted is either the starting capital or a genuine after-fee value.
-    assert nav_values.issubset(after_fees_values | {starting_capital})
-    # No pre-fee (before-payment) value ever leaks onto the public chart.
-    assert nav_values.isdisjoint(before_fees_values)
+    expected = mp_ts.daily_balances_df[
+        mp_ts.daily_balances_df["Date"] >= pd.Timestamp(mp_ts.PROGRAM_INCEPTION)
+    ]
+    assert len(bot_trace.y) == len(expected)
+    assert [float(v) for v in bot_trace.y] == pytest.approx(
+        [float(v) for v in expected["Net Worth"]]
+    )
+    assert any(t.name == "S&P 500 (rebased, daily)" for t in nav_fig.data)
 
 
 def test_fee_charts_isolated_from_tkp_and_tcp():
@@ -429,9 +414,10 @@ def test_monthly_workbook_is_internal_backend_source_only(agm_app):
     # Workbook file intact and still loaded internally.
     assert mp_ts.EXCEL_PATH.is_file()
     assert not mp_ts._display_summary_df.empty
-    # Internal fee/accrual calculations still work off it.
-    rows = mp_ts._compute_agm_fee_series(mp_ts._display_summary_df)
-    assert rows and all("fee_dollars" in r for r in rows)
+    # It still feeds internal logic: the performance summary table and the
+    # daily fee engine's payment-reconciliation evidence.
+    assert any(p["method"] == "workbook-reconciliation"
+               for p in mp_ts.daily_fee_accrual.payments)
     # The client performance view (investor NAV chart) is still served.
     layout = mp_ts.serve_layout()
     assert _find_by_id(layout, "mp-nav-graph") is not None

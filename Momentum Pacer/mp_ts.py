@@ -50,6 +50,8 @@ from tcp_admin import AdminAuthManager, configure_flask_session_secret
 from tearsheet_portal import render_portal_page
 import algominds_portal_registry as agm_registry
 import algominds_daily_balances as agm_daily
+import algominds_benchmark_daily as agm_bench
+import algominds_daily_fees as agm_fees
 
 import numpy as np
 import pandas as pd
@@ -168,11 +170,6 @@ PROGRAM_INCEPTION = datetime(2025, 11, 13, 0, 0, 0)
 # Charts and table filter use this date instead of machine clock (first of its month caps rows).
 TEARSHEET_AS_OF = datetime(2026, 5, 12, 0, 0, 0)
 
-# Extra point on NAV / drawdown only: month stub (e.g. May 1) stays; this x is added after it when later.
-# Set NAV when known; None keeps the same dollar level as the prior point (placeholder).
-TEARSHEET_CHART_EXTRA_DATE: datetime | None = datetime(2026, 5, 12, 0, 0, 0)
-TEARSHEET_CHART_EXTRA_NAV_USD: float | None = None
-
 # Incentive fee slabs — AlgoMinds Financial LLC Disclosure Document (e.g. effective March 1, 2026),
 # "Advisor's Fees" / Incentive Fee. Benchmark = S&P 500 monthly return (WSJ official month-end closes);
 # tiers are slices of net new profits measured vs multiples of the Benchmark's *dollar* return for the month.
@@ -243,6 +240,55 @@ if DAILY_BALANCES_LOAD_ERROR is None and not daily_balances_df.empty:
     )
 elif DAILY_BALANCES_LOAD_ERROR is None:
     print("[mp_ts] Daily balances CSV not found or empty - admin daily view will show empty state.")
+
+
+# ── Daily benchmarks (SPX ^GSPC / NDX ^NDX) + daily fee accrual ───────────────
+# Cache-first (Momentum Pacer/data/benchmarks, committed); yfinance is touched
+# only when the cache does not cover the CSV date range. See
+# algominds_benchmark_daily for the ^GSPC-vs-^SP500TR rationale (the fee
+# workbook's SPX levels are ^GSPC price-index closes, verified to the cent).
+BENCHMARK_LOAD_ERROR = None
+spx_daily_df = pd.DataFrame(columns=["Date", "Close"])
+ndx_daily_df = pd.DataFrame(columns=["Date", "Close"])
+try:
+    if not daily_balances_df.empty:
+        _bench_start = daily_balances_df["Date"].min() - pd.Timedelta(days=45)
+        _bench_end = daily_balances_df["Date"].max()
+        spx_daily_df = agm_bench.load_daily_benchmark(agm_bench.SPX_TICKER, _bench_start, _bench_end)
+        ndx_daily_df = agm_bench.load_daily_benchmark(agm_bench.NDX_TICKER, _bench_start, _bench_end)
+except Exception as _bex:  # pragma: no cover - defensive
+    traceback.print_exc()
+    BENCHMARK_LOAD_ERROR = str(_bex)
+
+# Daily incentive-fee accrual (AGM daily NLV vs daily SPX; workbook Summary is
+# passed only as internal payment-reconciliation reference, never displayed).
+DAILY_FEES_LOAD_ERROR = None
+try:
+    daily_fee_accrual = agm_fees.compute_daily_fee_accrual(
+        daily_balances_df,
+        spx_daily_df,
+        inception=pd.Timestamp(PROGRAM_INCEPTION),
+        monthly_reference=summary_df if not summary_df.empty else None,
+    )
+except Exception as _fex:  # pragma: no cover - defensive
+    traceback.print_exc()
+    daily_fee_accrual = agm_fees.DailyFeeAccrual(daily=pd.DataFrame())
+    DAILY_FEES_LOAD_ERROR = str(_fex)
+
+if BENCHMARK_LOAD_ERROR is None and not spx_daily_df.empty:
+    print(
+        f"[mp_ts] Loaded {len(spx_daily_df)} daily SPX ({agm_bench.SPX_TICKER}) closes, "
+        f"{len(ndx_daily_df)} NDX ({agm_bench.NDX_TICKER}) closes"
+    )
+elif BENCHMARK_LOAD_ERROR is None:
+    print("[mp_ts] Daily benchmark data unavailable - charts will omit benchmark series.")
+if DAILY_FEES_LOAD_ERROR is None and not daily_fee_accrual.daily.empty:
+    print(
+        f"[mp_ts] Daily fee accrual: {len(daily_fee_accrual.daily)} days, "
+        f"{len(daily_fee_accrual.crystallized)} crystallized months, "
+        f"{len(daily_fee_accrual.payments)} evidenced payments, "
+        f"{len(daily_fee_accrual.outstanding)} outstanding"
+    )
 
 
 def months_trading_elapsed_approx() -> str:
@@ -365,19 +411,6 @@ def _first_of_calendar_month(ts: pd.Timestamp) -> pd.Timestamp:
     return t.replace(day=1)
 
 
-def _first_of_month_after(d: pd.Timestamp) -> pd.Timestamp:
-    """First day of the month after *d* (for Summary rows dated 1st of M)."""
-    d = pd.Timestamp(d).normalize()
-    return (d + pd.DateOffset(months=1)).normalize()
-
-
-def _last_calendar_day_of_month(d: pd.Timestamp) -> pd.Timestamp:
-    """Row date *d* is the 1st of month M; return last calendar day of M."""
-    d = pd.Timestamp(d).normalize()
-    first_next = (d + pd.DateOffset(months=1)).replace(day=1)
-    return (first_next - pd.Timedelta(days=1)).normalize()
-
-
 def _summary_through_current_month(df: pd.DataFrame) -> pd.DataFrame:
     """
     Rows on or before the 1st of the current calendar month.
@@ -387,55 +420,6 @@ def _summary_through_current_month(df: pd.DataFrame) -> pd.DataFrame:
         return df
     cur = _first_of_calendar_month(_chart_today())
     return df[df["date"] <= cur].reset_index(drop=True)
-
-
-def _month_close_x_positions(dates: pd.Series | list) -> list[pd.Timestamp]:
-    """
-    Map each summary row date (1st of month M) to the x used for that month's close NAV.
-
-    Completed months: x = 1st of following month (same tick convention as the sheet).
-    Current calendar month (in progress): x = M (1st of month) on the May 2026 tick.
-
-    If the prior month's default close (1st of next month) would share that same date
-    as the in-progress row (e.g. April end and May row both on May 1), use the last
-    day of the prior month instead so there is only one point on the current tick.
-    """
-    dates = [pd.Timestamp(d).normalize() for d in dates]
-    if not dates:
-        return []
-    as_of = _chart_today()
-    cur_start = _first_of_calendar_month(as_of)
-    n = len(dates)
-    out: list[pd.Timestamp] = []
-    for i, d in enumerate(dates):
-        if i == n - 1 and d == cur_start:
-            out.append(d)
-        else:
-            nxt_first = _first_of_month_after(d)
-            if (
-                n >= 2
-                and i == n - 2
-                and dates[n - 1] == cur_start
-                and nxt_first == dates[n - 1]
-            ):
-                out.append(_last_calendar_day_of_month(d))
-            else:
-                out.append(nxt_first)
-    return out
-
-
-def _append_tearsheet_chart_extra_date(xs: list, ys: list, y_extra: float | None = None) -> tuple[list, list]:
-    """
-    Append TEARSHEET_CHART_EXTRA_DATE after the last x when it is strictly later.
-    Keeps the prior point (e.g. May 1); y_extra None duplicates the last y (placeholder NAV).
-    """
-    if TEARSHEET_CHART_EXTRA_DATE is None or not xs:
-        return xs, ys
-    tx = pd.Timestamp(TEARSHEET_CHART_EXTRA_DATE.date()).normalize()
-    if tx <= pd.Timestamp(xs[-1]):
-        return xs, ys
-    tail_y = float(y_extra) if y_extra is not None else float(ys[-1])
-    return list(xs) + [tx], list(ys) + [tail_y]
 
 
 # Summary slice on this tearsheet (respects TEARSHEET_AS_OF); metrics + tables use this.
@@ -507,112 +491,77 @@ _NAV_HOVER = (
 )
 
 
+def _daily_equity_frame() -> pd.DataFrame:
+    """Client daily equity rows (Date / Net Worth) from live inception onward."""
+    if daily_balances_df is None or daily_balances_df.empty:
+        return pd.DataFrame(columns=["Date", "Net Worth"])
+    mask = daily_balances_df["Date"] >= pd.Timestamp(PROGRAM_INCEPTION)
+    return daily_balances_df.loc[mask].reset_index(drop=True)
+
+
 def build_nav_figure() -> go.Figure:
     """
-    NAV chart: BOT (after fees) vs SPX & NDX (rebased to same start capital).
+    DAILY NAV chart (client-facing): the account's actual daily equity curve
+    (TradeStation Net Worth — net of all fees paid to date) vs the daily SPX
+    (^GSPC) and NDX (^NDX) benchmarks rebased to the same starting capital at
+    live inception (Nov 13, 2025). One point per trading day in the daily
+    balances CSV — the monthly workbook no longer feeds this chart.
 
-    Timeline logic:
-      - summary_df row date = 1st of the month (BOT Start value)
-      - Each row's bot_end_after_fees = end-of-month NAV
-      - Inception = Nov 13: strategy was flat at $30K from Nov 1 → Nov 13
-      - From Nov 13 → Nov 30: NAV rises to first bot_end_after_fees ($34,338)
-
-    Points plotted per series:
-      Nov 1  (row[0].date)       → $30K  (flat pre-inception)
-      Nov 13 (PROGRAM_INCEPTION) → $30K  (inception, still $30K)
-      Dec 1  (next month start)  → $34,338  (end-of-Nov NAV, on grid line)
-      … completed months use the 1st of the following month on the x-axis.
-
-    Mid-month: rows after the tearsheet as-of month are hidden. The month-stub point
-    (e.g. May 1) stays on the x-axis; TEARSHEET_CHART_EXTRA_DATE may add one further
-    point after it (see TEARSHEET_CHART_EXTRA_NAV_USD).
+    Benchmark closes are aligned to the AGM trading days (short holiday gaps
+    forward-filled, larger holes left blank — see algominds_benchmark_daily);
+    a missing benchmark series is omitted, never interpolated or fabricated.
     """
     fig = go.Figure()
-    if summary_df.empty:
+    eq = _daily_equity_frame()
+    if eq.empty:
         fig.add_annotation(text="No data", xref="paper", yref="paper",
                            x=0.5, y=0.5, showarrow=False)
         return fig
 
-    nav_df = _summary_through_current_month(summary_df)
-    if nav_df.empty:
-        fig.add_annotation(text="No data", xref="paper", yref="paper",
-                           x=0.5, y=0.5, showarrow=False)
-        return fig
+    bot_x = [pd.Timestamp(d) for d in eq["Date"]]
+    bot_y = [float(v) for v in eq["Net Worth"]]
+    base = float(bot_y[0])  # $30,000 at inception
 
-    # When the last row is the current month, exclude the prior row (avoids two
-    # points 1 day apart: April 30 + May 1 both near the May tick).
-    cur_start = _first_of_calendar_month(_chart_today())
-    if len(nav_df) >= 2 and pd.Timestamp(nav_df["date"].iloc[-1]) == cur_start:
-        nav_df = pd.concat([nav_df.iloc[:-2], nav_df.iloc[[-1]]], ignore_index=True)
+    # ── Benchmarks: daily closes on AGM trading days, rebased to the start ───
+    spx_y = [float(v) if pd.notna(v) else None
+             for v in agm_bench.rebase(agm_bench.align_to_dates(spx_daily_df, bot_x), base)]
+    ndx_y = [float(v) if pd.notna(v) else None
+             for v in agm_bench.rebase(agm_bench.align_to_dates(ndx_daily_df, bot_x), base)]
 
-    month_close_dates = _month_close_x_positions(nav_df["date"])
-
-    # ── BOT NAV ──────────────────────────────────────────────────────────────
-    # Nov 1 → flat $30K → Nov 13 → month-close xs (… Apr 30 then May 1 when May is in-progress)
-    bot_x = (
-        [nav_df["date"].iloc[0]]
-        + [pd.Timestamp(PROGRAM_INCEPTION)]
-        + month_close_dates
-    )
-    bot_y = (
-        [STARTING_CAPITAL, STARTING_CAPITAL]
-        + list(nav_df["bot_end_after_fees"].astype(float))
-    )
-
-    # ── SPX rebased ───────────────────────────────────────────────────────────
-    # Same shape: flat until inception, then cumulative from month-end to month-end
-    spx_y = [STARTING_CAPITAL, STARTING_CAPITAL]
-    spx_cum = 1.0
-    for ret in nav_df["spx_ret"].astype(float):
-        spx_cum *= (1 + ret)
-        spx_y.append(STARTING_CAPITAL * spx_cum)
-
-    # ── NDX rebased ───────────────────────────────────────────────────────────
-    ndx_y = [STARTING_CAPITAL, STARTING_CAPITAL]
-    ndx_cum = 1.0
-    for ret in nav_df["ndx_ret"].astype(float):
-        ndx_cum *= (1 + ret)
-        ndx_y.append(STARTING_CAPITAL * ndx_cum)
-
-    # Optional extra x (e.g. May 12) after the month stub (May 1); NAV placeholder until set.
-    _nx_before_extra = len(bot_x)
-    bot_x, bot_y = _append_tearsheet_chart_extra_date(bot_x, bot_y, TEARSHEET_CHART_EXTRA_NAV_USD)
-    if len(bot_x) > _nx_before_extra:
-        spx_y = list(spx_y) + [float(spx_y[-1])]
-        ndx_y = list(ndx_y) + [float(ndx_y[-1])]
-
-    bot_hover_data = _hover_customdata([float(v) for v in bot_y], STARTING_CAPITAL)
-
+    bot_hover_data = _hover_customdata(bot_y, base)
     fig.add_trace(go.Scatter(
         x=bot_x, y=bot_y,
-        mode="lines+markers",
+        mode="lines",
         line={"color": PRIMARY_COLOR, "width": 2.5},
-        marker={"size": 5, "color": PRIMARY_COLOR},
         name="Momentum Pacer (Net of Fees)",
         customdata=np.asarray(bot_hover_data, dtype=object),
         hovertemplate=_NAV_HOVER,
         yaxis="y",
     ))
 
-    spx_hover_data = _hover_customdata([float(v) for v in spx_y], STARTING_CAPITAL)
-    fig.add_trace(go.Scatter(
-        x=bot_x, y=spx_y,
-        mode="lines", line={"color": "#E67E22", "dash": "dash", "width": 1.5},
-        name="SPX TR (rebased)", opacity=0.8,
-        customdata=np.asarray(spx_hover_data, dtype=object),
-        hovertemplate=_NAV_HOVER,
-        yaxis="y",
-    ))
+    if any(v is not None for v in spx_y):
+        spx_hover_data = _hover_customdata(
+            [v if v is not None else base for v in spx_y], base)
+        fig.add_trace(go.Scatter(
+            x=bot_x, y=spx_y,
+            mode="lines", line={"color": "#E67E22", "dash": "dash", "width": 1.5},
+            name="S&P 500 (rebased, daily)", opacity=0.8,
+            customdata=np.asarray(spx_hover_data, dtype=object),
+            hovertemplate=_NAV_HOVER,
+            yaxis="y",
+        ))
 
-    ndx_hover_data = _hover_customdata([float(v) for v in ndx_y], STARTING_CAPITAL)
-    fig.add_trace(go.Scatter(
-        x=bot_x, y=ndx_y,
-        mode="lines", line={"color": "#8E44AD", "dash": "dot", "width": 1.5},
-        name="NDX (rebased)", opacity=0.8,
-        customdata=np.asarray(ndx_hover_data, dtype=object),
-        hovertemplate=_NAV_HOVER,
-        yaxis="y",
-    ))
+    if any(v is not None for v in ndx_y):
+        ndx_hover_data = _hover_customdata(
+            [v if v is not None else base for v in ndx_y], base)
+        fig.add_trace(go.Scatter(
+            x=bot_x, y=ndx_y,
+            mode="lines", line={"color": "#8E44AD", "dash": "dot", "width": 1.5},
+            name="Nasdaq-100 (rebased, daily)", opacity=0.8,
+            customdata=np.asarray(ndx_hover_data, dtype=object),
+            hovertemplate=_NAV_HOVER,
+            yaxis="y",
+        ))
 
     # ── Inception annotation ──────────────────────────────────────────────────
     fig.add_annotation(
@@ -674,7 +623,7 @@ def build_nav_figure() -> go.Figure:
     # ── Compute shared y range ────────────────────────────────────────────────
     # Both axes share the same numeric dollar range. yaxis2 is just a relabelled
     # mirror: its tick POSITIONS are dollar values, its tick LABELS are % vs baseline.
-    all_y = [float(v) for v in bot_y + spx_y + ndx_y]
+    all_y = [float(v) for v in bot_y + spx_y + ndx_y if v is not None]
     y_min = min(all_y)
     y_max = max(all_y)
     pad = max((y_max - y_min) * 0.05, STARTING_CAPITAL * 0.01)
@@ -756,41 +705,6 @@ def build_nav_figure() -> go.Figure:
     return fig
 
 
-def _compute_agm_fee_series(df: pd.DataFrame) -> list[dict]:
-    """
-    Derive per-month accrued/paid fee dollars and the pre-fee NLV from the
-    Summary sheet's existing "BOT Fees%" and "BOT End After Fees" columns
-    (admin-only; AGM's fee is charged once per month, not daily).
-
-    Formula (reconciled exactly against the "<Month> 2026" per-month detail
-    sheets — e.g. Apr 2026: Net Fees$ $2,967.85 vs. derived $2,967.85;
-    "BOT Closing" before fees $47,451.27 vs. derived $47,451.27; Jan 2026
-    checked the same way):
-        fee_dollars[m]     = BOT Fees%[m] * STARTING_CAPITAL
-        nlv_before_fees[m] = BOT End After Fees[m] + fee_dollars[m]
-        nlv_after_fees[m]  = BOT End After Fees[m]   (already feeds the public NAV chart)
-
-    AGM's workbook has no daily-level accrual data anywhere -- fees are
-    computed and charged once per month, at month-end. These series are
-    therefore monthly-resolution snapshots, not an interpolated/fabricated
-    daily curve.
-    """
-    if df.empty:
-        return []
-    rows = []
-    for _, r in df.iterrows():
-        fee_dollars = float(r["bot_fees_pct"]) * STARTING_CAPITAL
-        nlv_after = float(r["bot_end_after_fees"])
-        rows.append({
-            "date": pd.Timestamp(r["date"]),
-            "bot_start": float(r["bot_start"]),
-            "fee_dollars": fee_dollars,
-            "nlv_before_fees": nlv_after + fee_dollars,
-            "nlv_after_fees": nlv_after,
-        })
-    return rows
-
-
 def _empty_admin_figure(title: str, message: str) -> go.Figure:
     fig = go.Figure()
     fig.add_annotation(
@@ -806,62 +720,67 @@ def _empty_admin_figure(title: str, message: str) -> go.Figure:
 
 
 def build_agm_accrued_fees_figure() -> go.Figure:
-    """Admin-only. Monthly-resolution: $0 through the month, steps up to that
-    month's fee at month-end, then resets to $0 on the payment day. AGM does
-    not track intra-month daily accrual, so this shows the known start/end
-    state per month rather than an interpolated daily ramp."""
-    rows = _compute_agm_fee_series(_display_summary_df)
-    if not rows:
-        return _empty_admin_figure("Accrued Fees (Admin)", "No fee data available yet.")
-    x: list = []
-    y: list = []
-    for row in rows:
-        month_start = row["date"]
-        month_end = month_start + pd.offsets.MonthEnd(0)
-        x += [month_start, month_end, month_end]
-        y += [0, row["fee_dollars"], 0]
+    """Admin-only. DAILY accrued incentive fees, calculated every trading day
+    from AGM daily Net Worth vs the daily SPX benchmark (^GSPC) using the
+    approved workbook slab/HWM formula (see algominds_daily_fees — the engine
+    reproduces every completed workbook month's fee to the cent).
+
+    The series drops only on EVIDENCED fee payments/removals (exact daily
+    Net-Worth match or workbook reconciliation); crystallized fees with no
+    payment evidence stay in the plotted outstanding balance rather than being
+    reset on a fabricated date."""
+    acc = daily_fee_accrual.daily
+    if acc is None or acc.empty:
+        return _empty_admin_figure(
+            "Accrued Fees (Admin)",
+            "Daily fee accrual unavailable (balances CSV or SPX benchmark data missing).",
+        )
     fig = go.Figure()
     fig.add_trace(go.Scatter(
-        x=x, y=y, mode="lines", line_shape="hv", name="Accrued Fees",
+        x=acc["Date"], y=acc["accrued_total"], mode="lines",
+        name="Accrued Fees (daily)",
         line=dict(color="#B02A37", width=2),
+        hovertemplate="%{x|%b %d, %Y}<br>Accrued: $%{y:,.2f}<extra></extra>",
     ))
+    crystallized = daily_fee_accrual.crystallized
+    if crystallized:
+        fig.add_trace(go.Scatter(
+            x=[c["date"] for c in crystallized],
+            y=[float(acc.loc[acc["Date"] == c["date"], "accrued_total"].iloc[0])
+               for c in crystallized],
+            mode="markers", name="Month-end fee crystallized",
+            marker=dict(symbol="diamond", size=8, color="#B02A37"),
+            hovertemplate="%{x|%b %d, %Y}<br>Fee crystallized<extra></extra>",
+        ))
+    payments = daily_fee_accrual.payments
+    if payments:
+        fig.add_trace(go.Scatter(
+            x=[p["date"] for p in payments],
+            y=[float(acc.loc[acc["Date"] == p["date"], "accrued_total"].iloc[0])
+               for p in payments],
+            mode="markers", name="Fee payment (evidenced)",
+            marker=dict(symbol="triangle-down", size=10, color="#1B4F8A"),
+            hovertemplate="%{x|%b %d, %Y}<br>Payment: $%{customdata:,.2f}<extra></extra>",
+            customdata=[p["amount"] for p in payments],
+        ))
+    outstanding = daily_fee_accrual.outstanding
+    if outstanding:
+        note = "Outstanding (no payment evidence in CSV): " + ", ".join(
+            f"{o['month']} ${o['fee']:,.2f}" for o in outstanding
+        )
+        fig.add_annotation(
+            text=note, xref="paper", yref="paper", x=0.0, y=1.10,
+            showarrow=False, font=dict(size=10, color="#6c757d"), align="left",
+        )
     fig.update_layout(
-        title="Accrued Fees (Admin only — monthly resolution; AGM charges fees once per month)",
+        title="Accrued Fees (Admin only — calculated DAILY from AGM vs SPX ^GSPC; slab/HWM formula)",
         xaxis_title="Date",
         yaxis=dict(title="Accrued Fees ($)", tickprefix="$", tickformat=",.0f"),
-        height=320,
-        margin=dict(t=60, b=40),
-        showlegend=False,
-    )
-    return fig
-
-
-def build_agm_nlv_figure() -> go.Figure:
-    """Admin-only. Actual account NLV: rises through the month to the pre-fee
-    balance, then drops by the paid-fee amount on the payment/month-end day
-    (down to the same after-fee value the public NAV chart already uses)."""
-    rows = _compute_agm_fee_series(_display_summary_df)
-    if not rows:
-        return _empty_admin_figure("NLV (Admin)", "No NLV data available yet.")
-    x: list = []
-    y: list = []
-    for row in rows:
-        month_start = row["date"]
-        month_end = month_start + pd.offsets.MonthEnd(0)
-        x += [month_start, month_end, month_end]
-        y += [row["bot_start"], row["nlv_before_fees"], row["nlv_after_fees"]]
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        x=x, y=y, mode="lines+markers", name="NLV",
-        line=dict(color=PRIMARY_COLOR, width=2), marker=dict(size=4),
-    ))
-    fig.update_layout(
-        title="Monthly-resolution NLV (Admin only — fee-payment view, from monthly workbook)",
-        xaxis_title="Date",
-        yaxis=dict(title="NLV ($)", tickprefix="$", tickformat=",.0f"),
-        height=320,
-        margin=dict(t=60, b=40),
-        showlegend=False,
+        height=340,
+        margin=dict(t=70, b=40),
+        legend=dict(orientation="h", yanchor="bottom", y=-0.35, x=0.5, xanchor="center",
+                    font=dict(size=10)),
+        showlegend=True,
     )
     return fig
 
@@ -974,21 +893,18 @@ def build_agm_daily_kpi_cards():
 
 
 def build_drawdown_figure() -> go.Figure:
-    """Drawdown from peak. Mirrors Y&Q's build_drawdown_figure()."""
+    """Drawdown from peak, DAILY — computed from the daily equity curve
+    (TradeStation Net Worth), matching the daily NAV chart above it."""
     fig = go.Figure()
-    if summary_df.empty:
+    eq_df = _daily_equity_frame()
+    if eq_df.empty:
         return fig
 
-    nav_df = _summary_through_current_month(summary_df)
-    if nav_df.empty:
-        return fig
-
-    eq = nav_df["bot_end_after_fees"].astype(float)
+    eq = eq_df["Net Worth"].astype(float)
     pk = eq.cummax()
     dd = ((eq / pk) - 1.0) * 100.0
-    dd_x = _month_close_x_positions(nav_df["date"])
+    dd_x = [pd.Timestamp(d) for d in eq_df["Date"]]
     dd_vals = [float(v) for v in dd.values]
-    dd_x, dd_vals = _append_tearsheet_chart_extra_date(dd_x, dd_vals, None)
 
     fig.add_trace(go.Scatter(
         x=dd_x, y=dd_vals,
@@ -1479,10 +1395,12 @@ def serve_layout():
                         },
                     ),
                     html.P(
-                        f"Growth of a ${STARTING_CAPITAL:,.0f} investment from inception ({inception_str}) "
-                        f"to {latest_str}. NAV reflects compounded performance, net of all fees. "
+                        f"Growth of a ${STARTING_CAPITAL:,.0f} investment from inception ({inception_str}), "
+                        "shown at DAILY resolution (one point per trading day). NAV is the account's "
+                        "actual daily equity, net of fees paid to date. "
                         "The strategy trades NQ / MNQ (Nasdaq-100 futures) exclusively. "
-                        "SPX TR and NDX are rebased to the same starting capital for benchmark comparison only.",
+                        "S&P 500 and Nasdaq-100 daily index closes are rebased to the same starting "
+                        "capital at inception for benchmark comparison only.",
                         className="text-center small text-muted fst-italic px-3",
                         style={
                             "marginTop": "1.5rem",
@@ -1522,7 +1440,8 @@ def serve_layout():
                         className="mt-2 mb-4",
                         children=[
                             dbc.Alert(
-                                "Admin — fee accrual detail (monthly workbook; not shown on the client-facing tearsheet)",
+                                "Admin — fee accrual detail (calculated daily from AGM vs SPX; "
+                                "not shown on the client-facing tearsheet)",
                                 color="warning",
                                 className="text-center fw-bold mb-3",
                             ),
@@ -1530,13 +1449,7 @@ def serve_layout():
                                 id="agm-accrued-fees-graph",
                                 figure=build_agm_accrued_fees_figure(),
                                 config={"displayModeBar": False, "responsive": True},
-                                style={"width": "100%", "minHeight": "320px", "marginBottom": "1rem"},
-                            ),
-                            dcc.Graph(
-                                id="agm-nlv-graph",
-                                figure=build_agm_nlv_figure(),
-                                config={"displayModeBar": False, "responsive": True},
-                                style={"width": "100%", "minHeight": "320px"},
+                                style={"width": "100%", "minHeight": "340px"},
                             ),
                         ],
                     ),
@@ -2259,6 +2172,12 @@ def agm_healthz():
         "status": "ready" if not _display_summary_df.empty else "error",
         "months_loaded": int(len(_display_summary_df)),
         "load_error": LOAD_ERROR,
+        "daily_rows": int(len(daily_balances_df)),
+        "spx_daily_rows": int(len(spx_daily_df)),
+        "benchmark_ticker": agm_bench.SPX_TICKER,
+        "daily_fee_days": int(len(daily_fee_accrual.daily)),
+        "benchmark_load_error": BENCHMARK_LOAD_ERROR,
+        "daily_fees_load_error": DAILY_FEES_LOAD_ERROR,
     })
 
 
