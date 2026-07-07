@@ -19,13 +19,17 @@ from algominds_v2_account_registry import (
     get_default_account_profile,
     list_account_profiles,
 )
-from algominds_v2_account_state_paths import (
-    load_latest_snapshot_for_account,
-    resolve_preview_state_path,
-)
+from algominds_v2_account_state_paths import resolve_preview_state_path
 from algominds_v2_config import DEFAULT_PREVIEW_PORT, load_algominds_v2_config
 from algominds_v2_snapshot_state import compute_latest_snapshot_result
 from algominds_v2_state import read_preview_state
+from algominds_v2_tearsheet import build_tearsheet_view_model
+from algominds_v2_tearsheet_layout import render_tearsheet_page
+from tearsheet_gate_ui import (
+    TEARSHEET_GATE_STATIC_CSS,
+    render_static_gate_markup,
+    static_gate_script,
+)
 
 PLACEHOLDER = "—"
 
@@ -33,6 +37,7 @@ PLACEHOLDER = "—"
 @dataclass(frozen=True)
 class AdminAccountRow:
     display_name: str
+    account_number: str
     account_slug: str
     inception_date: date
     benchmark_base: Decimal
@@ -83,6 +88,7 @@ def build_admin_account_rows(
         rows.append(
             AdminAccountRow(
                 display_name=profile.display_name,
+                account_number=profile.account_number,
                 account_slug=profile.account_slug,
                 inception_date=profile.inception_date,
                 benchmark_base=profile.benchmark_base,
@@ -99,34 +105,52 @@ def build_admin_account_rows(
     return tuple(rows)
 
 
-def _page_shell(title: str, body: str) -> str:
+def _page_shell(title: str, body: str, *, program_code: str = "Momentum Pacer") -> str:
+    gate = render_static_gate_markup(program_code)
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>{html.escape(title)}</title>
   <style>
-    body {{ font-family: Arial, sans-serif; margin: 24px; }}
+    body {{ font-family: Arial, Helvetica, sans-serif; margin: 0; background: #ffffff; color: #212529; }}
     table {{ border-collapse: collapse; width: 100%; margin-bottom: 24px; }}
     th, td {{ border: 1px solid #ccc; padding: 8px; text-align: left; }}
-    th {{ background: #f5f5f5; }}
-    .muted {{ color: #666; }}
-    .banner {{ background: #eef6ff; padding: 12px; margin-bottom: 16px; }}
+    th {{ background: #EBEBEB; }}
+    .muted {{ color: #6c757d; }}
+    a {{ color: #0D3562; }}
+    {TEARSHEET_GATE_STATIC_CSS}
   </style>
 </head>
 <body>
-  <div class="banner"><strong>Algominds v2 Preview</strong> — read-only shell</div>
-  {body}
+  {gate}
+  <div id="main-app" class="tearsheet-gate-hidden">
+    {body}
+  </div>
+  {static_gate_script()}
 </body>
 </html>"""
 
 
 def render_landing_page() -> str:
     default = get_default_account_profile()
+    account_items = []
+    for profile in list_account_profiles():
+        suffix = " (default)" if profile.is_default else ""
+        account_items.append(
+            f'<li style="margin:6px 0;"><a href="/{html.escape(profile.account_slug)}">'
+            f"{html.escape(profile.display_name)}</a>{suffix}</li>"
+        )
     body = f"""
-  <h1>Algominds v2 Preview</h1>
+  <div style="max-width:960px;margin:0 auto;padding:24px;">
+  <h1>Algominds Financial LLC — Momentum Pacer Program</h1>
+  <p class="muted">Select an account tearsheet:</p>
+  <ul>
+    {''.join(account_items)}
+  </ul>
   <p><a href="/admin">Admin overview</a></p>
-  <p><a href="/{html.escape(default.account_slug)}">Default account ({html.escape(default.display_name)})</a></p>
+  </div>
 """
     return _page_shell("Algominds v2 Preview", body)
 
@@ -138,6 +162,7 @@ def render_admin_page(*, state_root: Path | str | None = None) -> str:
         table_rows.append(
             "<tr>"
             f'<td><a href="{html.escape(row.account_href)}">{html.escape(row.display_name)}</a></td>'
+            f"<td>{html.escape(row.account_number)}</td>"
             f"<td>{html.escape(format_date_or_placeholder(row.inception_date))}</td>"
             f"<td>{html.escape(format_money(row.benchmark_base))}</td>"
             f"<td>{row.number_of_units}</td>"
@@ -150,11 +175,13 @@ def render_admin_page(*, state_root: Path | str | None = None) -> str:
             "</tr>"
         )
     body = f"""
+  <div style="max-width:1200px;margin:0 auto;padding:24px;">
   <h1>Admin Overview</h1>
   <table id="admin-account-overview">
     <thead>
       <tr>
         <th>Account</th>
+        <th>Account number</th>
         <th>Starting date</th>
         <th>Benchmark base</th>
         <th>Units</th>
@@ -171,6 +198,7 @@ def render_admin_page(*, state_root: Path | str | None = None) -> str:
     </tbody>
   </table>
   <p class="muted"><a href="/">Home</a></p>
+  </div>
 """
     return _page_shell("Algominds v2 Admin", body)
 
@@ -189,41 +217,10 @@ def render_account_page(
     *,
     state_root: Path | str | None = None,
 ) -> str:
+    """Render the full v1-style investor tearsheet for one account."""
     profile = get_account_profile(account_slug)
-    path = resolve_preview_state_path(profile.account_slug, state_root=state_root)
-    preview = read_preview_state(path)
-    snapshot = load_latest_snapshot_for_account(profile.account_slug, state_root=state_root)
-    result = compute_latest_snapshot_result(path) if snapshot is not None else None
-
-    if snapshot is None:
-        snapshot_block = "<p>No preview snapshot saved for this account yet.</p>"
-    else:
-        snapshot_block = f"""
-  <h2>Latest snapshot</h2>
-  <ul>
-    <li>account_slug: {html.escape(snapshot.account_slug or PLACEHOLDER)}</li>
-    <li>account_balance: {html.escape(format_money(snapshot.account_balance))}</li>
-    <li>fee_removal: {html.escape(format_money(snapshot.fee_removal))}</li>
-    <li>displayed_fee_owed: {html.escape(format_money(result.displayed_fee_owed if result else None))}</li>
-    <li>after_fee_nlv: {html.escape(format_money(result.after_fee_nlv if result else None))}</li>
-    <li>last_updated_utc: {html.escape(preview.last_updated_utc or PLACEHOLDER)}</li>
-  </ul>
-"""
-
-    body = f"""
-  <h1>{html.escape(profile.display_name)}</h1>
-  <ul>
-    <li>account_slug: {html.escape(profile.account_slug)}</li>
-    <li>starting date: {html.escape(format_date_or_placeholder(profile.inception_date))}</li>
-    <li>benchmark base: {html.escape(format_money(profile.benchmark_base))}</li>
-    <li>units: {profile.number_of_units}</li>
-    <li>exchange fee tier: {html.escape(profile.exchange_fee_tier)}</li>
-    <li>state path: {html.escape(str(path))}</li>
-  </ul>
-  {snapshot_block}
-  <p><a href="/admin">Admin overview</a></p>
-"""
-    return _page_shell(profile.display_name, body)
+    view_model = build_tearsheet_view_model(profile, state_root=state_root)
+    return render_tearsheet_page(view_model)
 
 
 def create_algominds_v2_preview_app(
