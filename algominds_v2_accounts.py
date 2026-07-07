@@ -21,6 +21,7 @@ _ACCOUNT_SLUG_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 class AccountProfile:
     account_slug: str
     display_name: str
+    account_number: str
     inception_date: date
     benchmark_base: Decimal
     starting_spx: Decimal
@@ -33,6 +34,7 @@ class AccountProfile:
 
     def __post_init__(self) -> None:
         validate_account_slug(self.account_slug)
+        object.__setattr__(self, "account_number", validate_account_number(self.account_number))
         if self.benchmark_base <= 0:
             raise ValueError("benchmark_base must be positive")
         if self.starting_spx <= 0:
@@ -70,6 +72,18 @@ def validate_exchange_fee_tier(value: object) -> ExchangeFeeTier:
     if value not in EXCHANGE_FEE_TIERS:
         raise ValueError('exchange_fee_tier must be "member" or "non-member"')
     return value
+
+
+def validate_account_number(value: str) -> str:
+    """Validate TradeStation-style account number metadata."""
+    if not isinstance(value, str):
+        raise TypeError("account_number must be str")
+    stripped = value.strip().upper()
+    if not stripped:
+        raise ValueError("account_number must not be empty")
+    if not re.fullmatch(r"[A-Z0-9]{6,12}", stripped):
+        raise ValueError("account_number must be 6-12 alphanumeric characters")
+    return stripped
 
 
 def validate_account_slug(slug: str) -> str:

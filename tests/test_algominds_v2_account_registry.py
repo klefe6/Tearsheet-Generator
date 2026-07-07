@@ -15,22 +15,26 @@ D = Decimal
 TOLERANCE = D("0.01")
 
 
-def test_list_account_profiles_returns_prop_and_acct_60k() -> None:
+def test_list_account_profiles_returns_all_investors() -> None:
     profiles = registry.list_account_profiles()
     slugs = {profile.account_slug for profile in profiles}
-    assert slugs == {"prop", "acct-60k"}
+    assert len(slugs) == 16
+    assert "algominds" in slugs
+    assert "vikram-suman" in slugs
 
 
-def test_get_account_profile_prop() -> None:
-    profile = registry.get_account_profile("prop")
-    assert profile.account_slug == "prop"
-    assert profile.display_name == "Proprietary Aggregate"
+def test_get_account_profile_algominds() -> None:
+    profile = registry.get_account_profile("algominds")
+    assert profile.account_slug == "algominds"
+    assert profile.display_name == "Algominds"
+    assert profile.account_number == "210TSG51"
 
 
-def test_get_account_profile_acct_60k() -> None:
-    profile = registry.get_account_profile("acct-60k")
-    assert profile.account_slug == "acct-60k"
+def test_get_account_profile_vikram_suman() -> None:
+    profile = registry.get_account_profile("vikram-suman")
+    assert profile.account_slug == "vikram-suman"
     assert profile.benchmark_base == D("60000")
+    assert profile.account_number == "210WAD38"
 
 
 def test_unknown_slug_raises_clear_error() -> None:
@@ -49,8 +53,8 @@ def test_exactly_one_default_account_exists() -> None:
     assert len(defaults) == 1
 
 
-def test_default_account_is_prop() -> None:
-    assert registry.get_default_account_profile().account_slug == "prop"
+def test_default_account_is_algominds() -> None:
+    assert registry.get_default_account_profile().account_slug == "algominds"
 
 
 def test_all_registry_slugs_validate() -> None:
@@ -62,23 +66,23 @@ def test_all_registry_slugs_validate() -> None:
 
 def test_profiles_have_per_account_benchmark_base() -> None:
     by_slug = {profile.account_slug: profile for profile in registry.list_account_profiles()}
-    assert by_slug["prop"].benchmark_base == D("30000")
-    assert by_slug["acct-60k"].benchmark_base == D("60000")
+    assert by_slug["algominds"].benchmark_base == D("30000")
+    assert by_slug["vikram-suman"].benchmark_base == D("60000")
 
 
-def test_acct_60k_benchmark_base_is_60000() -> None:
-    assert registry.get_account_profile("acct-60k").benchmark_base == D("60000")
+def test_vikram_suman_benchmark_base_is_60000() -> None:
+    assert registry.get_account_profile("vikram-suman").benchmark_base == D("60000")
 
 
-def test_prop_profile_settings() -> None:
-    profile = registry.get_account_profile("prop")
+def test_algominds_profile_settings() -> None:
+    profile = registry.get_account_profile("algominds")
     assert profile.number_of_units == 1
     assert profile.exchange_fee_tier == "non-member"
     assert profile.benchmark_base == D("30000")
 
 
-def test_acct_60k_profile_settings() -> None:
-    profile = registry.get_account_profile("acct-60k")
+def test_vikram_suman_profile_settings() -> None:
+    profile = registry.get_account_profile("vikram-suman")
     assert profile.number_of_units == 2
     assert profile.exchange_fee_tier == "member"
     assert profile.benchmark_base == D("60000")
@@ -88,8 +92,8 @@ def test_registry_output_is_immutable() -> None:
     profiles = registry.list_account_profiles()
     assert isinstance(profiles, tuple)
     with pytest.raises(TypeError):
-        profiles[0] = registry.get_account_profile("prop")  # type: ignore[index]
-    assert registry.get_account_profile("prop").account_slug == "prop"
+        profiles[0] = registry.get_account_profile("algominds")  # type: ignore[index]
+    assert registry.get_account_profile("algominds").account_slug == "algominds"
 
 
 def test_no_private_account_number_like_slugs() -> None:
@@ -118,11 +122,11 @@ def test_forbidden_import_scan() -> None:
             assert node.module.split(".")[0] not in forbidden_roots
 
 
-def test_build_fee_snapshot_for_account_slug_prop() -> None:
+def test_build_fee_snapshot_for_account_slug_algominds() -> None:
     snapshot = daily_source.build_fee_snapshot_for_account_slug(
-        "prop",
+        "algominds",
         daily_source.DailyBalanceRow(
-            account_slug="prop",
+            account_slug="algominds",
             as_of_date=date(2026, 5, 31),
             account_balance=D("50125.21"),
             fee_removal=D("0"),
@@ -135,11 +139,11 @@ def test_build_fee_snapshot_for_account_slug_prop() -> None:
     assert snapshot.benchmark_base == D("30000")
 
 
-def test_build_fee_snapshot_for_account_slug_acct_60k() -> None:
+def test_build_fee_snapshot_for_account_slug_vikram_suman() -> None:
     snapshot = daily_source.build_fee_snapshot_for_account_slug(
-        "acct-60k",
+        "vikram-suman",
         daily_source.DailyBalanceRow(
-            account_slug="acct-60k",
+            account_slug="vikram-suman",
             as_of_date=date(2026, 5, 31),
             account_balance=D("60868.19"),
             fee_removal=D("0"),
@@ -155,9 +159,9 @@ def test_build_fee_snapshot_for_account_slug_acct_60k() -> None:
 def test_compute_by_account_slug_rejects_row_profile_slug_mismatch() -> None:
     with pytest.raises(ValueError, match="account_slug must match"):
         daily_source.compute_daily_fee_result_for_account_slug(
-            "prop",
+            "algominds",
             daily_source.DailyBalanceRow(
-                account_slug="acct-60k",
+                account_slug="vikram-suman",
                 as_of_date=date(2026, 5, 31),
                 account_balance=D("100"),
                 fee_removal=D("0"),
@@ -169,11 +173,11 @@ def test_compute_by_account_slug_rejects_row_profile_slug_mismatch() -> None:
         )
 
 
-def test_prop_may_2026_fee_via_account_slug() -> None:
+def test_algominds_may_2026_fee_via_account_slug() -> None:
     result = daily_source.compute_daily_fee_result_for_account_slug(
-        "prop",
+        "algominds",
         daily_source.DailyBalanceRow(
-            account_slug="prop",
+            account_slug="algominds",
             as_of_date=date(2026, 5, 31),
             account_balance=D("50125.21"),
             fee_removal=D("0"),
@@ -186,11 +190,11 @@ def test_prop_may_2026_fee_via_account_slug() -> None:
     assert abs(result.current_estimated_fee - D("1330.249061")) < TOLERANCE
 
 
-def test_acct_60k_fee_via_account_slug() -> None:
+def test_vikram_suman_fee_via_account_slug() -> None:
     result = daily_source.compute_daily_fee_result_for_account_slug(
-        "acct-60k",
+        "vikram-suman",
         daily_source.DailyBalanceRow(
-            account_slug="acct-60k",
+            account_slug="vikram-suman",
             as_of_date=date(2026, 5, 31),
             account_balance=D("60868.19"),
             fee_removal=D("0"),

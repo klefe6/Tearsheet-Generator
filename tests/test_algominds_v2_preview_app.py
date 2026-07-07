@@ -23,7 +23,7 @@ def _port_listening(port: int) -> bool:
         return sock.connect_ex(("127.0.0.1", port)) == 0
 
 
-def _prop_snapshot() -> AlgomindsV2FeeSnapshot:
+def _algominds_snapshot() -> AlgomindsV2FeeSnapshot:
     return AlgomindsV2FeeSnapshot(
         as_of_date=date(2026, 5, 31),
         account_balance=D("50125.21"),
@@ -32,12 +32,20 @@ def _prop_snapshot() -> AlgomindsV2FeeSnapshot:
         spx_start=D("7209.01"),
         spx_end=D("7580.06"),
         benchmark_base=D("30000"),
-        account_slug="prop",
+        account_slug="algominds",
     )
 
 
+def _require_port_8311_free() -> None:
+    if _port_listening(8311):
+        pytest.skip(
+            "port 8311 already in use by another process (e.g. a running preview "
+            "server); cannot verify import/bind behaviour"
+        )
+
+
 def test_import_does_not_start_preview_server() -> None:
-    assert not _port_listening(8311), "Port 8311 already in use before import"
+    _require_port_8311_free()
     import importlib
 
     importlib.reload(preview_app)
@@ -45,7 +53,7 @@ def test_import_does_not_start_preview_server() -> None:
 
 
 def test_create_app_does_not_bind_port(tmp_path: Path) -> None:
-    assert not _port_listening(8311)
+    _require_port_8311_free()
     preview_app.create_algominds_v2_preview_app(state_root=tmp_path)
     assert not _port_listening(8311)
 
@@ -56,29 +64,31 @@ def test_admin_layout_includes_account_overview_table(tmp_path: Path) -> None:
     assert "Admin Overview" in html_text
 
 
-def test_admin_table_includes_prop_and_acct_60k(tmp_path: Path) -> None:
+def test_admin_table_includes_investor_accounts(tmp_path: Path) -> None:
     html_text = preview_app.render_admin_page(state_root=tmp_path)
-    assert "Proprietary Aggregate" in html_text
-    assert "60k Benchmark Account" in html_text
-    assert "prop" in html_text
-    assert "acct-60k" in html_text
+    assert "Algominds" in html_text
+    assert "Vikram Suman" in html_text
+    assert "210TSG51" in html_text
+    assert "210WAD38" in html_text
+    assert 'href="/algominds"' in html_text
+    assert 'href="/vikram-suman"' in html_text
 
 
 def test_admin_rows_link_to_account_routes(tmp_path: Path) -> None:
     html_text = preview_app.render_admin_page(state_root=tmp_path)
-    assert 'href="/prop"' in html_text
-    assert 'href="/acct-60k"' in html_text
+    assert 'href="/algominds"' in html_text
+    assert 'href="/vikram-suman"' in html_text
 
 
 def test_admin_table_shows_profile_settings_columns(tmp_path: Path) -> None:
     rows = preview_app.build_admin_account_rows(state_root=tmp_path)
     by_slug = {row.account_slug: row for row in rows}
-    assert by_slug["prop"].number_of_units == 1
-    assert by_slug["prop"].exchange_fee_tier == "non-member"
-    assert by_slug["prop"].benchmark_base == D("30000")
-    assert by_slug["acct-60k"].number_of_units == 2
-    assert by_slug["acct-60k"].exchange_fee_tier == "member"
-    assert by_slug["acct-60k"].benchmark_base == D("60000")
+    assert by_slug["algominds"].number_of_units == 1
+    assert by_slug["algominds"].exchange_fee_tier == "non-member"
+    assert by_slug["algominds"].benchmark_base == D("30000")
+    assert by_slug["vikram-suman"].number_of_units == 2
+    assert by_slug["vikram-suman"].exchange_fee_tier == "member"
+    assert by_slug["vikram-suman"].benchmark_base == D("60000")
 
 
 def test_after_fee_nlv_placeholder_when_no_snapshot(tmp_path: Path) -> None:
@@ -87,26 +97,26 @@ def test_after_fee_nlv_placeholder_when_no_snapshot(tmp_path: Path) -> None:
 
 
 def test_after_fee_nlv_shown_when_snapshot_exists(tmp_path: Path) -> None:
-    save_latest_snapshot_for_account("prop", _prop_snapshot(), state_root=tmp_path)
+    save_latest_snapshot_for_account("algominds", _algominds_snapshot(), state_root=tmp_path)
     rows = preview_app.build_admin_account_rows(state_root=tmp_path)
-    prop_row = next(row for row in rows if row.account_slug == "prop")
-    assert prop_row.after_fee_nlv is not None
-    assert abs(prop_row.after_fee_nlv - D("48794.960939")) < D("0.01")
+    algominds_row = next(row for row in rows if row.account_slug == "algominds")
+    assert algominds_row.after_fee_nlv is not None
+    assert abs(algominds_row.after_fee_nlv - D("48794.960939")) < D("0.01")
 
 
-def test_prop_detail_page_renders(tmp_path: Path) -> None:
+def test_algominds_detail_page_renders(tmp_path: Path) -> None:
     app = preview_app.create_algominds_v2_preview_app(state_root=tmp_path)
-    response = app.server.test_client().get("/prop")
+    response = app.server.test_client().get("/algominds")
     assert response.status_code == 200
-    assert b"Proprietary Aggregate" in response.data
-    assert b"account_slug" in response.data
+    assert b"Algominds" in response.data
+    assert b"tearsheet-header" in response.data
 
 
-def test_acct_60k_detail_page_renders(tmp_path: Path) -> None:
+def test_vikram_suman_detail_page_renders(tmp_path: Path) -> None:
     app = preview_app.create_algominds_v2_preview_app(state_root=tmp_path)
-    response = app.server.test_client().get("/acct-60k")
+    response = app.server.test_client().get("/vikram-suman")
     assert response.status_code == 200
-    assert b"60k Benchmark Account" in response.data
+    assert b"Vikram Suman" in response.data
 
 
 def test_unknown_account_slug_returns_404(tmp_path: Path) -> None:
@@ -124,8 +134,12 @@ def test_admin_route_returns_200(tmp_path: Path) -> None:
 
 
 def test_account_page_empty_snapshot_state(tmp_path: Path) -> None:
-    html_text = preview_app.render_account_page("prop", state_root=tmp_path)
-    assert "No preview snapshot saved for this account yet." in html_text
+    # With no saved snapshot the page still renders a complete tearsheet,
+    # backed by clearly-labelled deterministic preview fixture data.
+    html_text = preview_app.render_account_page("algominds", state_root=tmp_path)
+    assert "No preview snapshot saved" not in html_text
+    assert 'id="preview-fixture-banner"' in html_text
+    assert "Compounded NAV Since Inception" in html_text
 
 
 def test_forbidden_import_scan() -> None:

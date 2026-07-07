@@ -15,8 +15,9 @@ D = Decimal
 
 def _sample_profile_kwargs(**overrides):
     base = {
-        "account_slug": "prop",
-        "display_name": "Proprietary Aggregate",
+        "account_slug": "algominds",
+        "display_name": "Algominds",
+        "account_number": "210TSG51",
         "inception_date": date(2025, 11, 1),
         "benchmark_base": D("30000"),
         "starting_spx": D("6737.49"),
@@ -30,15 +31,17 @@ def _sample_profile_kwargs(**overrides):
 
 def test_prop_account_profile() -> None:
     profile = accounts.AccountProfile(**_sample_profile_kwargs(is_default=True))
-    assert profile.account_slug == "prop"
+    assert profile.account_slug == "algominds"
+    assert profile.account_number == "210TSG51"
     assert profile.fee_schedule_id == accounts.DEFAULT_FEE_SCHEDULE_ID
 
 
 def test_acct_60k_profile() -> None:
     profile = accounts.AccountProfile(
         **_sample_profile_kwargs(
-            account_slug="acct-60k",
-            display_name="60k Benchmark Account",
+            account_slug="vikram-suman",
+            display_name="Vikram Suman",
+            account_number="210WAD38",
             inception_date=date(2026, 1, 1),
             benchmark_base=D("60000"),
             starting_spx=D("7408.5"),
@@ -56,6 +59,7 @@ def test_different_inception_and_starting_spx() -> None:
         **_sample_profile_kwargs(
             account_slug="acct-midmonth-2026-05",
             display_name="Mid-month Inception",
+            account_number="210WAV99",
             inception_date=date(2026, 5, 15),
             starting_spx=D("7365.12"),
         )
@@ -78,6 +82,7 @@ def test_commission_rate_metadata_only() -> None:
         **_sample_profile_kwargs(
             account_slug="client-a",
             display_name="Client A",
+            account_number="210WAV99",
             inception_date=date(2026, 1, 1),
             starting_spx=D("7000"),
             commission_rate=D("0.05"),
