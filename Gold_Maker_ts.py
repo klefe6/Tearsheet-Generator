@@ -15,6 +15,8 @@ import quantstats as qs
 from quantstats import utils
 from collections import OrderedDict
 
+import tearsheet_disclosure as tsd
+
 # ==============================================================================
 # 1) Read & encode the logo file as base64 (for Dash layout)
 # ==============================================================================
@@ -350,7 +352,7 @@ additional_info = [
     ("Liquidity", "Daily"),
     ("Notional Funding", "Yes"),
     ("Execution FCM", "StoneX Financial"),
-    ("Introducing Broker", "Hughes & Company LLC"),
+    ("Introducing Broker", tsd.HNC_LEGAL_NAME),
 ]
 
 # ==============================================================================
@@ -504,7 +506,7 @@ def serve_layout():
                     dbc.Col(
                         html.Div(
                             [
-                                html.H2("Hughes & Company LLC", className="text-center"),
+                                html.H2(tsd.HNC_LEGAL_NAME, className="text-center"),
                                 html.H5("The Gold Maker Program", className="text-center text-muted"),
                             ],
                             style={"lineHeight": "1.2", "paddingTop": "20px"},
@@ -526,7 +528,7 @@ def serve_layout():
             html.Div(
                 [
                     html.P(
-                        "Hughes & Company LLC is an introducing brokerage firm with expertise in the futures options industry. "
+                        f"{tsd.HNC_LEGAL_NAME} is an introducing brokerage firm with expertise in the futures options industry. "
                         "TKP is a systematic program which utilizes options on the S&P 500 Index in intraday trading and "
                         "put/call assignment to achieve long-biased stable returns with daily visibility.",
                         className="lead text-center",
@@ -680,33 +682,6 @@ def serve_layout():
                 className="mb-4",
             ),
 
-            # ── Important Disclosure ──────────────────────────────────────────────────
-            dbc.Row(
-                dbc.Col(
-                    html.Div(
-                        [
-                            html.Strong("Important Disclosure: ", className="text-dark"),
-                            "This tear sheet is provided for informational purposes only and should not "
-                            "be interpreted as an offer, solicitation, or recommendation to invest. "
-                            "Performance information, if shown, may be unaudited and should be reviewed "
-                            "together with the applicable offering documents, advisory agreement, and risk "
-                            "disclosures. For more information about this strategy, please contact Hughes "
-                            "and Company at ",
-                            html.A("info@hughesandco.ltd", href="mailto:info@hughesandco.ltd"),
-                            " or 954 500 0500.",
-                        ],
-                        className="p-3 border rounded",
-                        style={
-                            "backgroundColor": "#f8f9fa",
-                            "borderLeft": "4px solid #6c757d",
-                            "fontSize": "0.875rem",
-                        },
-                    ),
-                    width=12,
-                ),
-                className="mb-4",
-            ),
-
             # ── Toggle & Footer ───────────────────────────────────────────────
             dbc.Row(
                 [
@@ -722,6 +697,20 @@ def serve_layout():
                 dbc.Col(html.P(footer_contact, className="text-center small text-muted"), width=12),
                 className="mb-2",
             ),
+
+            # Important Disclosure section (manager tier — bottom panel)
+            dbc.Row(
+                dbc.Col(
+                    html.Div(
+                        tsd.manager_bottom_disclosure_children(),
+                        className=tsd.DISCLOSURE_PANEL_CLASS,
+                        style=tsd.DISCLOSURE_PANEL_STYLE,
+                    ),
+                    width=12,
+                ),
+                className="mb-4",
+            ),
+
             dbc.Row(
                 [
                     dbc.Col(html.Div(), width=8),
@@ -741,7 +730,41 @@ def serve_layout():
         ],
     )
 
-app.layout = serve_layout
+# Accept gate — manager tier
+disclaimer_screen = html.Div(
+    id="disclaimer-screen",
+    style=tsd.GATE_SCREEN_STYLE,
+    children=html.Div(
+        children=[
+            *tsd.manager_gate_notice_children(),
+            dbc.Button(
+                "Accept & Continue",
+                id="accept-button",
+                color="primary",
+            ),
+        ],
+        style=tsd.GATE_INNER_CARD_STYLE,
+    ),
+)
+
+main_app = html.Div(
+    id="main-app",
+    style={"display": "none"},
+    children=serve_layout(),
+)
+
+app.layout = html.Div([disclaimer_screen, main_app])
+
+
+@app.callback(
+    Output("disclaimer-screen", "style"),
+    Output("main-app", "style"),
+    Input("accept-button", "n_clicks"),
+)
+def show_main(n_clicks):
+    if n_clicks and n_clicks > 0:
+        return {"display": "none"}, {"display": "block"}
+    return tsd.GATE_SCREEN_STYLE, {"display": "none"}
 
 
 # ==============================================================================

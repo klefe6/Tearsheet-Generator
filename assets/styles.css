@@ -604,22 +604,38 @@ body, #page-container {
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   width: 100%;
-  max-width: 340px;
+  max-width: 520px;
   margin: 0 auto;
 }
 
 .tearsheet-gate-password-input {
-  flex: 1 1 auto;
+  flex: 1 1 180px;
   min-width: 0;
   max-width: 240px;
   font-size: 1rem;
 }
 
-.tearsheet-gate-password-submit {
+.tearsheet-gate-password-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+}
+
+.tearsheet-gate-password-submit,
+.tearsheet-gate-password-portal {
   flex: 0 0 auto;
   white-space: nowrap;
+  background-color: var(--primary-color);
+  border-color: var(--primary-color);
+  min-height: 31px;
+  padding: 0.25rem 0.75rem;
+  font-size: 0.875rem;
+  border-radius: 0.25rem;
 }
 
 .tearsheet-gate-password-error {
@@ -632,19 +648,27 @@ body, #page-container {
 #gate-admin-password-row {
   position: static;
   width: 100%;
-  max-width: 340px;
+  max-width: 520px;
   margin-left: auto;
   margin-right: auto;
 }
 
 @media (max-width: 430px) {
   .tearsheet-gate-password-row {
-    max-width: min(340px, calc(100vw - 2rem));
+    max-width: min(520px, calc(100vw - 2rem));
     padding: 0 0.25rem;
+    justify-content: center;
   }
 
   .tearsheet-gate-password-input {
     font-size: 16px;
+    flex-basis: 100%;
+    max-width: none;
+  }
+
+  .tearsheet-gate-password-actions {
+    flex-basis: 100%;
+    justify-content: center;
   }
 }
 

@@ -19,12 +19,36 @@ without Dash debug/reloader (avoids unstable behavior behind a reverse proxy).
 from __future__ import annotations
 
 import base64
+import json
 import math
 import os
 import sys
 import traceback
 from datetime import datetime, timedelta
 from pathlib import Path
+
+_TS_ROOT = Path(__file__).resolve().parent.parent
+if str(_TS_ROOT) not in sys.path:
+    sys.path.insert(0, str(_TS_ROOT))
+import tearsheet_disclosure as tsd
+import tearsheet_gate_ui as tsg
+from tearsheet_gate_auth import (
+    build_gate_password_row,
+    gate_password_row_style,
+    load_agm_admin_auth_settings,
+    ADMIN_PORTAL_PATH,
+    AGM_SESSION_KEY,
+    GATE_PASSWORD_ERROR_ID,
+    GATE_PASSWORD_INPUT_ID,
+    GATE_PASSWORD_PORTAL_ID,
+    GATE_PASSWORD_ROW_ID,
+    GATE_PASSWORD_SUBMIT_ID,
+    GATE_PASSWORD_VISIBLE_STORE_ID,
+    INVALID_PASSWORD_MESSAGE,
+)
+from tcp_admin import AdminAuthManager, configure_flask_session_secret
+from tearsheet_portal import render_portal_page
+import algominds_portal_registry as agm_registry
 
 import numpy as np
 import pandas as pd
@@ -34,7 +58,8 @@ import openpyxl
 import dash
 from dash import html, dcc
 import dash_bootstrap_components as dbc
-from dash.dependencies import Input, Output
+from dash.dependencies import Input, Output, State
+from flask import jsonify, redirect, session
 
 # ==============================================================================
 # PATHS
@@ -708,6 +733,116 @@ def build_nav_figure() -> go.Figure:
     return fig
 
 
+def _compute_agm_fee_series(df: pd.DataFrame) -> list[dict]:
+    """
+    Derive per-month accrued/paid fee dollars and the pre-fee NLV from the
+    Summary sheet's existing "BOT Fees%" and "BOT End After Fees" columns
+    (admin-only; AGM's fee is charged once per month, not daily).
+
+    Formula (reconciled exactly against the "<Month> 2026" per-month detail
+    sheets — e.g. Apr 2026: Net Fees$ $2,967.85 vs. derived $2,967.85;
+    "BOT Closing" before fees $47,451.27 vs. derived $47,451.27; Jan 2026
+    checked the same way):
+        fee_dollars[m]     = BOT Fees%[m] * STARTING_CAPITAL
+        nlv_before_fees[m] = BOT End After Fees[m] + fee_dollars[m]
+        nlv_after_fees[m]  = BOT End After Fees[m]   (already feeds the public NAV chart)
+
+    AGM's workbook has no daily-level accrual data anywhere -- fees are
+    computed and charged once per month, at month-end. These series are
+    therefore monthly-resolution snapshots, not an interpolated/fabricated
+    daily curve.
+    """
+    if df.empty:
+        return []
+    rows = []
+    for _, r in df.iterrows():
+        fee_dollars = float(r["bot_fees_pct"]) * STARTING_CAPITAL
+        nlv_after = float(r["bot_end_after_fees"])
+        rows.append({
+            "date": pd.Timestamp(r["date"]),
+            "bot_start": float(r["bot_start"]),
+            "fee_dollars": fee_dollars,
+            "nlv_before_fees": nlv_after + fee_dollars,
+            "nlv_after_fees": nlv_after,
+        })
+    return rows
+
+
+def _empty_admin_figure(title: str, message: str) -> go.Figure:
+    fig = go.Figure()
+    fig.add_annotation(
+        text=message, xref="paper", yref="paper", x=0.5, y=0.5,
+        showarrow=False, font=dict(size=13, color="#6c757d"),
+    )
+    fig.update_layout(
+        title=title, height=320,
+        xaxis=dict(visible=False), yaxis=dict(visible=False),
+        margin=dict(t=50, b=30),
+    )
+    return fig
+
+
+def build_agm_accrued_fees_figure() -> go.Figure:
+    """Admin-only. Monthly-resolution: $0 through the month, steps up to that
+    month's fee at month-end, then resets to $0 on the payment day. AGM does
+    not track intra-month daily accrual, so this shows the known start/end
+    state per month rather than an interpolated daily ramp."""
+    rows = _compute_agm_fee_series(_display_summary_df)
+    if not rows:
+        return _empty_admin_figure("Accrued Fees (Admin)", "No fee data available yet.")
+    x: list = []
+    y: list = []
+    for row in rows:
+        month_start = row["date"]
+        month_end = month_start + pd.offsets.MonthEnd(0)
+        x += [month_start, month_end, month_end]
+        y += [0, row["fee_dollars"], 0]
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=x, y=y, mode="lines", line_shape="hv", name="Accrued Fees",
+        line=dict(color="#B02A37", width=2),
+    ))
+    fig.update_layout(
+        title="Accrued Fees (Admin only — monthly resolution; AGM charges fees once per month)",
+        xaxis_title="Date",
+        yaxis=dict(title="Accrued Fees ($)", tickprefix="$", tickformat=",.0f"),
+        height=320,
+        margin=dict(t=60, b=40),
+        showlegend=False,
+    )
+    return fig
+
+
+def build_agm_nlv_figure() -> go.Figure:
+    """Admin-only. Actual account NLV: rises through the month to the pre-fee
+    balance, then drops by the paid-fee amount on the payment/month-end day
+    (down to the same after-fee value the public NAV chart already uses)."""
+    rows = _compute_agm_fee_series(_display_summary_df)
+    if not rows:
+        return _empty_admin_figure("NLV (Admin)", "No NLV data available yet.")
+    x: list = []
+    y: list = []
+    for row in rows:
+        month_start = row["date"]
+        month_end = month_start + pd.offsets.MonthEnd(0)
+        x += [month_start, month_end, month_end]
+        y += [row["bot_start"], row["nlv_before_fees"], row["nlv_after_fees"]]
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=x, y=y, mode="lines+markers", name="NLV",
+        line=dict(color=PRIMARY_COLOR, width=2), marker=dict(size=4),
+    ))
+    fig.update_layout(
+        title="Monthly-resolution NLV (Admin only — fee-payment view, from monthly workbook)",
+        xaxis_title="Date",
+        yaxis=dict(title="NLV ($)", tickprefix="$", tickformat=",.0f"),
+        height=320,
+        margin=dict(t=60, b=40),
+        showlegend=False,
+    )
+    return fig
+
+
 def build_drawdown_figure() -> go.Figure:
     """Drawdown from peak. Mirrors Y&Q's build_drawdown_figure()."""
     fig = go.Figure()
@@ -1009,6 +1144,42 @@ app = dash.Dash(
     title="Algominds – Momentum Pacer",
 )
 
+agm_admin_auth_manager = AdminAuthManager(load_agm_admin_auth_settings(), session_key=AGM_SESSION_KEY)
+configure_flask_session_secret(app.server, agm_admin_auth_manager.settings)
+
+# Manually-entered daily rows, persisted separately from the certified Excel workbook
+# (Momentum Fee Calculation.xlsx is never written to). Mirrors tkp_ts.py's JSON
+# round-trip pattern for its Daily Returns editor.
+AGM_PENDING_ROWS_FILENAME = "momentum_pacer_pending_rows.json"
+AGM_PENDING_ROW_FIELDS = [
+    "date", "spx_start", "spx_end", "ndx_start", "ndx_end", "bot_start", "bot_end_after_fees",
+]
+
+
+def _agm_pending_rows_path():
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), AGM_PENDING_ROWS_FILENAME)
+
+
+def _load_agm_pending_rows():
+    path = _agm_pending_rows_path()
+    if not os.path.isfile(path):
+        return []
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return []
+    return data if isinstance(data, list) else []
+
+
+def _save_agm_pending_rows(rows):
+    path = _agm_pending_rows_path()
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(rows, f, indent=2)
+    except OSError as e:
+        print(f"⚠️ Could not save Momentum Pacer pending rows to {path}: {e}")
+
 
 def serve_layout():
     today      = datetime.now()
@@ -1035,41 +1206,29 @@ def serve_layout():
         style={"maxWidth": "1400px"},
         children=[
 
-            # ── Disclaimer overlay ──────────────────────────────────────────────
+            dcc.Store(id="access-mode", storage_type="session", data=None),
+            dcc.Store(id=GATE_PASSWORD_VISIBLE_STORE_ID, storage_type="memory", data=False),
+            dcc.Location(id="url", refresh=False),
+
+            # Accept gate — MANAGER tier: Algominds Financial LLC / Momentum Pacer (port 8304)
             html.Div(
                 id="disclaimer-screen",
-                style={"padding": "4rem", "textAlign": "center"},
+                style=tsd.GATE_SCREEN_STYLE,
                 children=html.Div(
                     [
-                        html.H2("Important Notice", className="mb-4"),
-                        html.Hr(),
-                        html.P(
-                            "THE MOMENTUM PACER PROGRAM IS A PROPRIETARY TRADING STRATEGY. "
-                            "THIS PERFORMANCE DATA IS FOR INFORMATIONAL PURPOSES ONLY AND IS "
-                            "NOT A SOLICITATION TO INVEST. PAST PERFORMANCE IS NOT INDICATIVE "
-                            "OF FUTURE RESULTS.",
-                            className="mb-2",
-                            style={"fontWeight": "bold"},
-                        ),
-                        html.P(
-                            "Past performance is not necessarily indicative of future results. "
-                            "The risk of loss in commodity trading can be substantial. "
-                            "This information does not constitute investment advice.",
-                            className="text-muted mb-4",
-                        ),
+                        tsg.build_gate_title_h2(),
+                        *tsd.manager_gate_notice_body(program_name="Momentum Pacer"),
                         dbc.Button(
                             "Accept & Continue", id="accept-button",
                             color="success",
                             style={"backgroundColor": PRIMARY_COLOR,
                                    "borderColor": PRIMARY_COLOR},
                         ),
+                        build_gate_password_row(),
                     ],
                     style={
+                        **tsd.GATE_INNER_CARD_STYLE,
                         "backgroundColor": GREY_BG,
-                        "padding": "4rem", "borderRadius": "1rem",
-                        "width": "90vw", "maxWidth": "600px",
-                        "margin": "10vh auto",
-                        "boxShadow": "0 4px 12px rgba(0,0,0,0.15)",
                     },
                 ),
             ),
@@ -1204,6 +1363,32 @@ def serve_layout():
                             "marginLeft": "auto",
                             "marginRight": "auto",
                         },
+                    ),
+
+                    # ── Admin-only: Accrued Fees + NLV (TearSheet mode only, AGM only) ──
+                    html.Div(
+                        id="agm-admin-fee-charts-container",
+                        style={"display": "none"},
+                        className="mt-2 mb-4",
+                        children=[
+                            dbc.Alert(
+                                "Admin — fee accrual detail (monthly workbook; not shown on the client-facing tearsheet)",
+                                color="warning",
+                                className="text-center fw-bold mb-3",
+                            ),
+                            dcc.Graph(
+                                id="agm-accrued-fees-graph",
+                                figure=build_agm_accrued_fees_figure(),
+                                config={"displayModeBar": False, "responsive": True},
+                                style={"width": "100%", "minHeight": "320px", "marginBottom": "1rem"},
+                            ),
+                            dcc.Graph(
+                                id="agm-nlv-graph",
+                                figure=build_agm_nlv_figure(),
+                                config={"displayModeBar": False, "responsive": True},
+                                style={"width": "100%", "minHeight": "320px"},
+                            ),
+                        ],
                     ),
 
                     # ── Performance Summary Table ──────────────────────────────
@@ -1629,32 +1814,60 @@ def serve_layout():
                         style={"marginTop": "0.5rem"},
                     ),
 
-                    # ── Important Disclosure (Momentum Pacer / port 8304) ───────
+                    # Important Disclosure section (manager tier — bottom panel)
                     dbc.Row(
                         dbc.Col(
                             html.Div(
                                 id="important-disclosure",
-                                children=[
-                                    html.Strong("Important Disclosure: ", className="text-dark"),
-                                    "This tear sheet is provided for informational purposes only and should not "
-                                    "be interpreted as an offer, solicitation, or recommendation to invest. "
-                                    "Performance information, if shown, may be unaudited and should be reviewed "
-                                    "together with the applicable offering documents, advisory agreement, and risk "
-                                    "disclosures. For more information about this strategy, please contact Hughes "
-                                    "and Company at ",
-                                    html.A("info@hughesandco.ltd", href="mailto:info@hughesandco.ltd"),
-                                    " or 954 500 0500.",
-                                ],
-                                className="p-3 border rounded",
-                                style={
-                                    "backgroundColor": "#f8f9fa",
-                                    "borderLeft": "4px solid #6c757d",
-                                    "fontSize": "0.875rem",
-                                },
+                                children=tsd.manager_bottom_disclosure_children(),
+                                className=tsd.DISCLOSURE_PANEL_CLASS,
+                                style=tsd.DISCLOSURE_PANEL_STYLE,
                             ),
                             width=12,
                         ),
                         className="mb-5 pb-4",
+                    ),
+
+                    # Admin — daily data entry (TearSheet mode only; hidden for public/client view)
+                    html.Div(
+                        id="agm-admin-data-entry-container",
+                        style={"display": "none"},
+                        className="mt-4",
+                        children=[
+                            dbc.Alert(
+                                "Admin — Daily data entry (Momentum Pacer)",
+                                color="warning",
+                                className="text-center fw-bold",
+                            ),
+                            dbc.Card(
+                                [
+                                    dbc.CardHeader("Add a new Summary row"),
+                                    dbc.CardBody(
+                                        [
+                                            dbc.Row(
+                                                [
+                                                    dbc.Col([dbc.Label("Date"), dbc.Input(id="agm-add-date", type="date")], width=2),
+                                                    dbc.Col([dbc.Label("SPX Start"), dbc.Input(id="agm-add-spx-start", type="number", step="0.01")], width=2),
+                                                    dbc.Col([dbc.Label("SPX End"), dbc.Input(id="agm-add-spx-end", type="number", step="0.01")], width=2),
+                                                    dbc.Col([dbc.Label("NDX Start"), dbc.Input(id="agm-add-ndx-start", type="number", step="0.01")], width=2),
+                                                    dbc.Col([dbc.Label("NDX End"), dbc.Input(id="agm-add-ndx-end", type="number", step="0.01")], width=2),
+                                                    dbc.Col([dbc.Label("BOT Start"), dbc.Input(id="agm-add-bot-start", type="number", step="0.01")], width=2),
+                                                ],
+                                                className="g-2 mb-2",
+                                            ),
+                                            dbc.Row(
+                                                dbc.Col([dbc.Label("BOT End After Fees"), dbc.Input(id="agm-add-bot-end", type="number", step="0.01")], width=2),
+                                                className="g-2 mb-2",
+                                            ),
+                                            dbc.Button("Save Row", id="agm-add-row-save-btn", color="primary", n_clicks=0),
+                                            html.Div(id="agm-add-row-error", className="text-danger mt-2"),
+                                        ]
+                                    ),
+                                ],
+                                className="mb-3",
+                            ),
+                            html.Div(id="agm-pending-rows-table"),
+                        ],
                     ),
 
                 ],  # end main-app children
@@ -1669,12 +1882,190 @@ app.layout = serve_layout
 @app.callback(
     Output("disclaimer-screen", "style"),
     Output("main-app", "style"),
+    Output("access-mode", "data"),
     Input("accept-button", "n_clicks"),
 )
 def show_main(n_clicks):
     if n_clicks and n_clicks > 0:
-        return {"display": "none"}, {"display": "block"}
-    return {"padding": "4rem", "textAlign": "center"}, {"display": "none"}
+        return {"display": "none"}, {"display": "block"}, "standard"
+    return tsd.GATE_SCREEN_STYLE, {"display": "none"}, None
+
+
+# ── Hidden admin reveal: "e" click opens the password row (no access granted yet) ──
+@app.callback(
+    Output(GATE_PASSWORD_VISIBLE_STORE_ID, "data"),
+    Input("secret-notice-e", "n_clicks"),
+    State(GATE_PASSWORD_VISIBLE_STORE_ID, "data"),
+    prevent_initial_call=True,
+)
+def _toggle_gate_password_row(n_clicks, visible):
+    if n_clicks:
+        return not bool(visible)
+    return dash.no_update
+
+
+@app.callback(
+    Output(GATE_PASSWORD_ROW_ID, "style"),
+    Input(GATE_PASSWORD_VISIBLE_STORE_ID, "data"),
+)
+def _render_gate_password_row(visible):
+    return gate_password_row_style(bool(visible))
+
+
+@app.callback(
+    Output(GATE_PASSWORD_INPUT_ID, "value", allow_duplicate=True),
+    Input(GATE_PASSWORD_VISIBLE_STORE_ID, "data"),
+    prevent_initial_call=True,
+)
+def _clear_password_when_hidden(visible):
+    if not visible:
+        return ""
+    return dash.no_update
+
+
+@app.callback(
+    Output(GATE_PASSWORD_ERROR_ID, "children"),
+    Output(GATE_PASSWORD_VISIBLE_STORE_ID, "data", allow_duplicate=True),
+    Output(GATE_PASSWORD_INPUT_ID, "value", allow_duplicate=True),
+    Output("disclaimer-screen", "style", allow_duplicate=True),
+    Output("main-app", "style", allow_duplicate=True),
+    Output("access-mode", "data", allow_duplicate=True),
+    Input(GATE_PASSWORD_SUBMIT_ID, "n_clicks"),
+    Input(GATE_PASSWORD_INPUT_ID, "n_submit"),
+    State(GATE_PASSWORD_INPUT_ID, "value"),
+    prevent_initial_call=True,
+)
+def _gate_admin_tearsheet_login(_submit_clicks, _n_submit, password):
+    ok, _msg = agm_admin_auth_manager.login(session, password or "")
+    if not ok:
+        return INVALID_PASSWORD_MESSAGE, dash.no_update, "", dash.no_update, dash.no_update, dash.no_update
+    return "", False, "", {"display": "none"}, {"display": "block"}, "secret"
+
+
+@app.callback(
+    Output(GATE_PASSWORD_ERROR_ID, "children", allow_duplicate=True),
+    Output(GATE_PASSWORD_VISIBLE_STORE_ID, "data", allow_duplicate=True),
+    Output(GATE_PASSWORD_INPUT_ID, "value", allow_duplicate=True),
+    Output("url", "href"),
+    Output("url", "refresh"),
+    Input(GATE_PASSWORD_PORTAL_ID, "n_clicks"),
+    State(GATE_PASSWORD_INPUT_ID, "value"),
+    prevent_initial_call=True,
+)
+def _gate_admin_portal_login(_portal_clicks, password):
+    ok, _msg = agm_admin_auth_manager.login(session, password or "")
+    if not ok:
+        return INVALID_PASSWORD_MESSAGE, dash.no_update, "", dash.no_update, dash.no_update
+    return "", False, "", ADMIN_PORTAL_PATH, True
+
+
+@app.callback(
+    Output("agm-admin-data-entry-container", "style"),
+    Output("agm-admin-fee-charts-container", "style"),
+    Input("access-mode", "data"),
+)
+def _toggle_admin_data_entry(access_mode):
+    style = {"display": "block"} if access_mode == "secret" else {"display": "none"}
+    return style, style
+
+
+def _render_agm_pending_rows_table():
+    rows = _load_agm_pending_rows()
+    if not rows:
+        return dbc.Alert("No manually-entered rows yet.", color="secondary", className="mb-0")
+    header = html.Thead(html.Tr([html.Th(f) for f in AGM_PENDING_ROW_FIELDS]))
+    body = html.Tbody([
+        html.Tr([html.Td(row.get(f, "")) for f in AGM_PENDING_ROW_FIELDS])
+        for row in rows
+    ])
+    return dbc.Table([header, body], bordered=True, size="sm", className="mb-0")
+
+
+@app.callback(
+    Output("agm-pending-rows-table", "children"),
+    Input("access-mode", "data"),
+)
+def _render_pending_rows_on_reveal(_access_mode):
+    return _render_agm_pending_rows_table()
+
+
+@app.callback(
+    Output("agm-add-row-error", "children"),
+    Output("agm-add-date", "value"),
+    Output("agm-add-spx-start", "value"),
+    Output("agm-add-spx-end", "value"),
+    Output("agm-add-ndx-start", "value"),
+    Output("agm-add-ndx-end", "value"),
+    Output("agm-add-bot-start", "value"),
+    Output("agm-add-bot-end", "value"),
+    Output("agm-pending-rows-table", "children", allow_duplicate=True),
+    Input("agm-add-row-save-btn", "n_clicks"),
+    State("agm-add-date", "value"),
+    State("agm-add-spx-start", "value"),
+    State("agm-add-spx-end", "value"),
+    State("agm-add-ndx-start", "value"),
+    State("agm-add-ndx-end", "value"),
+    State("agm-add-bot-start", "value"),
+    State("agm-add-bot-end", "value"),
+    prevent_initial_call=True,
+)
+def _agm_add_row_save(n_clicks, date_val, spx_start, spx_end, ndx_start, ndx_end, bot_start, bot_end):
+    if not n_clicks:
+        return (dash.no_update,) * 9
+    if not agm_admin_auth_manager.is_authenticated(session):
+        return ("Not authenticated.",) + (dash.no_update,) * 7 + (dash.no_update,)
+    if not date_val or bot_end in (None, ""):
+        return ("Date and BOT End After Fees are required.",) + (dash.no_update,) * 7 + (dash.no_update,)
+    rows = _load_agm_pending_rows()
+    rows.append({
+        "date": date_val,
+        "spx_start": spx_start,
+        "spx_end": spx_end,
+        "ndx_start": ndx_start,
+        "ndx_end": ndx_end,
+        "bot_start": bot_start,
+        "bot_end_after_fees": bot_end,
+    })
+    _save_agm_pending_rows(rows)
+    return "", None, None, None, None, None, None, _render_agm_pending_rows_table()
+
+
+@app.server.route("/admin")
+def agm_admin_portal():
+    if not agm_admin_auth_manager.is_authenticated(session):
+        return redirect("/")
+    latest_row = _display_summary_df.iloc[-1] if not _display_summary_df.empty else None
+    since_inception_display = perf_metrics.get("Cumulative Net Return") if perf_metrics else None
+
+    after_fee_nlv = float(latest_row["bot_end_after_fees"]) if latest_row is not None else None
+    last_updated = LATEST_DATE.strftime("%Y-%m-%d") if LATEST_DATE is not None else "—"
+
+    accounts = agm_registry.build_participating_accounts(
+        program_name="Momentum Pacer",
+        inception_date=PROGRAM_INCEPTION,
+        benchmark_base="S&P 500 (SPX)",
+        after_fee_nlv=after_fee_nlv,
+        month_pct=float(latest_row["bot_net_ret"]) * 100 if latest_row is not None else None,
+        since_inception_pct_display=since_inception_display,
+        last_updated=last_updated,
+    )
+    return render_portal_page(program_name="Momentum Pacer", accounts=accounts)
+
+
+@app.server.route("/admin/logout")
+def agm_admin_logout():
+    agm_admin_auth_manager.logout(session)
+    return redirect("/")
+
+
+@app.server.route("/healthz")
+def agm_healthz():
+    return jsonify({
+        "app": "algominds-momentum-pacer",
+        "status": "ready" if not _display_summary_df.empty else "error",
+        "months_loaded": int(len(_display_summary_df)),
+        "load_error": LOAD_ERROR,
+    })
 
 
 # ==============================================================================

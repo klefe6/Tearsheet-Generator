@@ -1,5 +1,6 @@
 import os
 import base64
+from pathlib import Path
 import openpyxl
 from datetime import datetime
 
@@ -20,6 +21,8 @@ import yfinance as yf
 import quantstats as qs
 from quantstats import utils
 from collections import OrderedDict
+
+import tearsheet_disclosure as tsd
 
 # ==============================================================================
 # 1) BUSINESS-DAY CALENDAR
@@ -117,58 +120,285 @@ def safe_benchmark_download(symbol: str, max_retries: int = 3) -> pd.Series:
             time.sleep(1)  # Brief delay before retry
     return pd.Series(dtype=float)
 
-def create_monthly_calendar(monthly_simple):
-    """Create monthly calendar table from monthly simple returns"""
-    years = sorted(monthly_simple.index.year.unique())
-    months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
-    
+
+def parse_monthly_return_to_decimal(value) -> float:
+    """
+    Parse one monthly return to a decimal (e.g. 0.10 = 10%).
+    Handles percent points (10), decimals (0.10), and strings ('5%', '10').
+    """
+    if value is None or (isinstance(value, float) and np.isnan(value)):
+        return np.nan
+    if isinstance(value, str):
+        text = value.strip().replace(",", "")
+        if not text:
+            return np.nan
+        is_percent = text.endswith("%")
+        if is_percent:
+            text = text[:-1].strip()
+        x = float(text)
+        if is_percent or abs(x) > 1.0:
+            return x / 100.0
+        return x
+    x = float(value)
+    if abs(x) > 1.0:
+        return x / 100.0
+    return x
+
+
+def parse_yq_monthly_return_to_decimal(value) -> float:
+    """
+    Parse YQ actual_ror values: always percent points (0.82 = 0.82%, 10 = 10%).
+    String inputs still use parse_monthly_return_to_decimal for forms like '5%'.
+    """
+    if value is None or (isinstance(value, float) and np.isnan(value)):
+        return np.nan
+    if isinstance(value, str):
+        return parse_monthly_return_to_decimal(value)
+    return float(value) / 100.0
+
+
+def calculate_compounded_cumulative_returns(monthly_returns: pd.Series) -> pd.Series:
+    """
+    YQ cumulative returns are compounded monthly. Do not use simple addition for this program.
+
+    Running compounded cumulative return in percent, preserving row order.
+    cumulative_return_n = ((1 + r1) * (1 + r2) * ... * (1 + rn)) - 1
+    """
+    if monthly_returns is None or len(monthly_returns) == 0:
+        return pd.Series(dtype=float)
+
+    ordered = monthly_returns.sort_index()
+    decimals = ordered.apply(parse_yq_monthly_return_to_decimal)
+    valid = decimals.notna()
+    if not valid.any():
+        return pd.Series(dtype=float, index=ordered.index)
+
+    growth = (1 + decimals[valid]).cumprod()
+    cum_pct = (growth - 1) * 100.0
+    return cum_pct.reindex(ordered.index)
+
+
+def compounded_return_over_period(monthly_returns: pd.Series) -> float:
+    """Total compounded return (percent) over a monthly return series."""
+    if monthly_returns is None or len(monthly_returns) == 0:
+        return 0.0
+    decimals = monthly_returns.apply(parse_yq_monthly_return_to_decimal).dropna()
+    if decimals.empty:
+        return 0.0
+    return ((1 + decimals).prod() - 1) * 100.0
+
+
+def compounded_year_total_pct(monthly_simple_series: pd.Series, year: int) -> float:
+    """Compounded return (percent) for one calendar year from its monthly returns."""
+    year_mask = monthly_simple_series.index.year == year
+    return compounded_return_over_period(monthly_simple_series.loc[year_mask])
+
+
+YQ_ANNUAL_COMPOUNDED_RETURN_COL = "Annual Compounded Return"
+YQ_CUMULATIVE_RETURN_COL = "Cumulative Return"
+YQ_PERF_SUMMARY_MONTH_COLS = [
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+]
+YQ_PERF_SUMMARY_SEPARATOR = "3px solid #adb5bd"
+
+
+def build_yq_monthly_calendar_df(monthly_simple_series: pd.Series) -> pd.DataFrame:
+    """Performance Summary calendar: monthly %, compounded year totals, cumulative return row."""
+    years = sorted(monthly_simple_series.index.year.unique())
+    months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+              "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
     monthly_data = {"Year": [str(y) for y in years]}
-    
+
     for idx, m in enumerate(months, start=1):
         monthly_data[m] = [
-            f"{monthly_simple.get(pd.Period(f'{y}-{idx:02d}'), 0):.2f}%"
-            if pd.Period(f'{y}-{idx:02d}') in monthly_simple.index
+            f"{monthly_simple_series.get(pd.Period(f'{y}-{idx:02d}'), 0):.2f}%"
+            if pd.Period(f'{y}-{idx:02d}') in monthly_simple_series.index
             else ""
             for y in years
         ]
-    
-    # Calculate year totals
-    yearly_simple = monthly_simple.groupby(monthly_simple.index.year).sum()
-    monthly_data["Year Total"] = [
-        f"{yearly_simple.get(y, 0):.2f}%"
+
+    monthly_data[YQ_ANNUAL_COMPOUNDED_RETURN_COL] = [
+        f"{compounded_year_total_pct(monthly_simple_series, y):.2f}%"
         for y in years
     ]
-    
+
+    # Inception-to-date compounded cumulative return through each year-end
+    cum_by_period = calculate_compounded_cumulative_returns(monthly_simple_series)
+    last_period_by_year = {
+        y: max(p for p in cum_by_period.index if p.year == y)
+        for y in years
+        if any(p.year == y for p in cum_by_period.index)
+    }
+    monthly_data[YQ_CUMULATIVE_RETURN_COL] = [
+        (
+            f"{cum_by_period.loc[last_period_by_year[y]]:.2f}%"
+            if y in last_period_by_year and pd.notna(cum_by_period.loc[last_period_by_year[y]])
+            else ""
+        )
+        for y in years
+    ]
+
     return pd.DataFrame(monthly_data)
 
-# Safe helper function for monthly calendar (alternative to inline logic)
-def build_monthly_calendar_safe(monthly_simple_series):
-    """Alternative monthly calendar builder with error handling"""
-    try:
-        years = sorted(monthly_simple_series.index.year.unique())
-        months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
-        
-        monthly_data = {"Year": [str(y) for y in years]}
-        
-        for idx, m in enumerate(months, start=1):
-            monthly_data[m] = [
-                f"{monthly_simple_series.get(pd.Period(f'{y}-{idx:02d}'), 0):.2f}%"
-                if pd.Period(f'{y}-{idx:02d}') in monthly_simple_series.index
-                else ""
-                for y in years
-            ]
-        
-        # Calculate year totals
-        yearly_simple = monthly_simple_series.groupby(monthly_simple_series.index.year).sum()
-        monthly_data["Year Total"] = [
-            f"{yearly_simple.get(y, 0):.2f}%"
-            for y in years
+
+def _yq_perf_summary_columns(monthly_df: pd.DataFrame) -> list:
+    """Column order: Year, months, then summary columns."""
+    preferred = (
+        ["Year"]
+        + YQ_PERF_SUMMARY_MONTH_COLS
+        + [YQ_ANNUAL_COMPOUNDED_RETURN_COL, YQ_CUMULATIVE_RETURN_COL]
+    )
+    return [c for c in preferred if c in monthly_df.columns]
+
+
+def _yq_perf_summary_col_widths() -> list[tuple[str, str]]:
+    """Fixed widths — monthly columns equal; summary slightly wider."""
+    return (
+        [("Year", "3.5%")]
+        + [(m, "5.375%") for m in YQ_PERF_SUMMARY_MONTH_COLS]
+        + [
+            (YQ_ANNUAL_COMPOUNDED_RETURN_COL, "7.5%"),
+            (YQ_CUMULATIVE_RETURN_COL, "7.5%"),
         ]
-        
-        return pd.DataFrame(monthly_data)
+    )
+
+
+def _yq_perf_summary_header_content(col: str):
+    """Multi-line headers for summary columns; compact labels for months."""
+    if col == YQ_ANNUAL_COMPOUNDED_RETURN_COL:
+        lines = ("Annual", "Compounded", "Return")
+    elif col == YQ_CUMULATIVE_RETURN_COL:
+        lines = ("Cumulative", "Return")
+    else:
+        return col
+
+    return html.Div(
+        [html.Div(line, style={"lineHeight": "1.15"}) for line in lines],
+        className="text-center",
+        style={"fontSize": "0.68rem", "fontWeight": "600", "whiteSpace": "normal"},
+    )
+
+
+def _yq_perf_summary_cell_bg(col: str, cell_value) -> str:
+    if col == "Year" or cell_value is None or cell_value == "":
+        return "white"
+    try:
+        value = float(str(cell_value).replace("%", "").strip())
+    except (ValueError, TypeError):
+        return "white"
+    if value > 0:
+        return "#d4edda"
+    if value < 0:
+        return "#f8d7da"
+    return "white"
+
+
+def _yq_perf_summary_th_style(col: str) -> dict:
+    is_month = col in YQ_PERF_SUMMARY_MONTH_COLS
+    style = {
+        "backgroundColor": GREY_BG,
+        "color": "#000",
+        "textAlign": "center" if col == "Year" or is_month else "right",
+        "verticalAlign": "middle",
+        "padding": "0.35rem 0.2rem",
+        "fontSize": "0.72rem" if col in YQ_PERF_SUMMARY_MONTH_COLS else "0.75rem",
+        "fontWeight": "600",
+        "whiteSpace": "normal",
+        "overflow": "hidden",
+    }
+    if col == YQ_ANNUAL_COMPOUNDED_RETURN_COL:
+        style["borderLeft"] = YQ_PERF_SUMMARY_SEPARATOR
+    return style
+
+
+def _yq_perf_summary_td_style(col: str, cell_value) -> dict:
+    style = {
+        "backgroundColor": _yq_perf_summary_cell_bg(col, cell_value),
+        "textAlign": "center" if col == "Year" else "right",
+        "verticalAlign": "middle",
+        "padding": "0.3rem 0.2rem",
+        "fontSize": "0.78rem",
+        "whiteSpace": "nowrap",
+        "fontVariantNumeric": "tabular-nums",
+    }
+    if col == YQ_ANNUAL_COMPOUNDED_RETURN_COL:
+        style["borderLeft"] = YQ_PERF_SUMMARY_SEPARATOR
+    return style
+
+
+def build_yq_performance_summary_table(monthly_df: pd.DataFrame):
+    """Performance Summary table with fixed layout and compact summary columns."""
+    columns = _yq_perf_summary_columns(monthly_df)
+    width_by_col = dict(_yq_perf_summary_col_widths())
+
+    return html.Div(
+        dbc.Table(
+            [
+                html.Colgroup(
+                    [
+                        html.Col(style={"width": width_by_col.get(col, "auto")})
+                        for col in columns
+                    ]
+                ),
+                html.Thead(
+                    html.Tr(
+                        [
+                            html.Th(
+                                _yq_perf_summary_header_content(col),
+                                style=_yq_perf_summary_th_style(col),
+                            )
+                            for col in columns
+                        ]
+                    )
+                ),
+                html.Tbody(
+                    [
+                        html.Tr(
+                            [
+                                html.Td(
+                                    monthly_df.iloc[i][col],
+                                    style=_yq_perf_summary_td_style(
+                                        col, monthly_df.iloc[i][col]
+                                    ),
+                                )
+                                for col in columns
+                            ]
+                        )
+                        for i in range(len(monthly_df))
+                    ]
+                ),
+            ],
+            bordered=True,
+            hover=True,
+            size="sm",
+            className="mb-5 yq-performance-summary-table",
+            style={
+                "tableLayout": "fixed",
+                "width": "100%",
+                "maxWidth": "100%",
+                "margin": "0 auto",
+                "pageBreakInside": "avoid",
+            },
+        ),
+        className="table-responsive mb-5",
+        style={"overflowX": "auto"},
+    )
+
+
+def create_monthly_calendar(monthly_simple):
+    """Create monthly calendar table from monthly simple returns."""
+    return build_yq_monthly_calendar_df(monthly_simple)
+
+
+def build_monthly_calendar_safe(monthly_simple_series):
+    """Alternative monthly calendar builder with error handling."""
+    try:
+        return build_yq_monthly_calendar_df(monthly_simple_series)
     except Exception as e:
         print(f"Warning: Error building monthly calendar: {e}")
-        return pd.DataFrame()  # Return empty DataFrame as fallback
+        return pd.DataFrame()
 
 # ==============================================================================
 # 3) CONFIGURATION
@@ -185,7 +415,7 @@ BENCHMARKS = [
     "ETH-USD",    # Ethereum
 ]
 
-csv_path = r"C:\Coding Projects\Tearsheet Generator\yq.csv"
+csv_path = str(Path(__file__).resolve().parent / "yq.csv")
 
 # ============================================================================== 
 # 4) LOAD & VALIDATE NAV DATA (CSV with monthly performance data)
@@ -240,8 +470,10 @@ try:
     # Create NAV_df with the equity curve
     NAV_df = pd.DataFrame({'nav-x1': equity_curve}, index=raw_df.index)
     
-    print(f"CSV data loaded successfully ({len(NAV_df)} months)")
+    print(f"CSV data loaded successfully ({len(NAV_df)} months) from {csv_path}")
     print(f"Date range: {NAV_df.index.min().strftime('%Y-%m')} to {NAV_df.index.max().strftime('%Y-%m')}")
+    latest = raw_df.iloc[-1]
+    print(f"Latest month: {int(latest['year'])}-{int(latest['month']):02d}  Actual ROR: {latest['actual_ror']}%")
     print(f"Final value: ${NAV_df['nav-x1'].iloc[-1]:,.2f}")
         
 except Exception as e:
@@ -351,8 +583,7 @@ for name, sym in bench_map.items():
         continue
 
 # ==============================================================================
-# 8) MONTHLY SIMPLE RETURNS (NON-COMPOUNDED) 
-#    + MONTH-CELLS THAT SUM TO TRUE YEAR-OVER-YEAR RETURN
+# 8) MONTHLY SIMPLE RETURNS (month cells unchanged; year totals & cumulative compounded)
 # ==============================================================================
 
 # 8a) Month-end and month-start NAV
@@ -371,65 +602,12 @@ monthly_simple = raw_df.groupby(raw_df.index.to_period("M"))["actual_ror"].last(
  
  
  
-# 8c) Sum those 12 numbers to get the Year Total
-yearly_simple = monthly_simple.groupby(monthly_simple.index.year).sum()
-
-# 8d) Build the “calendar” table
-years  = sorted(monthly_simple.index.year.unique())
-months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
-
-monthly_data = {"Year": [str(y) for y in years]}
-
-for idx, m in enumerate(months, start=1):
-    monthly_data[m] = [
-        # look up period in monthly_simple; if missing, blank
-        f"{monthly_simple.get(pd.Period(f'{y}-{idx:02d}'), 0):.2f}%"
-        if pd.Period(f"{y}-{idx:02d}") in monthly_simple.index
-        else ""
-        for y in years
-    ]
-
-# 8e) Use the sum-of-months for Year Total
-monthly_data["Year Total"] = [
-    f"{yearly_simple.get(y, 0):.2f}%"
-    for y in years
-]
-
-monthly_df = pd.DataFrame(monthly_data)
-
-# Safe helper function for monthly calendar (alternative to inline logic)
-def build_monthly_calendar_safe(monthly_simple_series):
-    """Alternative monthly calendar builder with error handling"""
-    try:
-        years = sorted(monthly_simple_series.index.year.unique())
-        months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
-        
-        monthly_data = {"Year": [str(y) for y in years]}
-        
-        for idx, m in enumerate(months, start=1):
-            monthly_data[m] = [
-                f"{monthly_simple_series.get(pd.Period(f'{y}-{idx:02d}'), 0):.2f}%"
-                if pd.Period(f'{y}-{idx:02d}') in monthly_simple_series.index
-                else ""
-                for y in years
-            ]
-        
-        # Calculate year totals
-        yearly_simple = monthly_simple_series.groupby(monthly_simple_series.index.year).sum()
-        monthly_data["Year Total"] = [
-            f"{yearly_simple.get(y, 0):.2f}%"
-            for y in years
-        ]
-        
-        return pd.DataFrame(monthly_data)
-    except Exception as e:
-        print(f"Warning: Error building monthly calendar: {e}")
-        return pd.DataFrame()  # Return empty DataFrame as fallback
+# 8c–8e) Performance Summary calendar (compounded year totals + cumulative return row)
+monthly_df = build_yq_monthly_calendar_df(monthly_simple)
 
 # ==============================================================================
 # 9) MONTHLY PERFORMANCE METRICS
 #    Define a helper to compute all your key stats over any period using monthly data
-# ==============================================================================
 def calculate_period_metrics_monthly(returns: pd.Series, start_date: pd.Timestamp) -> dict:
     """
     Given a series of monthly returns (in percentage format like 0.749 for 0.749%),
@@ -446,11 +624,12 @@ def calculate_period_metrics_monthly(returns: pd.Series, start_date: pd.Timestam
     if len(returns) < 2:
         return dict.fromkeys(keys, "—")
 
-    # Convert percentage to decimal for calculations (0.749% -> 0.00749)
-    returns_decimal = returns / 100.0
-    
-    # Calculate compounded cumulative return (not simple sum)
-    cum = (1 + returns_decimal).prod() - 1
+    returns_decimal = returns.apply(parse_yq_monthly_return_to_decimal).dropna()
+    if returns_decimal.empty:
+        return dict.fromkeys(keys, "—")
+
+    # YQ cumulative returns are compounded monthly. Do not use simple addition for this program.
+    cum = compounded_return_over_period(returns) / 100.0
     months = len(returns_decimal)
     # Annualize using compounded rate
     years = months / 12.0
@@ -991,7 +1170,7 @@ def serve_layout():
                                 "height": "auto",
                                 "width": "auto",
                             },
-                            alt="Hughes & Company Logo"
+                            alt=f"{tsd.HNC_LEGAL_NAME} Logo"
                         ),
                         width=2,
                     ),
@@ -1091,45 +1270,7 @@ def serve_layout():
 
             # ── Performance Summary ────────────────────────────────────────────
             html.H5("Performance Summary", className="text-center mb-2"),
-            dbc.Table(
-                [
-                    html.Thead(
-                        html.Tr([
-                            html.Th(
-                                col, 
-                                style={
-                                    "backgroundColor": GREY_BG, 
-                                    "color": "#000",
-                                    "borderLeft": "3px solid #dee2e6" if col == "Year Total" else "none"
-                                }
-                            )
-                            for col in monthly_df.columns
-                        ])
-                    ),
-                    html.Tbody([
-                        html.Tr([
-                            html.Td(
-                                monthly_df.iloc[i][col],
-                                style={
-                                    "backgroundColor": (
-                                        "#d4edda" if col != "Year" and monthly_df.iloc[i][col] != "" and float(monthly_df.iloc[i][col].replace("%", "")) > 0
-                                        else "#f8d7da" if col != "Year" and monthly_df.iloc[i][col] != "" and float(monthly_df.iloc[i][col].replace("%", "")) < 0
-                                        else "white"
-                                    ),
-                                    "borderLeft": "3px solid #dee2e6" if col == "Year Total" else "none"
-                                }
-                            )
-                            for col in monthly_df.columns
-                        ])
-                        for i in range(len(monthly_df))
-                    ])
-                ],
-                bordered=True,
-                hover=True,
-                size="sm",
-                className="table-responsive mb-5",
-                style={"width": "100%", "margin": "0 auto", "pageBreakInside": "avoid"},
-            ),
+            build_yq_performance_summary_table(monthly_df),
 
             # ── General and Sector Information Tables ──────────────────────────
 dbc.Row(
@@ -1918,27 +2059,13 @@ dbc.Row(
             ),
 
 
-            # ── Important Disclosure ──────────────────────────────────────────────────
+            # Important Disclosure section (manager tier — bottom panel)
             dbc.Row(
                 dbc.Col(
                     html.Div(
-                        [
-                            html.Strong("Important Disclosure: ", className="text-dark"),
-                            "This tear sheet is provided for informational purposes only and should not "
-                            "be interpreted as an offer, solicitation, or recommendation to invest. "
-                            "Performance information, if shown, may be unaudited and should be reviewed "
-                            "together with the applicable offering documents, advisory agreement, and risk "
-                            "disclosures. For more information about this strategy, please contact Hughes "
-                            "and Company at ",
-                            html.A("info@hughesandco.ltd", href="mailto:info@hughesandco.ltd"),
-                            " or 954 500 0500.",
-                        ],
-                        className="p-3 border rounded",
-                        style={
-                            "backgroundColor": "#f8f9fa",
-                            "borderLeft": "4px solid #6c757d",
-                            "fontSize": "0.875rem",
-                        },
+                        tsd.manager_bottom_disclosure_children(),
+                        className=tsd.DISCLOSURE_PANEL_CLASS,
+                        style=tsd.DISCLOSURE_PANEL_STYLE,
                     ),
                     width=12,
                 ),
@@ -1955,15 +2082,13 @@ dbc.Row(
 
 dcc_store = dcc.Store(id="disclaimer-accepted", storage_type="session")
 
+# Accept gate — manager tier
 disclaimer_screen = html.Div(
     id="disclaimer-screen",
+    style=tsd.GATE_SCREEN_STYLE,
     children=html.Div(
         children=[
-            html.H2("Important Notice", className="mb-4"),
-            html.P(
-                "By clicking “Accept,” you agree that the performance figures shown are strictly informational and do not amount to investment advice, a solicitation, or an offer to invest or participate in this strategy. This material is not intended to solicit funds.",
-                className="lead mb-5"
-            ),
+            *tsd.manager_gate_notice_children(),
             dbc.Button(
                 "Accept & Continue",
                 id="accept-button",
@@ -1971,7 +2096,7 @@ disclaimer_screen = html.Div(
                 style={"backgroundColor": "#28a745", "borderColor": "#28a745"}
             )
         ],
-        style={"padding": "4rem", "textAlign": "center"}
+        style=tsd.GATE_INNER_CARD_STYLE,
     )
 )
 
@@ -1995,7 +2120,7 @@ app.layout = html.Div([
 def show_main(n_clicks):
     if n_clicks and n_clicks > 0:
         return {"display": "none"}, {"display": "block"}
-    return {"padding": "4rem", "textAlign": "center"}, {"display": "none"}
+    return tsd.GATE_SCREEN_STYLE, {"display": "none"}
 
 if __name__ == "__main__":
     app.run(debug=True, port=8303)

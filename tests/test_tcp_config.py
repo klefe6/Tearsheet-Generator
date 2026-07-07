@@ -82,3 +82,36 @@ def test_workbook_path_env_override(monkeypatch):
     monkeypatch.setenv("TCP_V2_WORKBOOK_PATH", custom)
     cfg = tcp_config.load_config()
     assert cfg.workbook_path == custom
+
+
+def test_bind_port_defaults_to_preview(monkeypatch):
+    monkeypatch.delenv("TCP_V2_BIND_PORT", raising=False)
+    cfg = tcp_config.load_config()
+    assert tcp_config.resolve_bind_port(cfg) == 8312
+
+
+def test_bind_port_production_requires_explicit_env(monkeypatch):
+    monkeypatch.setenv("TCP_V2_BIND_PORT", "8302")
+    cfg = tcp_config.load_config()
+    bind = tcp_config.resolve_bind_port(cfg)
+    ok, msg = tcp_config.validate_bind_port(cfg, bind)
+    assert bind == 8302
+    assert ok, msg
+
+
+def test_bind_port_invalid_rejected(monkeypatch):
+    monkeypatch.setenv("TCP_V2_BIND_PORT", "9999")
+    cfg = tcp_config.load_config()
+    bind = tcp_config.resolve_bind_port(cfg)
+    ok, msg = tcp_config.validate_bind_port(cfg, bind)
+    assert not ok
+    assert "bind port" in msg
+
+
+def test_import_tcp_ts_v2_default_bind_is_preview_only(monkeypatch):
+    monkeypatch.delenv("TCP_V2_BIND_PORT", raising=False)
+    import tcp_ts_v2
+    from tcp_config import resolve_bind_port
+
+    assert tcp_ts_v2._CONFIG.preview_port == 8312
+    assert resolve_bind_port(tcp_ts_v2._CONFIG) == 8312

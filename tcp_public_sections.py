@@ -13,6 +13,7 @@ from dash import dcc, html
 
 from tcp_dashboard import GREY_BG
 from tearsheet_gate_auth import GATE_PASSWORD_VISIBLE_STORE_ID, build_gate_password_row
+from tearsheet_disclosure import TCP_GATE_ACCEPT_TEXT
 from tearsheet_gate_ui import (
     GATE_SECRET_E_CLASS,
     GATE_TITLE_HEADING_CLASS,
@@ -58,11 +59,7 @@ DRAWDOWN_SECTION_CLASS = "tcp-drawdown-section"
 RUNTIME_DIAGNOSTICS_CARD_ID = "tcp-runtime-diagnostics-card"
 
 GATE_SCREEN_STYLE: Dict[str, str] = {"padding": "4rem", "textAlign": "center"}
-GATE_ACCEPT_TEXT = (
-    "By clicking “Accept,” you agree that the performance figures shown are strictly "
-    "informational and do not amount to investment advice, a solicitation, or an offer "
-    "to invest or participate in this strategy. This material is not intended to solicit funds."
-)
+GATE_ACCEPT_TEXT = TCP_GATE_ACCEPT_TEXT
 
 STRATEGY_DESCRIPTION = (
     "The Crypto Program (TCP) is a crypto options strategy focused on Bitcoin and Ethereum, "

@@ -15,6 +15,8 @@ import base64, io
 import dash_bootstrap_components as dbc
 import plotly.graph_objs as go
 
+import tearsheet_disclosure as tsd
+
 # ── 0) Map friendly names → filepaths ─────────────────────────────────────
 strategy_map = {
     "Adalpha - Core Program":      r"C:\Coding Projects\Tearsheet Generator\Trade_Results.csv",
@@ -195,7 +197,30 @@ def make_metric_cards(returns: pd.Series):
 app = Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
 app.title="Comprehensive Tearsheet"
 
-app.layout = dbc.Container([
+# Accept gate — manager tier
+disclaimer_screen = html.Div(
+    id="disclaimer-screen",
+    style=tsd.GATE_SCREEN_STYLE,
+    children=html.Div(
+        children=[
+            *tsd.manager_gate_notice_children(),
+            dbc.Button(
+                "Accept & Continue",
+                id="accept-button",
+                color="primary",
+            ),
+        ],
+        style=tsd.GATE_INNER_CARD_STYLE,
+    ),
+)
+
+app.layout = html.Div([
+    disclaimer_screen,
+    html.Div(
+        id="main-app",
+        style={"display": "none"},
+        children=[
+            dbc.Container([
     html.H1("Comprehensive Tearsheet", className="text-center my-3"),
 
     # ── date pickers + buttons ────────────────────────────────────────────────
@@ -479,33 +504,33 @@ app.layout = dbc.Container([
                     width="auto"), justify="center", className="my-4"),
     dcc.Download(id="download-dataframe-csv"),
 
-    # ── Important Disclosure ──────────────────────────────────────────────────
+    # Important Disclosure section (manager tier — bottom panel)
     dbc.Row(
         dbc.Col(
             html.Div(
-                [
-                    html.Strong("Important Disclosure: ", className="text-dark"),
-                    "This tear sheet is provided for informational purposes only and should not "
-                    "be interpreted as an offer, solicitation, or recommendation to invest. "
-                    "Performance information, if shown, may be unaudited and should be reviewed "
-                    "together with the applicable offering documents, advisory agreement, and risk "
-                    "disclosures. For more information about this strategy, please contact Hughes "
-                    "and Company at ",
-                    html.A("info@hughesandco.ltd", href="mailto:info@hughesandco.ltd"),
-                    " or 954 500 0500.",
-                ],
-                className="p-3 border rounded",
-                style={
-                    "backgroundColor": "#f8f9fa",
-                    "borderLeft": "4px solid #6c757d",
-                    "fontSize": "0.875rem",
-                },
+                tsd.manager_bottom_disclosure_children(),
+                className=tsd.DISCLOSURE_PANEL_CLASS,
+                style=tsd.DISCLOSURE_PANEL_STYLE,
             ),
             width=12,
         ),
         className="my-4",
     ),
-], fluid=True)
+            ], fluid=True),
+        ],
+    ),
+])
+
+
+@app.callback(
+    Output("disclaimer-screen", "style"),
+    Output("main-app", "style"),
+    Input("accept-button", "n_clicks"),
+)
+def show_disclaimer_gate(n_clicks):
+    if n_clicks and n_clicks > 0:
+        return {"display": "none"}, {"display": "block"}
+    return tsd.GATE_SCREEN_STYLE, {"display": "none"}
 
 
 # ── reset MAX INTERVAL ─────────────────────────────────────────────────────

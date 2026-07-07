@@ -47,6 +47,12 @@ PROPRIETARY_GATE_ACCEPT_TEXT = (
     "to invest. This material is not intended to solicit funds."
 )
 
+TCP_GATE_ACCEPT_TEXT = (
+    "By clicking “Accept,” you agree that the performance figures shown are strictly "
+    "informational and do not amount to investment advice, a solicitation, or an offer "
+    "to invest or participate in this strategy. This material is not intended to solicit funds."
+)
+
 
 def proprietary_participation_text(program_code: str) -> str:
     """Gate/bottom line — program not open to outside investors."""
@@ -55,10 +61,10 @@ def proprietary_participation_text(program_code: str) -> str:
     )
 
 
-def proprietary_gate_children(program_code: str = "TKP"):
+def proprietary_gate_children(program_code: str = "TKP", *, accept_text: str | None = None):
     """Accept gate — proprietary tier (no H&C contact)."""
     return [
-        html.P(PROPRIETARY_GATE_ACCEPT_TEXT, className="lead mb-4"),
+        html.P(accept_text or PROPRIETARY_GATE_ACCEPT_TEXT, className="lead mb-4"),
         html.P(
             proprietary_participation_text(program_code),
             className="text-muted mb-5",
@@ -133,14 +139,13 @@ def manager_gate_proprietary_bold_text(program_name=None):
     )
 
 
-def manager_gate_notice_children(program_name=None):
+def manager_gate_notice_body(program_name=None):
     """
-    Accept gate — Important Notice through contact line (manager tier).
+    Accept gate — Hr through contact line, no title (manager tier).
 
     program_name: e.g. \"Momentum Pacer\" for Algominds Momentum Pacer (port 8304).
     """
     return [
-        html.H2("Important Notice", className="mb-4"),
         html.Hr(),
         html.P(
             manager_gate_proprietary_bold_text(program_name),
@@ -149,6 +154,18 @@ def manager_gate_notice_children(program_name=None):
         ),
         html.P(MANAGER_GATE_PROPRIETARY_MUTED, className="text-muted mb-4"),
         html.P(gate_contact_children(), className="mb-4"),
+    ]
+
+
+def manager_gate_notice_children(program_name=None):
+    """
+    Accept gate — Important Notice through contact line (manager tier).
+
+    program_name: e.g. \"Momentum Pacer\" for Algominds Momentum Pacer (port 8304).
+    """
+    return [
+        html.H2("Important Notice", className="mb-4"),
+        *manager_gate_notice_body(program_name),
     ]
 
 

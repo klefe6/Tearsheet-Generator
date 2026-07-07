@@ -36,6 +36,23 @@ from quantstats import utils
 
 import tearsheet_disclosure as tsd
 from tearsheet_gate_ui import build_sibling_accept_gate
+from tearsheet_gate_auth import (
+    build_gate_password_row,
+    gate_password_row_style,
+    GATE_PASSWORD_ROW_ID,
+    GATE_PASSWORD_INPUT_ID,
+    GATE_PASSWORD_SUBMIT_ID,
+    GATE_PASSWORD_PORTAL_ID,
+    GATE_PASSWORD_ERROR_ID,
+    GATE_PASSWORD_VISIBLE_STORE_ID,
+    INVALID_PASSWORD_MESSAGE,
+    ADMIN_PORTAL_PATH,
+    TKP_SESSION_KEY,
+    load_tkp_admin_auth_settings,
+)
+from tcp_admin import AdminAuthManager, configure_flask_session_secret
+from tearsheet_portal import render_legacy_diagnostics_table, render_portal_page
+from flask import session, redirect, jsonify
 from collections import OrderedDict
 
 # ==============================================================================
@@ -1812,6 +1829,25 @@ app = dash.Dash(
     title="H&C – TKP",
 )
 
+tkp_admin_auth_manager = AdminAuthManager(load_tkp_admin_auth_settings(), session_key=TKP_SESSION_KEY)
+configure_flask_session_secret(app.server, tkp_admin_auth_manager.settings)
+
+
+def _tkp_admin_board_stats():
+    """Latest completed date / row count for the Portal board, from the persisted secret state."""
+    try:
+        records = _load_fresh_secret_records()
+    except Exception:
+        records = None
+    if not records:
+        return "—", 0
+    latest_date = "—"
+    for row in reversed(records):
+        if row.get("Date"):
+            latest_date = row["Date"]
+            break
+    return latest_date, len(records)
+
 def serve_layout(records=None):
     if records is None:
         records = secret_table_records
@@ -3216,7 +3252,7 @@ dcc_store = dcc.Store(id="disclaimer-accepted", storage_type="session")
 access_mode_store = dcc.Store(id="access-mode", storage_type="session", data=None)
 
 # Accept gate — proprietary tier (no strategy inquiry contact on gate)
-disclaimer_screen = build_sibling_accept_gate("TKP")
+disclaimer_screen = build_sibling_accept_gate("TKP", extra_children=[build_gate_password_row()])
 
 # Make layout dynamic - this function is called on every page load
 # This ensures fresh data is loaded when the app restarts
@@ -3232,6 +3268,8 @@ def dynamic_layout():
         dcc_store,
         access_mode_store,
         dcc.Store(id="canonical-nav-store", storage_type="memory", data=fresh_canonical),
+        dcc.Store(id=GATE_PASSWORD_VISIBLE_STORE_ID, storage_type="memory", data=False),
+        dcc.Location(id="url", refresh=False),
         disclaimer_screen,
         html.Div(
             id="main-app",
@@ -3248,19 +3286,115 @@ app.layout = dynamic_layout
     Output("main-app", "style"),
     Output("access-mode", "data"),
     Input("accept-button", "n_clicks"),
-    Input("secret-notice-e", "n_clicks"),
 )
-def show_main(n_accept, n_secret):
-    ctx = dash.callback_context
-    if not ctx.triggered:
-        return tsd.GATE_SCREEN_STYLE, {"display": "none"}, None
-    prop_id = ctx.triggered[0]["prop_id"]
-    button_id = prop_id.split(".")[0]
-    if button_id == "accept-button" and (n_accept or 0) > 0:
+def show_main(n_accept):
+    if n_accept:
         return {"display": "none"}, {"display": "block"}, "standard"
-    if button_id == "secret-notice-e" and (n_secret or 0) > 0:
-        return {"display": "none"}, {"display": "block"}, "secret"
     return tsd.GATE_SCREEN_STYLE, {"display": "none"}, None
+
+
+# ── Hidden admin reveal: "e" click opens the password row (no access granted yet) ──
+@app.callback(
+    Output(GATE_PASSWORD_VISIBLE_STORE_ID, "data"),
+    Input("secret-notice-e", "n_clicks"),
+    State(GATE_PASSWORD_VISIBLE_STORE_ID, "data"),
+    prevent_initial_call=True,
+)
+def _toggle_gate_password_row(n_clicks, visible):
+    if n_clicks:
+        return not bool(visible)
+    return dash.no_update
+
+
+@app.callback(
+    Output(GATE_PASSWORD_ROW_ID, "style"),
+    Input(GATE_PASSWORD_VISIBLE_STORE_ID, "data"),
+)
+def _render_gate_password_row(visible):
+    return gate_password_row_style(bool(visible))
+
+
+@app.callback(
+    Output(GATE_PASSWORD_INPUT_ID, "value", allow_duplicate=True),
+    Input(GATE_PASSWORD_VISIBLE_STORE_ID, "data"),
+    prevent_initial_call=True,
+)
+def _clear_password_when_hidden(visible):
+    if not visible:
+        return ""
+    return dash.no_update
+
+
+@app.callback(
+    Output(GATE_PASSWORD_ERROR_ID, "children"),
+    Output(GATE_PASSWORD_VISIBLE_STORE_ID, "data", allow_duplicate=True),
+    Output(GATE_PASSWORD_INPUT_ID, "value", allow_duplicate=True),
+    Output("disclaimer-screen", "style", allow_duplicate=True),
+    Output("main-app", "style", allow_duplicate=True),
+    Output("access-mode", "data", allow_duplicate=True),
+    Input(GATE_PASSWORD_SUBMIT_ID, "n_clicks"),
+    Input(GATE_PASSWORD_INPUT_ID, "n_submit"),
+    State(GATE_PASSWORD_INPUT_ID, "value"),
+    prevent_initial_call=True,
+)
+def _gate_admin_tearsheet_login(_submit_clicks, _n_submit, password):
+    ok, _msg = tkp_admin_auth_manager.login(session, password or "")
+    if not ok:
+        return INVALID_PASSWORD_MESSAGE, dash.no_update, "", dash.no_update, dash.no_update, dash.no_update
+    return "", False, "", {"display": "none"}, {"display": "block"}, "secret"
+
+
+@app.callback(
+    Output(GATE_PASSWORD_ERROR_ID, "children", allow_duplicate=True),
+    Output(GATE_PASSWORD_VISIBLE_STORE_ID, "data", allow_duplicate=True),
+    Output(GATE_PASSWORD_INPUT_ID, "value", allow_duplicate=True),
+    Output("url", "href"),
+    Output("url", "refresh"),
+    Input(GATE_PASSWORD_PORTAL_ID, "n_clicks"),
+    State(GATE_PASSWORD_INPUT_ID, "value"),
+    prevent_initial_call=True,
+)
+def _gate_admin_portal_login(_portal_clicks, password):
+    ok, _msg = tkp_admin_auth_manager.login(session, password or "")
+    if not ok:
+        return INVALID_PASSWORD_MESSAGE, dash.no_update, "", dash.no_update, dash.no_update
+    return "", False, "", ADMIN_PORTAL_PATH, True
+
+
+@app.server.route("/admin")
+def tkp_admin_portal():
+    if not tkp_admin_auth_manager.is_authenticated(session):
+        return redirect("/")
+    latest_date, row_count = _tkp_admin_board_stats()
+    diagnostics_html = render_legacy_diagnostics_table(
+        program_name="TKP",
+        latest_date=latest_date,
+        row_count=row_count,
+        daily_entry_href="/",
+    )
+    return render_portal_page(
+        program_name="TKP",
+        accounts=[],  # no participating-account registry for TKP yet -> Pending
+        diagnostics_html=diagnostics_html,
+    )
+
+
+@app.server.route("/admin/logout")
+def tkp_admin_logout():
+    tkp_admin_auth_manager.logout(session)
+    return redirect("/")
+
+
+@app.server.route("/healthz")
+def tkp_healthz():
+    ready = full_daily_df is not None and not full_daily_df.empty
+    return jsonify({
+        "app": "tkp",
+        "status": "ready" if ready else "error",
+        "rows_loaded": int(len(full_daily_df)) if full_daily_df is not None else 0,
+        "admin_auth": "configured" if tkp_admin_auth_manager.is_configured else "not_configured",
+    })
+
 
 @app.callback(
     Output("secret-table-container", "style"),

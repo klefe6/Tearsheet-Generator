@@ -24,6 +24,9 @@ TCP_PREVIEW_PORT_MAX = 8312
 SUPPORTED_STATE_MODES = frozenset({"workbook", "json_active"})
 DEFAULT_STATE_MODE = "workbook"
 
+PRODUCTION_PAGE_TITLE = "H&C – TCP"
+PREVIEW_PAGE_TITLE = "H&C – TCP v2 Preview"
+
 
 @dataclass(frozen=True)
 class AdminAuthSettings:
@@ -74,6 +77,29 @@ def _env_bool(name: str, default: bool) -> bool:
     return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def resolve_benchmark_cache_path(base_dir: str | Path, symbol: str = "spxtr") -> Path:
+    """Resolve benchmark cache path. SPXTR override via TCP_V2_BENCHMARK_CACHE_PATH."""
+    symbol_key = symbol.strip().lower()
+    env_overrides = {
+        "spxtr": "TCP_V2_BENCHMARK_CACHE_PATH",
+        "btc": "TCP_V2_BENCHMARK_BTC_CACHE_PATH",
+        "eth": "TCP_V2_BENCHMARK_ETH_CACHE_PATH",
+    }
+    filenames = {
+        "spxtr": "tcp_benchmark_cache.json",
+        "btc": "tcp_benchmark_btc_cache.json",
+        "eth": "tcp_benchmark_eth_cache.json",
+    }
+    override = os.environ.get(env_overrides.get(symbol_key, ""), "")
+    if override:
+        return Path(override)
+    if symbol_key in ("btc", "eth"):
+        spxtr_override = os.environ.get("TCP_V2_BENCHMARK_CACHE_PATH")
+        if spxtr_override:
+            return Path(spxtr_override).parent / filenames[symbol_key]
+    return Path(base_dir) / "_runtime" / filenames.get(symbol_key, filenames["spxtr"])
+
+
 def load_config() -> TCPConfig:
     """Build config from defaults and optional environment overrides."""
     workbook_path = os.environ.get("TCP_V2_WORKBOOK_PATH", DEFAULT_WORKBOOK_PATH)
@@ -88,6 +114,45 @@ def load_config() -> TCPConfig:
         state_lock_path=os.environ.get("TCP_V2_STATE_LOCK_PATH"),
         allow_workbook_fallback=_env_bool("TCP_V2_ALLOW_WORKBOOK_FALLBACK", True),
     )
+
+
+def resolve_bind_port(cfg: TCPConfig) -> int:
+    """Port for tcp_ts_v2.py. Defaults to preview_port; override with TCP_V2_BIND_PORT."""
+    raw = os.environ.get("TCP_V2_BIND_PORT")
+    if raw is None or not raw.strip():
+        return cfg.preview_port
+    try:
+        return int(raw.strip())
+    except ValueError:
+        return cfg.preview_port
+
+
+def validate_bind_port(cfg: TCPConfig, bind_port: int) -> Tuple[bool, str]:
+    if bind_port == cfg.production_port:
+        if cfg.debug:
+            return False, "debug must be False when binding production port 8302"
+        if bind_port != 8302:
+            return False, "production_port must be 8302"
+        return True, "ok"
+    if TCP_PREVIEW_PORT_MIN <= bind_port <= TCP_PREVIEW_PORT_MAX:
+        if bind_port == cfg.production_port:
+            return False, "preview bind must not use production port 8302"
+        return True, "ok"
+    return False, (
+        f"bind port {bind_port} must be production port 8302 or preview range "
+        f"{TCP_PREVIEW_PORT_MIN}-{TCP_PREVIEW_PORT_MAX}"
+    )
+
+
+def is_production_runtime(cfg: TCPConfig) -> bool:
+    return resolve_bind_port(cfg) == cfg.production_port
+
+
+def resolve_page_title(cfg: TCPConfig) -> str:
+    """Browser tab title: production branding vs preview canary."""
+    if is_production_runtime(cfg):
+        return PRODUCTION_PAGE_TITLE
+    return PREVIEW_PAGE_TITLE
 
 
 def load_admin_auth_settings() -> AdminAuthSettings:

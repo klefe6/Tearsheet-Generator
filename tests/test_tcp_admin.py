@@ -104,7 +104,8 @@ def test_incorrect_token_rejected(auth_manager):
     session = {}
     ok, message = auth_manager.login(session, "wrong-token")
     assert not ok
-    assert message == "Invalid credentials."
+    # Unified sibling-gate wording (matches INVALID_PASSWORD_MESSAGE in tearsheet_gate_auth).
+    assert message == "Invalid password"
     assert not auth_manager.is_authenticated(session)
 
 

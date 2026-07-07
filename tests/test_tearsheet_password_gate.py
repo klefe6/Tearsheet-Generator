@@ -17,9 +17,14 @@ from tcp_daily_values import (
 )
 from tcp_public_sections import build_public_accept_gate, resolve_public_gate_styles
 from tearsheet_gate_auth import (
+    ADMIN_DAILY_ENTRY_PATH,
+    ADMIN_PORTAL_PATH,
     GATE_PASSWORD_INPUT_ID,
+    GATE_PASSWORD_PORTAL_ID,
     GATE_PASSWORD_ROW_ID,
     GATE_PASSWORD_SUBMIT_ID,
+    GATE_PASSWORD_TEARSHEET_LABEL,
+    GATE_PASSWORD_PORTAL_LABEL,
     GATE_PASSWORD_VISIBLE_STORE_ID,
     INVALID_PASSWORD_MESSAGE,
     build_gate_password_row,
@@ -60,6 +65,17 @@ def test_tcp_gate_renders_accept_button_and_copy():
     assert "Accept & Continue" in layout
     assert "informational" in layout.lower()
     assert GATE_PASSWORD_ROW_ID in layout
+    assert GATE_PASSWORD_TEARSHEET_LABEL in layout
+    assert GATE_PASSWORD_PORTAL_LABEL in layout
+
+
+def test_password_row_renders_tearsheet_and_portal_buttons():
+    row = build_gate_password_row()
+    layout = str(row)
+    assert GATE_PASSWORD_SUBMIT_ID in layout
+    assert GATE_PASSWORD_PORTAL_ID in layout
+    assert GATE_PASSWORD_TEARSHEET_LABEL in layout
+    assert GATE_PASSWORD_PORTAL_LABEL in layout
 
 
 def test_password_row_initially_hidden():
@@ -96,6 +112,48 @@ def test_gate_submit_callback_registered(tcp_app):
         for cb in app.callback_map.values()
         for inp in cb.get("inputs", [])
     )
+    assert any(
+        inp.get("id") == GATE_PASSWORD_PORTAL_ID
+        for cb in app.callback_map.values()
+        for inp in cb.get("inputs", [])
+    )
+
+
+def test_admin_route_constants():
+    assert ADMIN_DAILY_ENTRY_PATH == "/"
+    assert ADMIN_PORTAL_PATH == "/admin"
+
+
+def test_admin_portal_requires_auth(tcp_app):
+    app, *_ = tcp_app
+    with app.server.test_client() as client:
+        response = client.get("/admin", follow_redirects=False)
+        assert response.status_code == 302
+        assert response.headers["Location"].endswith("/")
+
+
+def test_admin_portal_returns_200_when_authenticated(tcp_app):
+    app, *_ = tcp_app
+    with app.server.test_client() as client:
+        login = client.post("/admin/login", data={"token": TEST_TOKEN}, follow_redirects=False)
+        assert login.status_code == 302
+        response = client.get("/admin")
+        assert response.status_code == 200
+        assert b"portal-account-registry" in response.data
+        assert b"Daily entry" in response.data
+
+
+def test_admin_portal_matches_account_registry_columns_and_is_pending(tcp_app):
+    from tearsheet_portal import PORTAL_COLUMNS
+
+    app, *_ = tcp_app
+    with app.server.test_client() as client:
+        client.post("/admin/login", data={"token": TEST_TOKEN}, follow_redirects=False)
+        response = client.get("/admin")
+        for column in PORTAL_COLUMNS:
+            assert column.encode("utf-8") in response.data
+        # TCP has no participating-account registry yet -> Pending empty state.
+        assert b"Pending" in response.data
 
 
 def test_accept_does_not_auto_admin():
@@ -135,3 +193,13 @@ def test_admin_toolbar_visible_in_admin_mode_when_authenticated():
     assert resolve_daily_values_toolbar_style(
         ui_mode=UI_MODE_ADMIN, admin_authenticated=True
     ) == {"display": "block"}
+
+
+def test_healthz_is_real_json(tcp_app):
+    app, *_ = tcp_app
+    with app.server.test_client() as client:
+        response = client.get("/healthz")
+        assert response.status_code == 200
+        payload = response.get_json()
+        assert payload is not None
+        assert payload["app"] == "tcp-v2"

@@ -77,3 +77,28 @@ def test_tkp_layout_renders_tkp_participation_line():
 
     layout = str(tkp_ts.disclaimer_screen)
     assert proprietary_participation_text("TKP") in layout
+
+
+def test_tcp_v1_layout_renders_tcp_participation_line():
+    import tcp_ts
+    from tearsheet_disclosure import TCP_GATE_ACCEPT_TEXT
+
+    layout = str(tcp_ts.disclaimer_screen)
+    assert TCP_GATE_ACCEPT_TEXT in layout
+    assert proprietary_participation_text("TCP") in layout
+
+
+def test_algominds_real_layout_has_hidden_admin_trigger():
+    """mp_ts.py's real gate must carry the shared split-title element (parity rule 3),
+    even though no callback is wired to it yet (Algominds admin build-out is future work)."""
+    import sys
+
+    momentum_pacer_dir = str(REPO_ROOT / "Momentum Pacer")
+    if momentum_pacer_dir not in sys.path:
+        sys.path.insert(0, momentum_pacer_dir)
+    import mp_ts
+
+    layout = str(mp_ts.serve_layout())
+    assert layout.count(f"id='{GATE_NOTICE_E_ID}'") + layout.count(f'id="{GATE_NOTICE_E_ID}"') == 1
+    assert GATE_SECRET_E_CLASS in layout
+    assert "Important Notic" in layout

@@ -12,7 +12,8 @@ from decimal import Decimal, InvalidOperation
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Union
 
 import dash_bootstrap_components as dbc
-from dash import dash_table, dcc, html
+from dash import dash_table, html
+from flask import render_template_string
 
 from tcp_calculations import (
     CalculationInvariantError,
@@ -30,7 +31,7 @@ from tcp_calculations import (
     compute_tcp_row,
     public_row,
 )
-from tcp_config import AdminAuthSettings
+from tcp_public_sections import ADMIN_MODAL_CLASS
 from tcp_ledger import CURRENCY_HEADERS, INTEGER_HEADERS, PERCENTAGE_HEADERS, REQUIRED_HEADERS, LedgerRecord
 
 SESSION_KEY = "tcp_v2_admin_authenticated"
@@ -71,8 +72,9 @@ class DeleteSimulationResult:
 class AdminAuthManager:
     """Server-side preview admin authentication."""
 
-    def __init__(self, settings: AdminAuthSettings):
+    def __init__(self, settings: AdminAuthSettings, *, session_key: str = SESSION_KEY):
         self._settings = settings
+        self._session_key = session_key
 
     @property
     def settings(self) -> AdminAuthSettings:
@@ -96,22 +98,31 @@ class AdminAuthManager:
         if not self.is_configured:
             return False, "Admin access is not configured."
         if self.verify_token(token):
-            session[SESSION_KEY] = True
+            session[self._session_key] = True
             if hasattr(session, "permanent"):
-                session.permanent = True
+                session.permanent = False
             return True, ""
-        return False, "Invalid credentials."
+        return False, "Invalid password"
 
     def logout(self, session: Any) -> None:
-        session.pop(SESSION_KEY, None)
+        session.pop(self._session_key, None)
 
     def is_authenticated(self, session: Mapping[str, Any]) -> bool:
-        return self.is_configured and bool(session.get(SESSION_KEY))
+        return self.is_configured and bool(session.get(self._session_key))
 
 
-def configure_flask_session_secret(server: Any, settings: AdminAuthSettings) -> None:
+def configure_flask_session_secret(
+    server: Any,
+    settings: AdminAuthSettings,
+    *,
+    secure_cookies: bool = False,
+) -> None:
     if settings.session_secret:
         server.secret_key = settings.session_secret
+    server.config.setdefault("SESSION_COOKIE_HTTPONLY", True)
+    server.config.setdefault("SESSION_COOKIE_SAMESITE", "Lax")
+    if secure_cookies:
+        server.config.setdefault("SESSION_COOKIE_SECURE", True)
 
 
 def map_calculator_error(exc: Exception) -> str:
@@ -398,6 +409,7 @@ def build_add_row_modal() -> dbc.Modal:
         is_open=False,
         centered=True,
         size="lg",
+        className=ADMIN_MODAL_CLASS,
     )
 
 
@@ -430,14 +442,15 @@ def build_add_row_preview_modal(*, persistence_enabled: bool = False) -> dbc.Mod
         is_open=False,
         centered=True,
         size="lg",
+        className=ADMIN_MODAL_CLASS,
     )
 
 
 def build_delete_modal(*, persistence_enabled: bool = False) -> dbc.Modal:
-    confirm_label = "Delete Last Row" if persistence_enabled else "Confirm Simulation"
+    confirm_label = "Delete Latest Row" if persistence_enabled else "Confirm Simulation"
     return dbc.Modal(
         [
-            dbc.ModalHeader("Delete Last Row"),
+            dbc.ModalHeader("Delete Latest Row"),
             dbc.ModalBody(
                 [
                     html.P(
@@ -460,6 +473,7 @@ def build_delete_modal(*, persistence_enabled: bool = False) -> dbc.Modal:
         is_open=False,
         centered=True,
         size="lg",
+        className=ADMIN_MODAL_CLASS,
     )
 
 
@@ -528,8 +542,6 @@ def build_admin_editor_layout(
     writable: bool = False,
     warning: Optional[str] = None,
 ) -> html.Div:
-    table = build_ledger_datatable(rows, LEDGER_TABLE_COLUMNS)
-    table.style_data_conditional = ledger_table_style_conditional(rows)
     return html.Div(
         [
             build_simulation_banner(persistence_enabled=persistence_enabled and writable),
@@ -542,35 +554,10 @@ def build_admin_editor_layout(
                 writable=writable,
                 warning=warning,
             ),
-            dbc.Row(
-                [
-                    dbc.Col(
-                        [
-                            dbc.Button("Add Row", id="admin-open-add-modal", color="success", size="sm", className="me-2"),
-                            dbc.Button(
-                                "Delete Last Row",
-                                id="admin-open-delete-modal",
-                                color="danger",
-                                size="sm",
-                                outline=True,
-                                className="me-2",
-                            ),
-                            build_export_disabled_control(),
-                            html.A("Logout", href="/admin/logout", className="btn btn-link btn-sm"),
-                        ],
-                        width=12,
-                    )
-                ],
-                className="mb-3",
-            ),
             build_column_selector(),
-            html.Div(table, id="admin-ledger-table-container"),
             build_add_row_modal(),
             build_add_row_preview_modal(persistence_enabled=persistence_enabled and writable),
             build_delete_modal(persistence_enabled=persistence_enabled and writable),
-            dcc.Store(id="admin-proposed-row-store", storage_type="memory", data=None),
-            dcc.Store(id="admin-state-revision-store", storage_type="memory", data=state_revision),
-            dcc.Store(id="admin-delete-final-date-store", storage_type="memory", data=latest_date),
         ]
     )
 
@@ -578,17 +565,145 @@ def build_admin_editor_layout(
 LOGIN_FORM_HTML = """
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><title>TCP v2 Admin Login</title></head>
-<body style="font-family: sans-serif; max-width: 420px; margin: 40px auto;">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TCP v2 Admin Login</title>
+  <style>
+    body.tcp-admin-login-page {
+      font-family: sans-serif;
+      max-width: 28rem;
+      margin: 2rem auto;
+      padding: 0 1rem;
+      box-sizing: border-box;
+    }
+    body.tcp-admin-login-page input,
+    body.tcp-admin-login-page button {
+      font-size: 16px;
+      box-sizing: border-box;
+    }
+    body.tcp-admin-login-page input {
+      width: 100%;
+      margin: 0.5rem 0 1rem;
+      padding: 0.65rem 0.75rem;
+    }
+    body.tcp-admin-login-page button {
+      width: 100%;
+      padding: 0.65rem 1rem;
+    }
+    body.tcp-admin-login-page p {
+      word-wrap: break-word;
+      overflow-wrap: anywhere;
+    }
+  </style>
+</head>
+<body class="tcp-admin-login-page">
   <h2>TCP v2 Admin Login</h2>
   <p>Server-side authentication is required for the simulation editor.</p>
   {% if error %}<p style="color: #b00020;">{{ error }}</p>{% endif %}
   <form method="post">
     <label for="token">Admin token</label><br>
-    <input id="token" name="token" type="password" style="width: 100%; margin: 8px 0;" autocomplete="current-password" required>
+    <input id="token" name="token" type="password" autocomplete="current-password" required>
     <button type="submit">Sign in</button>
   </form>
   <p><a href="/">Return to public preview</a></p>
 </body>
 </html>
 """
+
+
+ADMIN_PORTAL_HTML = """
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ title }}</title>
+  <style>
+    body {
+      font-family: Arial, Helvetica, sans-serif;
+      margin: 0;
+      background: #ffffff;
+      color: #212529;
+    }
+    .wrap {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 24px;
+    }
+    h1 {
+      color: #0D3562;
+      font-size: 1.75rem;
+      margin-bottom: 0.5rem;
+    }
+    .muted {
+      color: #6c757d;
+    }
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      margin: 1.5rem 0;
+    }
+    th, td {
+      border: 1px solid #ccc;
+      padding: 8px;
+      text-align: left;
+    }
+    th {
+      background: #EBEBEB;
+    }
+    a {
+      color: #0D3562;
+    }
+    .actions a {
+      margin-right: 0.75rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Admin Overview</h1>
+    <p class="muted">Programs and daily entry access.</p>
+    <table id="admin-account-overview">
+      <thead>
+        <tr>
+          <th>Program</th>
+          <th>Latest completed date</th>
+          <th>Completed rows</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>{{ program_name }}</td>
+          <td>{{ latest_date }}</td>
+          <td>{{ row_count }}</td>
+          <td class="actions">
+            <a href="{{ daily_entry_href }}">Daily entry</a>
+            <a href="/">Public tearsheet</a>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+    <p class="muted"><a href="/admin/logout">Logout</a> · <a href="/">Back to tearsheet</a></p>
+  </div>
+</body>
+</html>
+"""
+
+
+def render_admin_portal_page(
+    *,
+    program_name: str,
+    latest_date: str = "—",
+    row_count: str = "—",
+    daily_entry_href: str = "/",
+) -> str:
+    return render_template_string(
+        ADMIN_PORTAL_HTML,
+        title=f"{program_name} — Admin",
+        program_name=program_name,
+        latest_date=latest_date,
+        row_count=row_count,
+        daily_entry_href=daily_entry_href,
+    )

@@ -7,6 +7,7 @@ Server starts only under if __name__ == "__main__".
 from __future__ import annotations
 
 import logging
+import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -18,6 +19,18 @@ import pandas as pd
 from dash import Input, Output, State, dcc, html, no_update
 from flask import jsonify, redirect, render_template_string, request, session
 
+from tearsheet_gate_auth import (
+    ADMIN_DAILY_ENTRY_PATH,
+    ADMIN_PORTAL_PATH,
+    GATE_PASSWORD_ERROR_ID,
+    GATE_PASSWORD_INPUT_ID,
+    GATE_PASSWORD_PORTAL_ID,
+    GATE_PASSWORD_ROW_ID,
+    GATE_PASSWORD_SUBMIT_ID,
+    GATE_PASSWORD_VISIBLE_STORE_ID,
+    INVALID_PASSWORD_MESSAGE,
+    gate_password_row_style,
+)
 from tcp_admin import (
     DELETE_CONFIRM_MESSAGE,
     DELETE_PERSIST_MESSAGE,
@@ -34,7 +47,37 @@ from tcp_admin import (
     simulate_add_row,
     simulate_delete_last_row,
 )
-from tcp_config import AdminAuthSettings, TCPConfig, load_admin_auth_settings, load_config, resolve_state_paths, validate_config
+from tearsheet_portal import render_legacy_diagnostics_table, render_portal_page
+from tcp_config import (
+    AdminAuthSettings,
+    TCPConfig,
+    is_production_runtime,
+    load_admin_auth_settings,
+    load_config,
+    resolve_benchmark_cache_path,
+    resolve_bind_port,
+    resolve_page_title,
+    resolve_state_paths,
+    validate_bind_port,
+    validate_config,
+)
+from tcp_benchmarks import (
+    BENCHMARK_STATUS_STALE,
+    BENCHMARK_STATUS_UNAVAILABLE,
+    BTC_DISPLAY_NAME,
+    BTC_SYMBOL,
+    BenchmarkResult,
+    DEFAULT_CACHE_FILENAME,
+    ETH_DISPLAY_NAME,
+    ETH_SYMBOL,
+    benchmark_status_message,
+    load_btc_benchmark,
+    load_btc_benchmark_cache_only,
+    load_eth_benchmark,
+    load_eth_benchmark_cache_only,
+    load_spxtr_benchmark,
+    load_spxtr_benchmark_cache_only,
+)
 from tcp_dashboard import (
     GREY_BG,
     propagate_tcp_dashboard,
@@ -48,13 +91,80 @@ from tcp_runtime_state import (
     persist_delete_last_row,
     state_record_to_fields,
 )
+from tcp_drawdown import format_drawdown_table_for_display
+from tcp_public_sections import (
+    CONTROLLED_TABLE_OVERFLOW_CLASS,
+    DAILY_METRICS_TABLE_CLASS,
+    DRAWDOWN_TABLE_CLASS,
+    DRAWDOWN_SECTION_CLASS,
+    HEADER_ROW_CLASS,
+    MODE_ALERT_CLASS,
+    MONTHLY_PERFORMANCE_CLASS,
+    NAV_CHART_CONTAINER_CLASS,
+    POST_ACCOUNT_DISCLAIMERS_CLASS,
+    PREVIEW_BANNER_CLASS,
+    PUBLIC_CARD_CLASS,
+    RUNTIME_DIAGNOSTICS_CARD_ID,
+    PUBLIC_SECTION_CLASS,
+    benchmark_notice_class,
+    build_firm_intro,
+    build_inline_performance_disclaimers,
+    build_drawdown_profile_card,
+    build_investor_information,
+    build_nav_footnotes,
+    build_public_disclosure_panel,
+    build_public_footer,
+    build_public_gate_wrapper,
+    build_strategy_overview,
+    build_tcp_header,
+    build_trading_universe,
+    build_two_column_shell_row,
+    monthly_performance_cell_class,
+)
+from tcp_daily_values import (
+    DAILY_VALUES_SECTION_ID,
+    DAILY_VALUES_TABLE_ID,
+    DAILY_VALUES_TOOLBAR_ID,
+    PUBLIC_DAILY_COLLAPSE_ID,
+    PUBLIC_DAILY_TOGGLE_BTN_ID,
+    PUBLIC_DAILY_TOGGLE_LABEL_HIDE,
+    PUBLIC_DAILY_TOGGLE_LABEL_SHOW,
+    PUBLIC_GATE_ACCEPTED_STORE_ID,
+    TCP_UI_MODE_STORE_ID,
+    UI_MODE_ADMIN,
+    UI_MODE_PUBLIC,
+    build_daily_values_section,
+    project_public_daily_rows,
+    public_daily_column_defs,
+    resolve_access_visibility,
+    resolve_daily_values_toolbar_style,
+    rows_from_records,
+    sort_rows_for_display,
+)
 from tcp_state import StatePaths
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("tcp_ts_v2")
 
+ADMIN_AUTH_REVISION_STORE_ID = "admin-auth-revision-store"
+
 WHITE_BG = "#ffffff"
 REPO_ROOT = Path(__file__).resolve().parent
+
+
+def authoritative_server_revision(runtime_holder: Dict[str, Any]) -> Optional[int]:
+    snap = runtime_holder.get("snapshot")
+    if snap is None:
+        return None
+    return snap.state_revision
+
+
+def next_admin_auth_revision(current: Optional[int]) -> int:
+    return (current or 0) + 1
+
+
+def explicit_button_click(triggered_id: Optional[str], button_id: str, n_clicks: Optional[int]) -> bool:
+    return triggered_id == button_id and bool(n_clicks)
 
 LOGO_PATH = (
     r"C:\Users\H&CDanHughes\Hughes & Company\Hughes & Company - Documents"
@@ -106,29 +216,58 @@ def load_preview_state(cfg: TCPConfig) -> PreviewState:
 def _monthly_table_component(monthly_df: pd.DataFrame) -> html.Div:
     if monthly_df.empty:
         return html.P("No monthly performance data available.", className="text-muted text-center")
-    return dbc.Table(
-        [
-            html.Thead(
-                html.Tr(
-                    [html.Th(col, style={"backgroundColor": GREY_BG, "color": "#000"}) for col in monthly_df.columns]
-                )
-            ),
-            html.Tbody(
-                [html.Tr([html.Td(monthly_df.iloc[i][col]) for col in monthly_df.columns]) for i in range(len(monthly_df))]
-            ),
-        ],
-        bordered=True,
-        hover=True,
-        size="sm",
-        className="table-responsive mb-5",
-        style={"width": "95%", "margin": "0 auto", "pageBreakInside": "avoid"},
+    body_rows = []
+    for i in range(len(monthly_df)):
+        cells = []
+        for col in monthly_df.columns:
+            value = monthly_df.iloc[i][col]
+            if col == "Year":
+                cells.append(html.Td(value, className="fw-semibold"))
+            else:
+                cells.append(html.Td(value, className=monthly_performance_cell_class(str(value))))
+        body_rows.append(html.Tr(cells))
+    return html.Div(
+        dbc.Table(
+            [
+                html.Thead(
+                    html.Tr(
+                        [html.Th(col, style={"backgroundColor": GREY_BG, "color": "#000"}) for col in monthly_df.columns]
+                    )
+                ),
+                html.Tbody(body_rows),
+            ],
+            bordered=True,
+            hover=True,
+            size="sm",
+            className=MONTHLY_PERFORMANCE_CLASS,
+        ),
+        className="tcp-monthly-performance-wrapper",
     )
 
 
 def _daily_perf_table_component(daily_df: pd.DataFrame) -> html.Div:
     if daily_df.empty:
         return html.P("No daily performance metrics available.", className="text-muted")
-    return dbc.Table.from_dataframe(daily_df, striped=False, bordered=True, hover=True, size="sm", className="fixed-cols")
+    return html.Div(
+        dbc.Table.from_dataframe(
+            daily_df, striped=False, bordered=True, hover=True, size="sm", className=DAILY_METRICS_TABLE_CLASS
+        ),
+        className=f"table-responsive {CONTROLLED_TABLE_OVERFLOW_CLASS}",
+    )
+
+
+def _drawdown_table_component(drawdown_df: pd.DataFrame) -> html.Div:
+    if drawdown_df.empty:
+        return html.P("No drawdown profile data available.", className="text-muted")
+    display_df = format_drawdown_table_for_display(drawdown_df)
+    return dbc.Table.from_dataframe(
+        display_df,
+        striped=False,
+        bordered=True,
+        hover=True,
+        size="sm",
+        className=DRAWDOWN_TABLE_CLASS,
+    )
 
 
 def _desktop_label_children(header: str, date_line: str) -> List[Any]:
@@ -147,16 +286,23 @@ def _mobile_label_children(header: str, date_line: str) -> List[Any]:
 
 def build_error_layout(cfg: TCPConfig, state: PreviewState) -> html.Div:
     message = state.error or "Unknown runtime error"
+    production_runtime = is_production_runtime(cfg)
+    banner = (
+        []
+        if production_runtime
+        else [dbc.Alert(cfg.preview_label, color="warning", className="text-center fw-bold")]
+    )
+    error_heading = "Service error" if production_runtime else "Preview error"
     return html.Div(
         [
-            dbc.Alert(cfg.preview_label, color="warning", className="text-center fw-bold"),
+            *banner,
             dbc.Container(
                 fluid=True,
                 className="py-4",
                 children=[
                     dbc.Alert(
                         [
-                            html.H4("Preview error", className="alert-heading"),
+                            html.H4(error_heading, className="alert-heading"),
                             html.P(message, className="mb-0"),
                             html.P(f"Status: {state.error_type or 'error'}", className="small text-muted mt-2"),
                         ],
@@ -168,12 +314,125 @@ def build_error_layout(cfg: TCPConfig, state: PreviewState) -> html.Div:
     )
 
 
-def build_preview_layout(cfg: TCPConfig, state: PreviewState) -> html.Div:
+def _benchmark_cache_path() -> Path:
+    return resolve_benchmark_cache_path(REPO_ROOT)
+
+
+def _btc_benchmark_cache_path() -> Path:
+    return resolve_benchmark_cache_path(REPO_ROOT, "btc")
+
+
+def _eth_benchmark_cache_path() -> Path:
+    return resolve_benchmark_cache_path(REPO_ROOT, "eth")
+
+
+def _skip_benchmark_fetch() -> bool:
+    return os.environ.get("TCP_V2_SKIP_BENCHMARK_FETCH") == "1"
+
+
+def _resolve_drawdown_benchmark(
+    runtime_holder: Dict[str, Any],
+    *,
+    symbol: str,
+    display_name: str,
+    cache_path: Path,
+    load_live,
+    load_cache_only,
+) -> BenchmarkResult:
+    cache = runtime_holder.setdefault("drawdown_benchmarks", {})
+    existing = cache.get(symbol)
+    if isinstance(existing, BenchmarkResult):
+        return existing
+    if _skip_benchmark_fetch():
+        result = load_cache_only(cache_path=cache_path)
+    else:
+        result = load_live(cache_path=cache_path)
+    cache[symbol] = result
+    return result
+
+
+def _resolve_btc_benchmark_result(runtime_holder: Dict[str, Any]) -> BenchmarkResult:
+    return _resolve_drawdown_benchmark(
+        runtime_holder,
+        symbol=BTC_SYMBOL,
+        display_name=BTC_DISPLAY_NAME,
+        cache_path=_btc_benchmark_cache_path(),
+        load_live=load_btc_benchmark,
+        load_cache_only=load_btc_benchmark_cache_only,
+    )
+
+
+def _resolve_eth_benchmark_result(runtime_holder: Dict[str, Any]) -> BenchmarkResult:
+    return _resolve_drawdown_benchmark(
+        runtime_holder,
+        symbol=ETH_SYMBOL,
+        display_name=ETH_DISPLAY_NAME,
+        cache_path=_eth_benchmark_cache_path(),
+        load_live=load_eth_benchmark,
+        load_cache_only=load_eth_benchmark_cache_only,
+    )
+
+
+def _propagate_with_drawdown_benchmarks(
+    records: List[Dict[str, Any]],
+    runtime_holder: Dict[str, Any],
+    benchmark_result: BenchmarkResult,
+) -> Any:
+    return propagate_tcp_dashboard(
+        records,
+        benchmark_result=benchmark_result,
+        btc_benchmark_result=_resolve_btc_benchmark_result(runtime_holder),
+        eth_benchmark_result=_resolve_eth_benchmark_result(runtime_holder),
+    )
+
+
+def _unavailable_benchmark_result() -> BenchmarkResult:
+    return BenchmarkResult(
+        status=BENCHMARK_STATUS_UNAVAILABLE,
+        symbol="^SP500TR",
+        display_name="SPXTR",
+        as_of=None,
+        fetched_at=None,
+        returns=None,
+        warning="SPXTR benchmark data is temporarily unavailable.",
+    )
+
+
+def _resolve_benchmark_result(runtime_holder: Dict[str, Any]) -> BenchmarkResult:
+    existing = runtime_holder.get("benchmark")
+    if isinstance(existing, BenchmarkResult):
+        return existing
+    cache_path = _benchmark_cache_path()
+    if _skip_benchmark_fetch():
+        result = load_spxtr_benchmark_cache_only(cache_path=cache_path)
+    else:
+        result = load_spxtr_benchmark(cache_path=cache_path)
+    runtime_holder["benchmark"] = result
+    return result
+
+
+def _benchmark_notice_component(result: BenchmarkResult) -> html.Div:
+    message = benchmark_status_message(result)
+    if not message:
+        return html.Div()
+    alert_color = "info"
+    if result.status == BENCHMARK_STATUS_UNAVAILABLE:
+        alert_color = "warning"
+    elif result.status == BENCHMARK_STATUS_STALE:
+        alert_color = "secondary"
+    return dbc.Alert(message, color=alert_color, className=benchmark_notice_class(result.status))
+
+
+def build_preview_layout(cfg: TCPConfig, state: PreviewState, benchmark_result: BenchmarkResult) -> html.Div:
     snapshot = state.snapshot
     assert snapshot is not None
     meta = snapshot.ledger.metadata
     first_completed = meta.first_completed_date.strftime("%B %d, %Y") if meta.first_completed_date else "—"
-    propagation = propagate_tcp_dashboard(snapshot.canonical_nav)
+    propagation = _propagate_with_drawdown_benchmarks(
+        snapshot.canonical_nav,
+        {},
+        benchmark_result,
+    )
     mode_alert = (
         "JSON state is authoritative. Authenticated Add/Delete persist to preview JSON."
         if cfg.persistence_enabled and snapshot.data_source == "json"
@@ -182,109 +441,136 @@ def build_preview_layout(cfg: TCPConfig, state: PreviewState) -> html.Div:
     if snapshot.warning:
         mode_alert = snapshot.warning
 
-    return html.Div(
+    performance_metrics_card = dbc.Card(
         [
-            dcc.Store(id="canonical-nav-store", storage_type="memory", data=snapshot.canonical_nav),
-            dcc.Location(id="url", refresh=False),
-            dbc.Container(
-                fluid=True,
-                className="py-4",
-                children=[
-                    dbc.Alert(cfg.preview_label, color="warning", className="text-center fw-bold"),
-                    dbc.Row(
+            dbc.CardHeader(html.H6("Performance Metrics", className="mb-0"), className=HEADER_ROW_CLASS),
+            dbc.CardBody(html.Div(_daily_perf_table_component(propagation.daily_performance), id="daily-perf-container")),
+        ],
+        outline=True,
+        className=PUBLIC_CARD_CLASS,
+        id="tcp-performance-metrics-card",
+    )
+
+    production_runtime = is_production_runtime(cfg)
+    preview_banner = (
+        []
+        if production_runtime
+        else [dbc.Alert(cfg.preview_label, color="warning", className=PREVIEW_BANNER_CLASS)]
+    )
+    mode_alert_block = [] if production_runtime else [dbc.Alert(mode_alert, color="info", className=MODE_ALERT_CLASS)]
+    diagnostics_card = (
+        []
+        if production_runtime
+        else [
+            dbc.Card(
+                [
+                    dbc.CardHeader("Runtime diagnostics (preview only)"),
+                    dbc.CardBody(
                         [
-                            dbc.Col(html.Img(src=_logo_src(), style={"maxHeight": "80px"}, alt="Hughes & Company Logo"), width=2),
-                            dbc.Col(
-                                [
-                                    html.H2("Hughes & Company LLC", className="text-center"),
-                                    html.H5("The Crypto Program", className="text-center text-muted"),
-                                ],
-                                width=8,
-                            ),
-                            dbc.Col(
-                                html.Div(
-                                    _desktop_label_children(
-                                        propagation.desktop_label.header,
-                                        propagation.desktop_label.date_line,
-                                    ),
-                                    id="data-current-label-desktop",
-                                    className="d-none d-md-block",
-                                ),
-                                width=2,
-                            ),
-                        ],
-                        className="mb-1",
+                            html.P([html.Strong("State mode: "), cfg.state_mode], className="mb-1"),
+                            html.P([html.Strong("Data source: "), snapshot.data_source], className="mb-1"),
+                            html.P([html.Strong("Recovery status: "), snapshot.recovery_status], className="mb-1"),
+                            html.P([html.Strong("State revision: "), str(snapshot.state_revision or "—")], className="mb-1"),
+                            html.P([html.Strong("Completed ledger rows: "), str(meta.completed_row_count)], className="mb-1"),
+                            html.P([html.Strong("First completed date: "), first_completed], className="mb-1"),
+                            html.P([html.Strong("Latest completed date: "), propagation.desktop_label.date_line], className="mb-1"),
+                            html.P([html.Strong("Workbook: "), cfg.workbook_filename, " · Sheet: ", cfg.sheet_name], className="mb-1 small text-muted"),
+                        ]
                     ),
-                    dbc.Row(
-                        [
-                            dbc.Col(
-                                html.Div(
-                                    _mobile_label_children(
-                                        propagation.mobile_label.header,
-                                        propagation.mobile_label.date_line,
-                                    ),
-                                    id="data-current-label-mobile",
-                                    className="d-block d-md-none text-end",
-                                ),
-                                width=12,
-                            )
-                        ],
-                        className="mb-3",
+                ],
+                className=f"mt-3 {PUBLIC_SECTION_CLASS}",
+                id=RUNTIME_DIAGNOSTICS_CARD_ID,
+            )
+        ]
+    )
+
+    main_children = [
+        dcc.Store(id="canonical-nav-store", storage_type="memory", data=snapshot.canonical_nav),
+        dcc.Store(id="benchmark-store", storage_type="memory", data=benchmark_result.to_store_dict()),
+        dcc.Store(id="admin-proposed-row-store", storage_type="memory", data=None),
+        dcc.Store(id=ADMIN_AUTH_REVISION_STORE_ID, storage_type="memory", data=0),
+        dcc.Store(id="admin-state-revision-store", storage_type="memory", data=snapshot.state_revision),
+        dcc.Store(
+            id="admin-delete-final-date-store",
+            storage_type="memory",
+            data=meta.latest_completed_date.isoformat() if meta.latest_completed_date else None,
+        ),
+        dcc.Location(id="url", refresh=False),
+        dbc.Container(
+            fluid=True,
+            className="py-4",
+            id="page-container",
+            children=[
+                *preview_banner,
+                *build_tcp_header(
+                    _logo_src(),
+                    _desktop_label_children(
+                        propagation.desktop_label.header,
+                        propagation.desktop_label.date_line,
                     ),
-                    dbc.Alert(mode_alert, color="info"),
+                    _mobile_label_children(
+                        propagation.mobile_label.header,
+                        propagation.mobile_label.date_line,
+                    ),
+                ),
+                build_firm_intro(),
+                *mode_alert_block,
+                html.Div(
                     dcc.Graph(
                         id="nav-preview-graph",
                         figure=propagation.nav_figure,
                         config={"displayModeBar": False, "responsive": True},
                         style={"width": "100%", "maxWidth": "100%", "maxHeight": "400px", "pageBreakInside": "avoid"},
                     ),
-                    html.P(
-                        "This chart visualizes the growth of a $50,000 investment from inception to today. "
-                        "NAV stands for Net Asset Value; it reflects the non-compounded performance, net of all fees.",
-                        className="text-center small",
-                        style={"marginTop": "2rem"},
+                    className=NAV_CHART_CONTAINER_CLASS,
+                    id="tcp-nav-chart-container",
+                ),
+                *build_nav_footnotes(),
+                html.H5("Performance Summary", className="text-center mb-2"),
+                html.Div(_monthly_table_component(propagation.monthly_calendar), id="monthly-calendar-container"),
+                build_two_column_shell_row(
+                    build_strategy_overview(),
+                    build_trading_universe(),
+                    row_id="tcp-strategy-row",
+                ),
+                build_two_column_shell_row(
+                    performance_metrics_card,
+                    build_investor_information(),
+                    row_id="tcp-performance-account-row",
+                ),
+                html.Div(
+                    build_drawdown_profile_card(
+                        _drawdown_table_component(propagation.drawdown_profile),
+                        benchmark_notice=_benchmark_notice_component(benchmark_result),
                     ),
-                    html.H5("Performance Summary", className="text-center mb-2"),
-                    html.Div(_monthly_table_component(propagation.monthly_calendar), id="monthly-calendar-container"),
-                    dbc.Card(
-                        [
-                            dbc.CardHeader(html.H6("Performance Metrics", className="mb-0")),
-                            dbc.CardBody(html.Div(_daily_perf_table_component(propagation.daily_performance), id="daily-perf-container")),
-                        ],
-                        outline=True,
-                        className="mb-4",
-                    ),
-                    html.Div(id="admin-editor-container", style={"display": "none"}),
-                    dbc.Card(
-                        [
-                            dbc.CardHeader("Runtime diagnostics (preview only)"),
-                            dbc.CardBody(
-                                [
-                                    html.P([html.Strong("State mode: "), cfg.state_mode], className="mb-1"),
-                                    html.P([html.Strong("Data source: "), snapshot.data_source], className="mb-1"),
-                                    html.P([html.Strong("Recovery status: "), snapshot.recovery_status], className="mb-1"),
-                                    html.P([html.Strong("State revision: "), str(snapshot.state_revision or "—")], className="mb-1"),
-                                    html.P([html.Strong("Completed ledger rows: "), str(meta.completed_row_count)], className="mb-1"),
-                                    html.P([html.Strong("First completed date: "), first_completed], className="mb-1"),
-                                    html.P([html.Strong("Latest completed date: "), propagation.desktop_label.date_line], className="mb-1"),
-                                    html.P([html.Strong("Workbook: "), cfg.workbook_filename, " · Sheet: ", cfg.sheet_name], className="mb-1 small text-muted"),
-                                    html.P(html.A("Admin login", href="/admin/login", className="small"), className="mb-0"),
-                                ]
-                            ),
-                        ],
-                        className="mt-3",
-                    ),
-                ],
-            ),
-        ]
-    )
+                    id="tcp-drawdown-section",
+                    className=DRAWDOWN_SECTION_CLASS,
+                ),
+                html.Div(
+                    build_inline_performance_disclaimers(),
+                    className=POST_ACCOUNT_DISCLAIMERS_CLASS,
+                    id="tcp-post-account-disclaimers",
+                ),
+                build_daily_values_section(
+                    snapshot.records,
+                    meta,
+                    data_source=snapshot.data_source,
+                ),
+                build_public_disclosure_panel(),
+                build_public_footer(),
+                html.Div(id="admin-editor-container", style={"display": "none"}),
+                *diagnostics_card,
+            ],
+        ),
+    ]
+    return build_public_gate_wrapper(main_children)
 
 
 def _health_payload(cfg: TCPConfig, state: PreviewState, auth_manager: AdminAuthManager) -> dict:
     base: Dict[str, Any] = {
         "app": "tcp-v2",
         "mode": "read-only" if cfg.read_only else "json-active",
-        "port": cfg.preview_port,
+        "port": resolve_bind_port(cfg),
         "debug": cfg.debug,
         "workbook": cfg.workbook_filename,
         "sheet": cfg.sheet_name,
@@ -313,22 +599,182 @@ def _health_payload(cfg: TCPConfig, state: PreviewState, auth_manager: AdminAuth
     return base
 
 
-def _register_dashboard_callback(app: dash.Dash) -> None:
+def _register_access_callbacks(
+    app: dash.Dash,
+    auth_manager: AdminAuthManager,
+    runtime_holder: Dict[str, Any],
+) -> None:
+    @app.callback(
+        Output(GATE_PASSWORD_VISIBLE_STORE_ID, "data"),
+        Input("secret-notice-e", "n_clicks"),
+        State(GATE_PASSWORD_VISIBLE_STORE_ID, "data"),
+        prevent_initial_call=True,
+    )
+    def _toggle_gate_password_row(n_clicks, visible):
+        if n_clicks:
+            return not bool(visible)
+        return no_update
+
+    @app.callback(
+        Output(GATE_PASSWORD_ROW_ID, "style"),
+        Input(GATE_PASSWORD_VISIBLE_STORE_ID, "data"),
+    )
+    def _render_gate_password_row(visible):
+        return gate_password_row_style(bool(visible))
+
+    @app.callback(
+        Output(GATE_PASSWORD_INPUT_ID, "value", allow_duplicate=True),
+        Input(GATE_PASSWORD_VISIBLE_STORE_ID, "data"),
+        prevent_initial_call=True,
+    )
+    def _clear_password_when_hidden(visible):
+        if not visible:
+            return ""
+        return no_update
+
+    @app.callback(
+        Output(GATE_PASSWORD_ERROR_ID, "children"),
+        Output(GATE_PASSWORD_VISIBLE_STORE_ID, "data", allow_duplicate=True),
+        Output(GATE_PASSWORD_INPUT_ID, "value", allow_duplicate=True),
+        Output("disclaimer-screen", "style", allow_duplicate=True),
+        Output("main-app", "style", allow_duplicate=True),
+        Output(DAILY_VALUES_SECTION_ID, "style", allow_duplicate=True),
+        Output(TCP_UI_MODE_STORE_ID, "data", allow_duplicate=True),
+        Output(ADMIN_AUTH_REVISION_STORE_ID, "data"),
+        Input(GATE_PASSWORD_SUBMIT_ID, "n_clicks"),
+        Input(GATE_PASSWORD_INPUT_ID, "n_submit"),
+        State(GATE_PASSWORD_INPUT_ID, "value"),
+        State(ADMIN_AUTH_REVISION_STORE_ID, "data"),
+        prevent_initial_call=True,
+    )
+    def _gate_admin_tearsheet_login(submit_clicks, _n_submit, password, auth_revision):
+        _ = submit_clicks
+        ok, _msg = auth_manager.login(session, password or "")
+        if not ok:
+            return INVALID_PASSWORD_MESSAGE, no_update, "", no_update, no_update, no_update, no_update, no_update
+        gate_style, main_style, daily_style = resolve_access_visibility(ui_mode=UI_MODE_ADMIN)
+        return "", False, "", gate_style, main_style, daily_style, UI_MODE_ADMIN, next_admin_auth_revision(auth_revision)
+
+    @app.callback(
+        Output(GATE_PASSWORD_ERROR_ID, "children", allow_duplicate=True),
+        Output(GATE_PASSWORD_VISIBLE_STORE_ID, "data", allow_duplicate=True),
+        Output(GATE_PASSWORD_INPUT_ID, "value", allow_duplicate=True),
+        Output(ADMIN_AUTH_REVISION_STORE_ID, "data", allow_duplicate=True),
+        Output("url", "href"),
+        Output("url", "refresh"),
+        Input(GATE_PASSWORD_PORTAL_ID, "n_clicks"),
+        State(GATE_PASSWORD_INPUT_ID, "value"),
+        State(ADMIN_AUTH_REVISION_STORE_ID, "data"),
+        prevent_initial_call=True,
+    )
+    def _gate_admin_portal_login(portal_clicks, password, auth_revision):
+        _ = portal_clicks
+        ok, _msg = auth_manager.login(session, password or "")
+        if not ok:
+            return INVALID_PASSWORD_MESSAGE, no_update, "", no_update, no_update, no_update
+        return "", False, "", next_admin_auth_revision(auth_revision), ADMIN_PORTAL_PATH, True
+
+    @app.callback(
+        Output("admin-add-modal", "is_open", allow_duplicate=True),
+        Output("admin-add-preview-modal", "is_open", allow_duplicate=True),
+        Output("admin-delete-modal", "is_open", allow_duplicate=True),
+        Output("admin-proposed-row-store", "data", allow_duplicate=True),
+        Output("admin-delete-final-date-store", "data", allow_duplicate=True),
+        Output("admin-delete-result", "is_open", allow_duplicate=True),
+        Output("admin-delete-result", "children", allow_duplicate=True),
+        Output("admin-add-save-result", "is_open", allow_duplicate=True),
+        Output("admin-add-save-result", "children", allow_duplicate=True),
+        Output("admin-state-revision-store", "data", allow_duplicate=True),
+        Input(ADMIN_AUTH_REVISION_STORE_ID, "data"),
+        prevent_initial_call=True,
+    )
+    def _reset_admin_mutation_state(_auth_revision):
+        snap = runtime_holder.get("snapshot")
+        latest_iso = None
+        server_revision = None
+        if snap is not None:
+            latest_date = snap.ledger.metadata.latest_completed_date
+            latest_iso = latest_date.isoformat() if latest_date else None
+            server_revision = snap.state_revision
+        return False, False, False, None, latest_iso, False, "", False, "", server_revision
+
+    @app.callback(
+        Output("disclaimer-screen", "style"),
+        Output("main-app", "style"),
+        Output(DAILY_VALUES_SECTION_ID, "style"),
+        Output(TCP_UI_MODE_STORE_ID, "data"),
+        Input("accept-button", "n_clicks"),
+        Input("url", "pathname"),
+        State(TCP_UI_MODE_STORE_ID, "data"),
+        prevent_initial_call=False,
+    )
+    def _control_public_access(accept_clicks, _pathname, ui_mode):
+        triggered = dash.callback_context.triggered_id
+        if triggered == "accept-button" and accept_clicks:
+            auth_manager.logout(session)
+            ui_mode = UI_MODE_PUBLIC
+        elif auth_manager.is_authenticated(session) and ui_mode is None:
+            ui_mode = UI_MODE_ADMIN
+        gate_style, main_style, daily_style = resolve_access_visibility(ui_mode=ui_mode)
+        return gate_style, main_style, daily_style, ui_mode
+
+    @app.callback(
+        Output(DAILY_VALUES_TOOLBAR_ID, "style"),
+        Input("url", "pathname"),
+        Input(ADMIN_AUTH_REVISION_STORE_ID, "data"),
+        Input("admin-state-revision-store", "data"),
+        Input(TCP_UI_MODE_STORE_ID, "data"),
+    )
+    def _toggle_daily_values_admin_toolbar(_pathname, _auth_revision, _revision, ui_mode):
+        return resolve_daily_values_toolbar_style(
+            ui_mode=ui_mode,
+            admin_authenticated=auth_manager.is_authenticated(session),
+        )
+
+    @app.callback(
+        Output(PUBLIC_DAILY_COLLAPSE_ID, "is_open"),
+        Output(PUBLIC_DAILY_TOGGLE_BTN_ID, "children"),
+        Input(PUBLIC_DAILY_TOGGLE_BTN_ID, "n_clicks"),
+        State(PUBLIC_DAILY_COLLAPSE_ID, "is_open"),
+        prevent_initial_call=True,
+    )
+    def _toggle_public_daily_values(n_clicks, is_open):
+        _ = n_clicks
+        new_open = not is_open
+        label = PUBLIC_DAILY_TOGGLE_LABEL_HIDE if new_open else PUBLIC_DAILY_TOGGLE_LABEL_SHOW
+        return new_open, label
+
+
+def _register_dashboard_callback(app: dash.Dash, runtime_holder: Dict[str, Any]) -> None:
     @app.callback(
         Output("nav-preview-graph", "figure"),
         Output("monthly-calendar-container", "children"),
         Output("daily-perf-container", "children"),
+        Output("drawdown-profile-container", "children"),
+        Output("tcp-benchmark-notice", "children"),
         Output("data-current-label-desktop", "children"),
         Output("data-current-label-mobile", "children"),
         Input("canonical-nav-store", "data"),
+        Input("benchmark-store", "data"),
     )
-    def _propagate_dashboard_outputs(canonical_data):
+    def _propagate_dashboard_outputs(canonical_data, benchmark_data):
         records = canonical_data or []
-        propagation = propagate_tcp_dashboard(records)
+        benchmark_result = (
+            BenchmarkResult.from_store_dict(benchmark_data)
+            if benchmark_data
+            else _resolve_benchmark_result(runtime_holder)
+        )
+        propagation = _propagate_with_drawdown_benchmarks(
+            records,
+            runtime_holder,
+            benchmark_result,
+        )
         return (
             propagation.nav_figure,
             _monthly_table_component(propagation.monthly_calendar),
             _daily_perf_table_component(propagation.daily_performance),
+            _drawdown_table_component(propagation.drawdown_profile),
+            _benchmark_notice_component(benchmark_result),
             _desktop_label_children(propagation.desktop_label.header, propagation.desktop_label.date_line),
             _mobile_label_children(propagation.mobile_label.header, propagation.mobile_label.date_line),
         )
@@ -351,10 +797,12 @@ def _register_admin_callbacks(
         Output("admin-editor-container", "children"),
         Output("admin-editor-container", "style"),
         Input("url", "pathname"),
+        Input(ADMIN_AUTH_REVISION_STORE_ID, "data"),
         Input("admin-state-revision-store", "data"),
+        Input(TCP_UI_MODE_STORE_ID, "data"),
     )
-    def _render_admin_editor(_pathname, _revision):
-        if not auth_manager.is_authenticated(session):
+    def _render_admin_editor(_pathname, _auth_revision, _revision, ui_mode):
+        if ui_mode != UI_MODE_ADMIN or not auth_manager.is_authenticated(session):
             return [], {"display": "none"}
         snap = current_snapshot()
         rows = ledger_records_to_rows(snap.records)
@@ -373,28 +821,37 @@ def _register_admin_callbacks(
         return editor, {"display": "block"}
 
     @app.callback(
-        Output("admin-ledger-table", "data"),
-        Output("admin-ledger-table", "style_data_conditional"),
+        Output(DAILY_VALUES_TABLE_ID, "data"),
+        Output(DAILY_VALUES_TABLE_ID, "style_data_conditional"),
+        Output(DAILY_VALUES_TABLE_ID, "sort_by"),
         Input("admin-state-revision-store", "data"),
         prevent_initial_call=False,
     )
-    def _refresh_ledger_table(_revision):
-        if not auth_manager.is_authenticated(session):
-            return no_update, no_update
-        rows = ledger_records_to_rows(current_snapshot().records)
-        display_rows = [{k: v for k, v in row.items() if k != "_highlight"} for row in rows]
-        return display_rows, ledger_table_style_conditional(rows)
+    def _refresh_daily_values_table(_revision):
+        snap = current_snapshot()
+        rows = sort_rows_for_display(ledger_records_to_rows(snap.records))
+        from tcp_daily_values import DAILY_VALUES_DEFAULT_SORT
+
+        return (
+            project_public_daily_rows(rows),
+            ledger_table_style_conditional(rows),
+            DAILY_VALUES_DEFAULT_SORT,
+        )
 
     @app.callback(
-        Output("admin-ledger-table", "columns"),
+        Output(DAILY_VALUES_TABLE_ID, "columns"),
         Input("admin-column-selector", "value"),
         prevent_initial_call=False,
     )
-    def _update_visible_columns(visible_columns):
+    def _update_daily_values_columns(visible_columns):
+        from tcp_daily_values import PUBLIC_DAILY_COLUMN_IDS
+
         if not auth_manager.is_authenticated(session):
-            return no_update
-        visible = visible_columns or []
-        return datatable_column_defs(visible)
+            return public_daily_column_defs()
+        selected = [col for col in (visible_columns or list(PUBLIC_DAILY_COLUMN_IDS)) if col in PUBLIC_DAILY_COLUMN_IDS]
+        if not selected:
+            selected = list(PUBLIC_DAILY_COLUMN_IDS)
+        return public_daily_column_defs(selected)
 
     @app.callback(
         Output("admin-add-modal", "is_open"),
@@ -411,11 +868,13 @@ def _register_admin_callbacks(
         if not auth_manager.is_authenticated(session):
             return no_update, no_update, no_update, no_update, no_update
         triggered = dash.callback_context.triggered_id
-        if triggered == "admin-add-cancel-btn":
+        if explicit_button_click(triggered, "admin-add-cancel-btn", cancel_clicks):
             return False, no_update, no_update, no_update, no_update
-        latest_record = state_record_to_fields(current_snapshot().records[-1].fields)
-        defaults = default_add_row_values(latest_record)
-        return True, defaults["date"], defaults["cash_balance"], defaults["cash_transfers"], defaults["tranche_count"]
+        if explicit_button_click(triggered, "admin-open-add-modal", open_clicks):
+            latest_record = state_record_to_fields(current_snapshot().records[-1].fields)
+            defaults = default_add_row_values(latest_record)
+            return True, defaults["date"], defaults["cash_balance"], defaults["cash_transfers"], defaults["tranche_count"]
+        return no_update, no_update, no_update, no_update, no_update
 
     @app.callback(
         Output("admin-add-preview-modal", "is_open"),
@@ -503,7 +962,8 @@ def _register_admin_callbacks(
             authenticated=True,
         )
         if not result.success or result.snapshot is None:
-            return no_update, no_update, result.error_message or "Save failed.", True, True
+            refreshed_revision = current_snapshot().state_revision
+            return no_update, refreshed_revision, result.error_message or "Save failed.", True, True
         set_snapshot(result.snapshot)
         message = f"Saved row {result.saved_date} · NAV {result.saved_nav:.3f} · revision {result.revision}"
         return result.snapshot.canonical_nav, result.revision, message, True, False
@@ -529,16 +989,16 @@ def _register_admin_callbacks(
             return (no_update,) * 7
         triggered = dash.callback_context.triggered_id
         snap = current_snapshot()
-        if triggered == "admin-open-delete-modal":
+        if explicit_button_click(triggered, "admin-open-delete-modal", open_clicks):
             preview = simulate_delete_last_row(snap.records)
             deleted_date = None
             if preview.deleted_row:
                 raw = preview.deleted_row.get("Date")
                 deleted_date = raw.isoformat() if hasattr(raw, "isoformat") else str(raw)
             return True, delete_preview_content(preview), False, "", deleted_date, no_update, no_update
-        if triggered == "admin-delete-close-btn":
+        if explicit_button_click(triggered, "admin-delete-close-btn", close_clicks):
             return False, no_update, False, "", no_update, no_update, no_update
-        if triggered == "admin-delete-confirm-btn":
+        if explicit_button_click(triggered, "admin-delete-confirm-btn", confirm_clicks):
             if cfg.persistence_enabled and snap.writable and expected_revision is not None and final_date:
                 result = persist_delete_last_row(
                     cfg,
@@ -559,13 +1019,51 @@ def _register_admin_callbacks(
                         result.snapshot.canonical_nav,
                         result.revision,
                     )
-                return True, no_update, True, result.error_message or "Delete failed.", no_update, no_update, no_update
+                return (
+                    True,
+                    no_update,
+                    True,
+                    result.error_message or "Delete failed.",
+                    no_update,
+                    no_update,
+                    snap.state_revision,
+                )
             preview = simulate_delete_last_row(snap.records)
             return True, delete_preview_content(preview), True, DELETE_CONFIRM_MESSAGE, no_update, no_update, no_update
-        return False, no_update, False, "", no_update, no_update, no_update
+        return no_update, no_update, no_update, no_update, no_update, no_update, no_update
 
 
-def _register_auth_routes(app: dash.Dash, auth_manager: AdminAuthManager) -> None:
+def _register_auth_routes(
+    app: dash.Dash,
+    auth_manager: AdminAuthManager,
+    runtime_holder: Optional[Dict[str, Any]] = None,
+) -> None:
+    from tcp_public_sections import TCP_PRODUCT_NAME
+
+    @app.server.route("/admin")
+    def admin_portal():
+        if not auth_manager.is_authenticated(session):
+            return redirect("/")
+        latest_date = "—"
+        row_count = "—"
+        snap = (runtime_holder or {}).get("snapshot")
+        if snap is not None:
+            meta = snap.ledger.metadata
+            if meta.latest_completed_date is not None:
+                latest_date = meta.latest_completed_date.isoformat()
+            row_count = str(meta.completed_row_count)
+        diagnostics_html = render_legacy_diagnostics_table(
+            program_name=TCP_PRODUCT_NAME,
+            latest_date=latest_date,
+            row_count=row_count,
+            daily_entry_href=ADMIN_DAILY_ENTRY_PATH,
+        )
+        return render_portal_page(
+            program_name=TCP_PRODUCT_NAME,
+            accounts=[],  # no participating-account registry for TCP yet -> Pending
+            diagnostics_html=diagnostics_html,
+        )
+
     @app.server.route("/admin/login", methods=["GET", "POST"])
     def admin_login():
         if request.method == "POST":
@@ -605,16 +1103,22 @@ def create_app(
 
     app = dash.Dash(
         __name__,
-        external_stylesheets=[dbc.themes.BOOTSTRAP],
+        external_stylesheets=[dbc.themes.BOOTSTRAP, "/assets/styles.css"],
         suppress_callback_exceptions=True,
-        title="H&C – TCP v2 Preview",
+        title=resolve_page_title(cfg),
     )
-    configure_flask_session_secret(app.server, auth_settings)
-    _register_auth_routes(app, auth_manager)
+    configure_flask_session_secret(
+        app.server,
+        auth_settings,
+        secure_cookies=is_production_runtime(cfg),
+    )
+    _register_auth_routes(app, auth_manager, runtime_holder)
 
     if state.snapshot is not None:
-        app.layout = build_preview_layout(cfg, state)
-        _register_dashboard_callback(app)
+        benchmark_result = _resolve_benchmark_result(runtime_holder)
+        app.layout = build_preview_layout(cfg, state, benchmark_result)
+        _register_access_callbacks(app, auth_manager, runtime_holder)
+        _register_dashboard_callback(app, runtime_holder)
         _register_admin_callbacks(app, cfg, paths, runtime_holder, auth_manager)
     else:
         app.layout = build_error_layout(cfg, state)
@@ -639,8 +1143,14 @@ def main() -> None:
     if not ok:
         logger.error("Config validation failed: %s", msg)
         sys.exit(1)
-    logger.info("Starting %s on port %s (debug=%s)", cfg.preview_label, cfg.preview_port, cfg.debug)
-    app.run(debug=cfg.debug, port=cfg.preview_port)
+    bind_port = resolve_bind_port(cfg)
+    ok_bind, bind_msg = validate_bind_port(cfg, bind_port)
+    if not ok_bind:
+        logger.error("Bind port validation failed: %s", bind_msg)
+        sys.exit(1)
+    label = "TCP v2 Production" if is_production_runtime(cfg) else cfg.preview_label
+    logger.info("Starting %s on port %s (debug=%s)", label, bind_port, cfg.debug)
+    app.run(debug=cfg.debug, port=bind_port)
 
 
 if __name__ == "__main__":
