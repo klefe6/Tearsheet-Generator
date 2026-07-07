@@ -197,7 +197,7 @@ def test_invalid_account_slug_in_persisted_latest_snapshot_raises(tmp_path: Path
 
 def test_loaded_snapshot_matches_registry_route_slug(tmp_path: Path) -> None:
     path = tmp_path / "preview.json"
-    expected_route_slug = "acct-60k"
+    expected_route_slug = "vikram-suman"
     snapshot = AlgomindsV2FeeSnapshot(
         as_of_date=date(2026, 5, 31),
         account_balance=D("60868.19"),
