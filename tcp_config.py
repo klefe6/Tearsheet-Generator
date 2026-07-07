@@ -27,6 +27,11 @@ DEFAULT_STATE_MODE = "workbook"
 PRODUCTION_PAGE_TITLE = "H&C – TCP"
 PREVIEW_PAGE_TITLE = "H&C – TCP v2 Preview"
 
+# Temporary shared sibling admin password for local TKP/TCP/AGM gates (env override supported).
+DEFAULT_SIBLING_ADMIN_TOKEN = "gc11"
+# Internal Flask cookie-signing key only — not a user-facing password.
+DEFAULT_SIBLING_SESSION_SECRET = "hc-sibling-tearsheet-local-session-signing-key-v1"
+
 
 @dataclass(frozen=True)
 class AdminAuthSettings:
@@ -155,13 +160,40 @@ def resolve_page_title(cfg: TCPConfig) -> str:
     return PREVIEW_PAGE_TITLE
 
 
-def load_admin_auth_settings() -> AdminAuthSettings:
-    """Load preview admin auth settings from environment variables only."""
-    token = os.environ.get("TCP_V2_ADMIN_TOKEN")
-    secret = os.environ.get("TCP_V2_SESSION_SECRET")
+def _non_empty_env(name: str) -> Optional[str]:
+    raw = os.environ.get(name)
+    if raw is None:
+        return None
+    stripped = str(raw).strip()
+    return stripped if stripped else None
+
+
+def sibling_admin_auth_explicitly_configured(
+    *,
+    admin_token_env: str,
+    session_secret_env: str,
+) -> bool:
+    """True only when both auth env vars are explicitly set (production preflight)."""
+    return bool(_non_empty_env(admin_token_env) and _non_empty_env(session_secret_env))
+
+
+def resolve_sibling_admin_auth_settings(
+    *,
+    admin_token_env: str,
+    session_secret_env: str,
+) -> AdminAuthSettings:
+    """Load sibling admin auth with env overrides, else shared local defaults."""
     return AdminAuthSettings(
-        admin_token=token if token else None,
-        session_secret=secret if secret else None,
+        admin_token=_non_empty_env(admin_token_env) or DEFAULT_SIBLING_ADMIN_TOKEN,
+        session_secret=_non_empty_env(session_secret_env) or DEFAULT_SIBLING_SESSION_SECRET,
+    )
+
+
+def load_admin_auth_settings() -> AdminAuthSettings:
+    """Load TCP admin auth settings (env override, else shared sibling defaults)."""
+    return resolve_sibling_admin_auth_settings(
+        admin_token_env="TCP_V2_ADMIN_TOKEN",
+        session_secret_env="TCP_V2_SESSION_SECRET",
     )
 
 

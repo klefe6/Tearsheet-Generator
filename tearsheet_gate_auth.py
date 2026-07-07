@@ -5,13 +5,12 @@ Safe to import: no server start, no workbook/JSON writes, no secrets in source.
 """
 from __future__ import annotations
 
-import os
 from typing import Any, Dict, Optional
 
 import dash_bootstrap_components as dbc
 from dash import html
 
-from tcp_config import AdminAuthSettings
+from tcp_config import AdminAuthSettings, resolve_sibling_admin_auth_settings
 
 GATE_PASSWORD_ROW_ID = "gate-admin-password-row"
 GATE_PASSWORD_INPUT_ID = "gate-admin-password-input"
@@ -51,20 +50,16 @@ AGM_SESSION_KEY = "agm_admin_authenticated"
 
 
 def load_tkp_admin_auth_settings() -> AdminAuthSettings:
-    token = os.environ.get("TKP_ADMIN_TOKEN")
-    secret = os.environ.get("TKP_SESSION_SECRET")
-    return AdminAuthSettings(
-        admin_token=token if token else None,
-        session_secret=secret if secret else None,
+    return resolve_sibling_admin_auth_settings(
+        admin_token_env="TKP_ADMIN_TOKEN",
+        session_secret_env="TKP_SESSION_SECRET",
     )
 
 
 def load_agm_admin_auth_settings() -> AdminAuthSettings:
-    token = os.environ.get("AGM_ADMIN_TOKEN")
-    secret = os.environ.get("AGM_SESSION_SECRET")
-    return AdminAuthSettings(
-        admin_token=token if token else None,
-        session_secret=secret if secret else None,
+    return resolve_sibling_admin_auth_settings(
+        admin_token_env="AGM_ADMIN_TOKEN",
+        session_secret_env="AGM_SESSION_SECRET",
     )
 
 
