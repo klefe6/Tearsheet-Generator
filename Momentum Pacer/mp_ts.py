@@ -52,6 +52,7 @@ import algominds_portal_registry as agm_registry
 import algominds_daily_balances as agm_daily
 import algominds_benchmark_daily as agm_bench
 import algominds_daily_fees as agm_fees
+import algominds_daily_accounting as agm_accounting
 
 import numpy as np
 import pandas as pd
@@ -290,6 +291,29 @@ if DAILY_FEES_LOAD_ERROR is None and not daily_fee_accrual.daily.empty:
         f"{len(daily_fee_accrual.outstanding)} outstanding"
     )
 
+# ── Daily accounting table (client net value, accrued fees, SPX alignment) ─────
+DAILY_ACCOUNTING_LOAD_ERROR = None
+daily_accounting = agm_accounting.AgmDailyAccounting(table=pd.DataFrame())
+try:
+    if not daily_balances_df.empty:
+        daily_accounting = agm_accounting.compute_agm_daily_accounting(
+            daily_balances_df,
+            spx_daily_df,
+            fee_accrual=daily_fee_accrual if DAILY_FEES_LOAD_ERROR is None else None,
+            inception=pd.Timestamp(PROGRAM_INCEPTION),
+            monthly_reference=summary_df if not summary_df.empty else None,
+        )
+except Exception as _aex:  # pragma: no cover - defensive
+    traceback.print_exc()
+    daily_accounting = agm_accounting.AgmDailyAccounting(table=pd.DataFrame())
+    DAILY_ACCOUNTING_LOAD_ERROR = str(_aex)
+
+if DAILY_ACCOUNTING_LOAD_ERROR is None and not daily_accounting.table.empty:
+    print(
+        f"[mp_ts] Daily accounting: {len(daily_accounting.table)} rows, "
+        f"invariant_ok={agm_accounting.verify_accounting_invariant(daily_accounting.table)}"
+    )
+
 
 def months_trading_elapsed_approx() -> str:
     """
@@ -490,26 +514,24 @@ _NAV_HOVER = (
     "Cumulative % Chg: %{customdata[1]}<extra></extra>"
 )
 
+# Client-facing NAV trace label (net of accrued unpaid fees, not raw NLV).
+CLIENT_NAV_TRACE_NAME = "Momentum Pacer — Net of Accrued Fees"
+
 
 def _daily_equity_frame() -> pd.DataFrame:
-    """Client daily equity rows (Date / Net Worth) from live inception onward."""
-    if daily_balances_df is None or daily_balances_df.empty:
-        return pd.DataFrame(columns=["Date", "Net Worth"])
-    mask = daily_balances_df["Date"] >= pd.Timestamp(PROGRAM_INCEPTION)
-    return daily_balances_df.loc[mask].reset_index(drop=True)
+    """Client daily equity rows (Date / client_net_value) from live inception onward."""
+    if daily_accounting is None or daily_accounting.table.empty:
+        return pd.DataFrame(columns=["Date", "client_net_value"])
+    t = daily_accounting.table
+    mask = t["Date"] >= pd.Timestamp(PROGRAM_INCEPTION)
+    return t.loc[mask, ["Date", "client_net_value"]].reset_index(drop=True)
 
 
 def build_nav_figure() -> go.Figure:
     """
-    DAILY NAV chart (client-facing): the account's actual daily equity curve
-    (TradeStation Net Worth — net of all fees paid to date) vs the daily SPX
-    (^GSPC) and NDX (^NDX) benchmarks rebased to the same starting capital at
-    live inception (Nov 13, 2025). One point per trading day in the daily
-    balances CSV — the monthly workbook no longer feeds this chart.
-
-    Benchmark closes are aligned to the AGM trading days (short holiday gaps
-    forward-filled, larger holes left blank — see algominds_benchmark_daily);
-    a missing benchmark series is omitted, never interpolated or fabricated.
+    DAILY NAV chart (client-facing): client net value
+    (actual NLV minus accrued unpaid fees) vs daily SPX (^GSPC) and NDX (^NDX)
+    benchmarks rebased to the same starting capital at live inception.
     """
     fig = go.Figure()
     eq = _daily_equity_frame()
@@ -519,7 +541,7 @@ def build_nav_figure() -> go.Figure:
         return fig
 
     bot_x = [pd.Timestamp(d) for d in eq["Date"]]
-    bot_y = [float(v) for v in eq["Net Worth"]]
+    bot_y = [float(v) for v in eq["client_net_value"]]
     base = float(bot_y[0])  # $30,000 at inception
 
     # ── Benchmarks: daily closes on AGM trading days, rebased to the start ───
@@ -533,7 +555,7 @@ def build_nav_figure() -> go.Figure:
         x=bot_x, y=bot_y,
         mode="lines",
         line={"color": PRIMARY_COLOR, "width": 2.5},
-        name="Momentum Pacer (Net of Fees)",
+        name=CLIENT_NAV_TRACE_NAME,
         customdata=np.asarray(bot_hover_data, dtype=object),
         hovertemplate=_NAV_HOVER,
         yaxis="y",
@@ -720,44 +742,36 @@ def _empty_admin_figure(title: str, message: str) -> go.Figure:
 
 
 def build_agm_accrued_fees_figure() -> go.Figure:
-    """Admin-only. DAILY accrued incentive fees, calculated every trading day
-    from AGM daily Net Worth vs the daily SPX benchmark (^GSPC) using the
-    approved workbook slab/HWM formula (see algominds_daily_fees — the engine
-    reproduces every completed workbook month's fee to the cent).
-
-    The series drops only on EVIDENCED fee payments/removals (exact daily
-    Net-Worth match or workbook reconciliation); crystallized fees with no
-    payment evidence stay in the plotted outstanding balance rather than being
-    reset on a fabricated date."""
-    acc = daily_fee_accrual.daily
-    if acc is None or acc.empty:
+    """Admin-only. Daily accrued unpaid fees from the accounting model."""
+    acc_tbl = daily_accounting.table
+    if acc_tbl is None or acc_tbl.empty:
         return _empty_admin_figure(
-            "Accrued Fees (Admin)",
-            "Daily fee accrual unavailable (balances CSV or SPX benchmark data missing).",
+            "Accrued Unpaid Fees (Admin)",
+            "Daily accounting unavailable (balances CSV or SPX benchmark data missing).",
+        )
+    inception_mask = acc_tbl["Date"] >= pd.Timestamp(PROGRAM_INCEPTION)
+    acc = acc_tbl.loc[inception_mask]
+    if acc.empty:
+        return _empty_admin_figure(
+            "Accrued Unpaid Fees (Admin)",
+            "No post-inception accounting rows to plot.",
         )
     fig = go.Figure()
     fig.add_trace(go.Scatter(
-        x=acc["Date"], y=acc["accrued_total"], mode="lines",
-        name="Accrued Fees (daily)",
+        x=acc["Date"], y=acc["accrued_unpaid_fees"], mode="lines",
+        name="Accrued Unpaid Fees (daily)",
         line=dict(color="#B02A37", width=2),
         hovertemplate="%{x|%b %d, %Y}<br>Accrued: $%{y:,.2f}<extra></extra>",
     ))
-    crystallized = daily_fee_accrual.crystallized
-    if crystallized:
-        fig.add_trace(go.Scatter(
-            x=[c["date"] for c in crystallized],
-            y=[float(acc.loc[acc["Date"] == c["date"], "accrued_total"].iloc[0])
-               for c in crystallized],
-            mode="markers", name="Month-end fee crystallized",
-            marker=dict(symbol="diamond", size=8, color="#B02A37"),
-            hovertemplate="%{x|%b %d, %Y}<br>Fee crystallized<extra></extra>",
-        ))
-    payments = daily_fee_accrual.payments
+    payments = daily_accounting.payments
     if payments:
+        pay_dates = [p["date"] for p in payments]
+        pay_y = [
+            float(acc.loc[acc["Date"] == pd.Timestamp(p["date"]), "accrued_unpaid_fees"].iloc[0])
+            for p in payments
+        ]
         fig.add_trace(go.Scatter(
-            x=[p["date"] for p in payments],
-            y=[float(acc.loc[acc["Date"] == p["date"], "accrued_total"].iloc[0])
-               for p in payments],
+            x=pay_dates, y=pay_y,
             mode="markers", name="Fee payment (evidenced)",
             marker=dict(symbol="triangle-down", size=10, color="#1B4F8A"),
             hovertemplate="%{x|%b %d, %Y}<br>Payment: $%{customdata:,.2f}<extra></extra>",
@@ -773,9 +787,9 @@ def build_agm_accrued_fees_figure() -> go.Figure:
             showarrow=False, font=dict(size=10, color="#6c757d"), align="left",
         )
     fig.update_layout(
-        title="Accrued Fees (Admin only — calculated DAILY from AGM vs SPX ^GSPC; slab/HWM formula)",
+        title="Accrued Unpaid Fees (Admin — daily fee liability net of evidenced payments)",
         xaxis_title="Date",
-        yaxis=dict(title="Accrued Fees ($)", tickprefix="$", tickformat=",.0f"),
+        yaxis=dict(title="Accrued Unpaid Fees ($)", tickprefix="$", tickformat=",.0f"),
         height=340,
         margin=dict(t=70, b=40),
         legend=dict(orientation="h", yanchor="bottom", y=-0.35, x=0.5, xanchor="center",
@@ -806,7 +820,7 @@ def build_agm_daily_nlv_figure() -> go.Figure:
         hovertemplate="%{x|%b %d, %Y}<br>$%{y:,.2f}<extra></extra>",
     ))
     fig.update_layout(
-        title="Admin NLV / TradeStation Net Worth (daily — admin only, raw account value)",
+        title="Actual NLV / TradeStation Net Worth",
         xaxis_title="Date",
         yaxis=dict(title="Net Worth ($)", tickprefix="$", tickformat=",.0f"),
         height=340,
@@ -814,6 +828,12 @@ def build_agm_daily_nlv_figure() -> go.Figure:
         showlegend=False,
     )
     return fig
+
+
+def _fmt_spx(v) -> str:
+    if v is None or (isinstance(v, float) and pd.isna(v)):
+        return "—"
+    return f"{float(v):,.2f}"
 
 
 def _fmt_money(v) -> str:
@@ -829,29 +849,33 @@ def _fmt_pct(v) -> str:
 
 
 def build_agm_daily_balances_table():
-    """Admin-only daily balances table (newest date at top). Columns per spec:
-    Date, Net Worth, Cash Balance, Unrealized P/L, Initial/Maint Margin,
-    Buying Power/Margin Deficit, Daily $, Daily %, Since inception %."""
-    if daily_balances_df is None or daily_balances_df.empty:
+    """Admin-only daily accounting table (newest date at top)."""
+    if daily_accounting is None or daily_accounting.table.empty:
         return dbc.Alert(
-            "Daily balances CSV not loaded — no daily rows to display.",
+            "Daily accounting data not loaded — no daily rows to display.",
             color="secondary", className="mb-0",
         )
     display_cols = [
-        ("Date", lambda r: r["Date"].strftime("%Y-%m-%d")),
-        ("Net Worth", lambda r: _fmt_money(r["Net Worth"])),
+        ("Date", lambda r: pd.Timestamp(r["Date"]).strftime("%Y-%m-%d")),
+        ("Actual NLV / TradeStation Net Worth", lambda r: _fmt_money(r["actual_nlv"])),
+        ("Client Net Value / Net of Accrued Fees", lambda r: _fmt_money(r["client_net_value"])),
+        ("Accrued Unpaid Fees", lambda r: _fmt_money(r["accrued_unpaid_fees"])),
+        ("SPX Close", lambda r: _fmt_spx(r["spx_close"])),
+        ("Momentum daily %", lambda r: _fmt_pct(r["momentum_daily_pct"])),
+        ("SPX daily %", lambda r: _fmt_pct(r["spx_daily_pct"])),
+        ("Momentum vs SPX daily spread %", lambda r: _fmt_pct(r["momentum_vs_spx_daily_spread_pct"])),
         ("Cash Balance", lambda r: _fmt_money(r.get("Cash Balance"))),
         ("Unrealized P/L", lambda r: _fmt_money(r.get("Unrealized P/L"))),
         ("Initial Margin Req.", lambda r: _fmt_money(r.get("Initial Margin Req."))),
         ("Maint Margin Req.", lambda r: _fmt_money(r.get("Maint Margin Req."))),
         ("Buying Power/Margin Deficit", lambda r: _fmt_money(r.get("Buying Power/Margin Deficit"))),
-        ("Daily $", lambda r: _fmt_money(r.get("daily_net_worth_change"))),
-        ("Daily %", lambda r: _fmt_pct(r.get("daily_net_worth_change_pct"))),
+        ("Daily $", lambda r: _fmt_money(r.get("daily_dollar"))),
+        ("Daily %", lambda r: _fmt_pct(r.get("daily_pct"))),
         ("Since inception %", lambda r: _fmt_pct(r.get("since_inception_pct"))),
+        ("Fee payment", lambda r: _fmt_money(r.get("fee_payment")) if pd.notna(r.get("fee_payment")) else "—"),
     ]
     header = html.Thead(html.Tr([html.Th(name) for name, _ in display_cols]))
-    # Newest first.
-    ordered = daily_balances_df.iloc[::-1]
+    ordered = daily_accounting.table.iloc[::-1]
     body_rows = []
     for _, r in ordered.iterrows():
         body_rows.append(html.Tr([html.Td(fn(r)) for _, fn in display_cols]))
@@ -863,16 +887,16 @@ def build_agm_daily_balances_table():
 
 
 def build_agm_daily_kpi_cards():
-    """Small KPI summary from the latest daily row (admin only)."""
-    row = agm_daily.latest_row(daily_balances_df)
-    if row is None:
+    """Small KPI summary from the latest accounting row (admin only)."""
+    if daily_accounting is None or daily_accounting.table.empty:
         return html.Div()
+    row = daily_accounting.table.iloc[-1]
     cards = [
-        ("Latest Net Worth (NLV)", _fmt_money(row["Net Worth"])),
-        ("Daily $", _fmt_money(row.get("daily_net_worth_change"))),
-        ("Daily %", _fmt_pct(row.get("daily_net_worth_change_pct"))),
-        ("Since inception %", _fmt_pct(row.get("since_inception_pct"))),
-        ("As of", row["Date"].strftime("%b %d, %Y")),
+        ("Actual NLV (TradeStation)", _fmt_money(row["actual_nlv"])),
+        ("Client Net Value", _fmt_money(row["client_net_value"])),
+        ("Accrued Unpaid Fees", _fmt_money(row["accrued_unpaid_fees"])),
+        ("Daily %", _fmt_pct(row.get("daily_pct"))),
+        ("As of", pd.Timestamp(row["Date"]).strftime("%b %d, %Y")),
     ]
     return dbc.Row(
         [
@@ -893,14 +917,13 @@ def build_agm_daily_kpi_cards():
 
 
 def build_drawdown_figure() -> go.Figure:
-    """Drawdown from peak, DAILY — computed from the daily equity curve
-    (TradeStation Net Worth), matching the daily NAV chart above it."""
+    """Drawdown from peak, DAILY — computed from the client net value curve."""
     fig = go.Figure()
     eq_df = _daily_equity_frame()
     if eq_df.empty:
         return fig
 
-    eq = eq_df["Net Worth"].astype(float)
+    eq = eq_df["client_net_value"].astype(float)
     pk = eq.cummax()
     dd = ((eq / pk) - 1.0) * 100.0
     dd_x = [pd.Timestamp(d) for d in eq_df["Date"]]
@@ -1385,8 +1408,8 @@ def serve_layout():
                     ),
                     html.P(
                         f"Growth of a ${STARTING_CAPITAL:,.0f} investment from inception ({inception_str}), "
-                        "shown at DAILY resolution (one point per trading day). NAV is the account's "
-                        "actual daily equity, net of fees paid to date. "
+                        "shown at DAILY resolution (one point per trading day). NAV is client net value "
+                        "(actual NLV net of accrued unpaid fees). "
                         "The strategy trades NQ / MNQ (Nasdaq-100 futures) exclusively. "
                         "S&P 500 and Nasdaq-100 daily index closes are rebased to the same starting "
                         "capital at inception for benchmark comparison only.",
@@ -1880,6 +1903,22 @@ def serve_layout():
                         className="mb-5 pb-4",
                     ),
 
+                    # ── Admin-only: detailed daily accounting table (bottom of page) ──
+                    html.Div(
+                        id="agm-admin-daily-table-container",
+                        style={"display": "none"},
+                        className="mt-4 mb-4",
+                        children=[
+                            dbc.Alert(
+                                "Admin — daily accounting detail (raw NLV, client net, accrued fees, "
+                                "SPX alignment; admin-only, not shown to clients)",
+                                color="warning",
+                                className="text-center fw-bold mb-3",
+                            ),
+                            html.Div(id="agm-admin-daily-table-content"),
+                        ],
+                    ),
+
                     # Admin — daily data entry (TearSheet mode only; hidden for public/client view)
                     html.Div(
                         id="agm-admin-data-entry-container",
@@ -2015,21 +2054,16 @@ def _gate_admin_portal_login(_portal_clicks, password):
     Output("agm-admin-data-entry-container", "style"),
     Output("agm-admin-fee-charts-container", "style"),
     Output("agm-admin-daily-container", "style"),
+    Output("agm-admin-daily-table-container", "style"),
     Input("access-mode", "data"),
 )
 def _toggle_admin_data_entry(access_mode):
     style = {"display": "block"} if access_mode == "secret" else {"display": "none"}
-    return style, style, style
+    return style, style, style, style
 
 
-@app.callback(
-    Output("agm-admin-daily-content", "children"),
-    Input("access-mode", "data"),
-)
 def _render_admin_daily_content(access_mode):
-    """Render the raw daily NLV table/graph/KPIs ONLY when the request carries a
-    genuine authenticated admin session. access-mode is client-side, so it is
-    re-verified server-side here — a spoofed store value yields nothing."""
+    """Render admin KPI cards + raw NLV graph ONLY when authenticated."""
     if access_mode != "secret" or not agm_admin_auth_manager.is_authenticated(session):
         return []
     return [
@@ -2040,12 +2074,36 @@ def _render_admin_daily_content(access_mode):
             config={"displayModeBar": False, "responsive": True},
             style={"width": "100%", "minHeight": "340px", "marginBottom": "1rem"},
         ),
-        html.H6("Daily Balances", className="fw-bold mt-2 mb-2"),
+    ]
+
+
+def _render_admin_daily_table(access_mode):
+    """Render the detailed daily accounting table at the bottom of the admin page."""
+    if access_mode != "secret" or not agm_admin_auth_manager.is_authenticated(session):
+        return []
+    return [
+        html.H6("Daily Accounting", className="fw-bold mt-2 mb-2"),
         html.Div(
             build_agm_daily_balances_table(),
             style={"maxHeight": "480px", "overflowY": "auto"},
         ),
     ]
+
+
+@app.callback(
+    Output("agm-admin-daily-content", "children"),
+    Input("access-mode", "data"),
+)
+def _render_admin_daily_content_callback(access_mode):
+    return _render_admin_daily_content(access_mode)
+
+
+@app.callback(
+    Output("agm-admin-daily-table-content", "children"),
+    Input("access-mode", "data"),
+)
+def _render_admin_daily_table_callback(access_mode):
+    return _render_admin_daily_table(access_mode)
 
 
 def _render_agm_pending_rows_table():

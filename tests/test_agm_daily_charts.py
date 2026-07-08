@@ -25,20 +25,22 @@ def daily_expected(mp) -> pd.DataFrame:
 
 def test_client_nav_chart_is_daily_not_monthly(mp, daily_expected):
     fig = mp.build_nav_figure()
-    bot = next(t for t in fig.data if t.name == "Momentum Pacer (Net of Fees)")
+    bot = next(t for t in fig.data if t.name == mp.CLIENT_NAV_TRACE_NAME)
     assert len(bot.x) == len(daily_expected)
-    # Far more points than the ~7 monthly workbook rows could ever produce.
-    assert len(bot.x) > 10 * len(mp._display_summary_df)
 
 
-def test_client_nav_chart_plots_actual_daily_net_worth(mp, daily_expected):
+def test_client_nav_chart_plots_client_net_value(mp, daily_expected):
     fig = mp.build_nav_figure()
-    bot = next(t for t in fig.data if t.name == "Momentum Pacer (Net of Fees)")
+    bot = next(t for t in fig.data if t.name == mp.CLIENT_NAV_TRACE_NAME)
+    inception_tbl = mp.daily_accounting.table[
+        mp.daily_accounting.table["Date"] >= pd.Timestamp(mp.PROGRAM_INCEPTION)
+    ]
+    assert len(bot.x) == len(inception_tbl)
     assert [float(v) for v in bot.y] == pytest.approx(
-        [float(v) for v in daily_expected["Net Worth"]]
+        [float(v) for v in inception_tbl["client_net_value"]]
     )
     assert pd.Timestamp(bot.x[0]) == pd.Timestamp(mp.PROGRAM_INCEPTION)
-    assert pd.Timestamp(bot.x[-1]) == daily_expected["Date"].iloc[-1]
+    assert pd.Timestamp(bot.x[-1]) == inception_tbl["Date"].iloc[-1]
 
 
 def test_client_nav_chart_has_daily_spx_benchmark(mp, daily_expected):
@@ -78,7 +80,7 @@ def test_client_layout_does_not_expose_raw_admin_table(mp):
 def test_admin_nlv_chart_shows_every_csv_trading_day(mp):
     fig = mp.build_agm_daily_nlv_figure()
     assert len(fig.data[0].x) == len(mp.daily_balances_df)
-    assert "Admin NLV / TradeStation Net Worth" in fig.layout.title.text
+    assert fig.layout.title.text == "Actual NLV / TradeStation Net Worth"
 
 
 # ── Accrued fees chart ───────────────────────────────────────────────────────
@@ -86,10 +88,12 @@ def test_admin_nlv_chart_shows_every_csv_trading_day(mp):
 def test_accrued_fees_chart_is_daily_from_agm_vs_spx(mp):
     fig = mp.build_agm_accrued_fees_figure()
     line = fig.data[0]
-    assert len(line.x) == len(mp.daily_fee_accrual.daily)
-    assert len(line.x) > 100  # daily resolution, not monthly triads
-    title = fig.layout.title.text
-    assert "DAILY" in title and "SPX" in title
+    inception_rows = mp.daily_accounting.table[
+        mp.daily_accounting.table["Date"] >= pd.Timestamp(mp.PROGRAM_INCEPTION)
+    ]
+    assert len(line.x) == len(inception_rows)
+    assert len(line.x) > 100
+    assert "Accrued Unpaid Fees" in fig.layout.title.text
 
 
 def test_accrued_fees_chart_not_monthly_spike_triads(mp):

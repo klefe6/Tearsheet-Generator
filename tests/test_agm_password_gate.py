@@ -269,21 +269,20 @@ def test_accrued_fees_never_negative():
     assert (mp_ts.daily_fee_accrual.daily["accrued_total"] >= -1e-9).all()
 
 
-def test_public_nav_chart_is_daily_equity_net_of_fees(agm_app):
-    """The client-facing equity curve is the actual daily account value
-    (net of all fees paid to date) from the balances CSV — daily resolution,
-    with the daily SPX benchmark alongside."""
+def test_public_nav_chart_is_daily_client_net_value(agm_app):
+    """The client-facing equity curve is client net value (actual NLV minus
+    accrued unpaid fees) from the daily accounting model."""
     import mp_ts
     import pandas as pd
 
     nav_fig = mp_ts.build_nav_figure()
-    bot_trace = next(t for t in nav_fig.data if t.name == "Momentum Pacer (Net of Fees)")
-    expected = mp_ts.daily_balances_df[
-        mp_ts.daily_balances_df["Date"] >= pd.Timestamp(mp_ts.PROGRAM_INCEPTION)
+    bot_trace = next(t for t in nav_fig.data if t.name == mp_ts.CLIENT_NAV_TRACE_NAME)
+    expected = mp_ts.daily_accounting.table[
+        mp_ts.daily_accounting.table["Date"] >= pd.Timestamp(mp_ts.PROGRAM_INCEPTION)
     ]
     assert len(bot_trace.y) == len(expected)
     assert [float(v) for v in bot_trace.y] == pytest.approx(
-        [float(v) for v in expected["Net Worth"]]
+        [float(v) for v in expected["client_net_value"]]
     )
     assert any(t.name == "S&P 500 (rebased, daily)" for t in nav_fig.data)
 
@@ -315,8 +314,11 @@ def test_daily_container_present_but_content_not_shipped_publicly(agm_app):
     container = _find_by_id(layout, "agm-admin-daily-container")
     assert container is not None
     assert container.style == {"display": "none"}
-    # Placeholder present, but no raw NLV value and no daily graph in the shipped layout.
+    table_container = _find_by_id(layout, "agm-admin-daily-table-container")
+    assert table_container is not None
+    assert table_container.style == {"display": "none"}
     assert _find_by_id(layout, "agm-admin-daily-content") is not None
+    assert _find_by_id(layout, "agm-admin-daily-table-content") is not None
     layout_str = str(layout)
     assert DAILY_LATEST_NW not in layout_str
     assert "agm-daily-nlv-graph" not in layout_str
@@ -327,25 +329,33 @@ def test_client_view_has_no_raw_daily_nlv(agm_app):
     import mp_ts
 
     with mp_ts.app.server.test_request_context("/"):
-        # No admin session -> public. Even a spoofed 'secret' store yields nothing.
         assert mp_ts._render_admin_daily_content("standard") == []
         assert mp_ts._render_admin_daily_content("secret") == []
+        assert mp_ts._render_admin_daily_table("standard") == []
+        assert mp_ts._render_admin_daily_table("secret") == []
 
 
 def test_admin_tearsheet_renders_daily_table_and_raw_nlv(agm_app):
-    """In authenticated admin TearSheet mode, the daily table + raw NLV graph render."""
+    """In authenticated admin TearSheet mode, the NLV graph renders up top and
+    the detailed accounting table renders at the bottom."""
     import mp_ts
 
     with mp_ts.app.server.test_request_context("/"):
         from flask import session as fsession
         fsession[AGM_SESSION_KEY] = True
         content = mp_ts._render_admin_daily_content("secret")
-        assert content, "authenticated admin should get daily content"
+        assert content, "authenticated admin should get daily chart content"
         content_str = str(content)
         assert "agm-daily-nlv-graph" in content_str
-        assert "Daily Balances" in content_str
-        assert DAILY_LATEST_NW in content_str
+        assert "Daily Balances" not in content_str
         assert "TradeStation Net Worth" in content_str
+
+        table_content = mp_ts._render_admin_daily_table("secret")
+        assert table_content, "authenticated admin should get bottom daily table"
+        table_str = str(table_content)
+        assert "Daily Accounting" in table_str
+        assert DAILY_LATEST_NW in table_str
+        assert "Accrued Unpaid Fees" in table_str
 
 
 def test_daily_table_columns_match_spec(agm_app):
@@ -353,9 +363,25 @@ def test_daily_table_columns_match_spec(agm_app):
 
     table = mp_ts.build_agm_daily_balances_table()
     table_str = str(table)
-    for col in ["Date", "Net Worth", "Cash Balance", "Unrealized P/L",
-                "Initial Margin Req.", "Maint Margin Req.",
-                "Buying Power/Margin Deficit", "Daily $", "Daily %", "Since inception %"]:
+    for col in [
+        "Date",
+        "Actual NLV / TradeStation Net Worth",
+        "Client Net Value / Net of Accrued Fees",
+        "Accrued Unpaid Fees",
+        "SPX Close",
+        "Momentum daily %",
+        "SPX daily %",
+        "Momentum vs SPX daily spread %",
+        "Cash Balance",
+        "Unrealized P/L",
+        "Initial Margin Req.",
+        "Maint Margin Req.",
+        "Buying Power/Margin Deficit",
+        "Daily $",
+        "Daily %",
+        "Since inception %",
+        "Fee payment",
+    ]:
         assert col in table_str, f"missing daily table column: {col}"
 
 

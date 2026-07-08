@@ -170,3 +170,8 @@ def latest_net_worth(df: pd.DataFrame) -> Optional[float]:
     if row is None:
         return None
     return float(row["Net Worth"])
+
+
+def daily_pct_change(values: pd.Series) -> pd.Series:
+    """Previous-row percent change in percent units (first row NaN)."""
+    return values.astype(float).pct_change() * 100.0
