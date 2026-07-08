@@ -11,9 +11,15 @@ from tcp_config import AdminAuthSettings, load_admin_auth_settings
 from tcp_daily_values import (
     GATE_NOTICE_E_ID,
     PUBLIC_GATE_ACCEPTED_STORE_ID,
+    TCP_GATE_STORAGE_PURGE_STORE_ID,
+    TCP_UI_MODE_STORE_ID,
     UI_MODE_ADMIN,
+    UI_MODE_PUBLIC,
     resolve_access_visibility,
     resolve_daily_values_toolbar_style,
+    resolve_gate_bootstrap_state,
+    resolve_public_accept_ui_mode,
+    resolve_public_access_ui_mode,
 )
 from tcp_public_sections import build_public_accept_gate, resolve_public_gate_styles
 from tearsheet_gate_auth import (
@@ -57,6 +63,27 @@ def test_tcp_page_load_starts_at_gate():
     gate_style, main_style = resolve_public_gate_styles(None)
     assert gate_style == {"padding": "4rem", "textAlign": "center"}
     assert main_style == {"display": "none"}
+
+
+def test_tcp_initial_layout_hides_main_app(tcp_app):
+    app, *_ = tcp_app
+    main = _find_by_id(app.layout, "main-app")
+    assert main is not None
+    assert main.style == {"display": "none"}
+
+
+def test_tcp_gate_storage_purge_store_is_memory_only(tcp_app):
+    app, *_ = tcp_app
+    store = _find_by_id(app.layout, TCP_GATE_STORAGE_PURGE_STORE_ID)
+    assert store is not None
+    assert store.storage_type == "memory"
+
+
+def test_tcp_ui_mode_store_is_memory_only(tcp_app):
+    app, *_ = tcp_app
+    store = _find_by_id(app.layout, TCP_UI_MODE_STORE_ID)
+    assert store is not None
+    assert store.storage_type == "memory"
 
 
 def test_tcp_gate_renders_accept_button_and_copy():
@@ -203,6 +230,105 @@ def test_accept_does_not_auto_admin():
     assert main_style == {"display": "none"}
     auth = AdminAuthManager(AdminAuthSettings(admin_token=TEST_TOKEN, session_secret=TEST_SECRET))
     assert not auth.is_authenticated({})
+
+
+def test_refresh_does_not_restore_admin_from_stale_session():
+    ui_mode, clear_session = resolve_gate_bootstrap_state(ui_mode=None)
+    assert ui_mode is None
+    assert clear_session is True
+    gate_style, main_style, _daily = resolve_access_visibility(ui_mode=ui_mode)
+    assert main_style == {"display": "none"}
+    assert gate_style["textAlign"] == "center"
+
+
+def test_refresh_with_stale_browser_ui_mode_admin_still_starts_at_gate():
+    ui_mode, clear_session = resolve_gate_bootstrap_state(ui_mode=UI_MODE_ADMIN)
+    assert ui_mode is None
+    assert clear_session is True
+    gate_style, main_style, _daily = resolve_access_visibility(ui_mode=ui_mode)
+    assert main_style == {"display": "none"}
+
+
+def test_refresh_with_stale_browser_ui_mode_public_still_starts_at_gate():
+    ui_mode, clear_session = resolve_gate_bootstrap_state(ui_mode=UI_MODE_PUBLIC)
+    assert ui_mode is None
+    assert clear_session is True
+    gate_style, main_style, _daily = resolve_access_visibility(ui_mode=ui_mode)
+    assert main_style == {"display": "none"}
+
+
+def test_refresh_clears_stale_admin_session_cookie(tcp_app):
+    app, _, _, auth_manager, _ = tcp_app
+    with app.server.test_client() as client:
+        client.post("/admin/login", data={"token": TEST_TOKEN}, follow_redirects=False)
+        with client.session_transaction() as sess:
+            assert auth_manager.is_authenticated(sess)
+        with app.server.test_request_context("/"):
+            from flask import session
+
+            ui_mode, clear_session = resolve_gate_bootstrap_state(ui_mode=UI_MODE_ADMIN)
+            assert clear_session is True
+            if clear_session:
+                auth_manager.logout(session)
+            assert not auth_manager.is_authenticated(session)
+            assert ui_mode is None
+
+
+def test_public_accept_still_works_after_gate():
+    ui_mode, clear_session = resolve_public_accept_ui_mode(accept_clicks=1)
+    assert ui_mode == UI_MODE_PUBLIC
+    assert clear_session is True
+    gate_style, main_style, _daily = resolve_access_visibility(ui_mode=ui_mode)
+    assert gate_style == {"display": "none"}
+    assert main_style == {"display": "block"}
+
+
+def test_accept_without_click_does_not_open_public():
+    ui_mode, clear_session = resolve_public_accept_ui_mode(accept_clicks=0)
+    assert ui_mode is None
+    assert clear_session is True
+    gate_style, main_style, _daily = resolve_access_visibility(ui_mode=ui_mode)
+    assert main_style == {"display": "none"}
+
+
+def test_combined_resolver_ignores_stale_store_on_non_accept_trigger():
+    ui_mode, clear_session = resolve_public_access_ui_mode(
+        triggered_id="url",
+        accept_clicks=0,
+        ui_mode=UI_MODE_PUBLIC,
+    )
+    assert ui_mode is None
+    assert clear_session is True
+
+
+def test_gate_bootstrap_and_accept_callbacks_registered(tcp_app):
+    app, *_ = tcp_app
+    bootstrap = [
+        cb
+        for cb in app.callback_map.values()
+        if "disclaimer-screen" in str(cb.get("output", ""))
+        and "main-app" in str(cb.get("output", ""))
+        and any(inp.get("id") == "url" for inp in cb.get("inputs", []))
+        and not any(inp.get("id") == "accept-button" for inp in cb.get("inputs", []))
+    ]
+    accept = [
+        cb
+        for cb in app.callback_map.values()
+        if "disclaimer-screen" in str(cb.get("output", ""))
+        and any(inp.get("id") == "accept-button" for inp in cb.get("inputs", []))
+        and not any(inp.get("id") == "url" for inp in cb.get("inputs", []))
+    ]
+    assert bootstrap, "page-load gate bootstrap callback not registered"
+    assert accept, "Accept-only gate callback not registered"
+
+
+def test_clientside_gate_storage_purge_registered(tcp_app):
+    app, *_ = tcp_app
+    store = _find_by_id(app.layout, TCP_GATE_STORAGE_PURGE_STORE_ID)
+    assert store is not None
+    purge = app.callback_map.get(f"{TCP_GATE_STORAGE_PURGE_STORE_ID}.data")
+    assert purge is not None, "gate storage purge callback not registered"
+    assert any(inp.get("id") == "url" for inp in purge.get("inputs", []))
 
 
 def test_client_store_cannot_grant_admin():

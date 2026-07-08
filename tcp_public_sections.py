@@ -872,7 +872,7 @@ def resolve_public_gate_styles(n_clicks: Optional[int]) -> Tuple[Dict[str, str],
 
 
 def build_public_gate_wrapper(main_children: List[Any]) -> html.Div:
-    from tcp_daily_values import PUBLIC_GATE_ACCEPTED_STORE_ID, TCP_UI_MODE_STORE_ID
+    from tcp_daily_values import PUBLIC_GATE_ACCEPTED_STORE_ID, TCP_GATE_STORAGE_PURGE_STORE_ID, TCP_UI_MODE_STORE_ID
 
     return html.Div(
         [
@@ -880,6 +880,7 @@ def build_public_gate_wrapper(main_children: List[Any]) -> html.Div:
             dcc.Store(id=PUBLIC_GATE_ACCEPTED_STORE_ID, storage_type="memory", data=False),
             dcc.Store(id=TCP_UI_MODE_STORE_ID, storage_type="memory", data=None),
             dcc.Store(id=GATE_PASSWORD_VISIBLE_STORE_ID, storage_type="memory", data=False),
+            dcc.Store(id=TCP_GATE_STORAGE_PURGE_STORE_ID, storage_type="memory", data=0),
             build_public_accept_gate(),
             html.Div(id="main-app", style={"display": "none"}, children=main_children),
         ],

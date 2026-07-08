@@ -40,6 +40,41 @@ TCP_UI_MODE_STORE_ID = "tcp-ui-mode-store"
 UI_MODE_PUBLIC = "public"
 UI_MODE_ADMIN = "admin"
 GATE_NOTICE_E_ID = "secret-notice-e"
+TCP_GATE_STORAGE_PURGE_STORE_ID = "tcp-gate-storage-purge-store"
+TCP_GATE_SESSION_STORAGE_PREFIXES = (
+    "tcp-ui-mode-store",
+    "public-gate-accepted-store",
+    "disclaimer-accepted",
+)
+
+
+def resolve_gate_bootstrap_state(*, ui_mode: Optional[str] = None) -> tuple[None, bool]:
+    """Force Important Notice on every page load/refresh.
+
+    Ignores any stale browser-side ui_mode hint (memory/session/local storage).
+    """
+    _ = ui_mode
+    return None, True
+
+
+def resolve_public_accept_ui_mode(*, accept_clicks: Optional[int]) -> tuple[Optional[str], bool]:
+    """Grant public mode only after an explicit Accept click in the current page session."""
+    if accept_clicks is not None and int(accept_clicks) > 0:
+        return UI_MODE_PUBLIC, True
+    return None, True
+
+
+def resolve_public_access_ui_mode(
+    *,
+    triggered_id: Optional[str],
+    accept_clicks: Optional[int],
+    ui_mode: Optional[str],
+) -> tuple[Optional[str], bool]:
+    """Backward-compatible wrapper — prefer resolve_gate_bootstrap_state / resolve_public_accept_ui_mode."""
+    if triggered_id == "accept-button":
+        return resolve_public_accept_ui_mode(accept_clicks=accept_clicks)
+    return resolve_gate_bootstrap_state(ui_mode=ui_mode)
+
 
 DAILY_VALUES_DEFAULT_SORT: List[Dict[str, str]] = [
     {"column_id": "Date", "direction": "desc"},

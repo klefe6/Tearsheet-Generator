@@ -17,6 +17,7 @@ import dash
 import dash_bootstrap_components as dbc
 import pandas as pd
 from dash import Input, Output, State, dcc, html, no_update
+from dash.exceptions import PreventUpdate
 from flask import jsonify, redirect, render_template_string, request, session
 
 from tearsheet_gate_auth import (
@@ -130,6 +131,8 @@ from tcp_daily_values import (
     PUBLIC_DAILY_TOGGLE_LABEL_HIDE,
     PUBLIC_DAILY_TOGGLE_LABEL_SHOW,
     PUBLIC_GATE_ACCEPTED_STORE_ID,
+    TCP_GATE_SESSION_STORAGE_PREFIXES,
+    TCP_GATE_STORAGE_PURGE_STORE_ID,
     TCP_UI_MODE_STORE_ID,
     UI_MODE_ADMIN,
     UI_MODE_PUBLIC,
@@ -138,6 +141,8 @@ from tcp_daily_values import (
     public_daily_column_defs,
     resolve_access_visibility,
     resolve_daily_values_toolbar_style,
+    resolve_gate_bootstrap_state,
+    resolve_public_accept_ui_mode,
     rows_from_records,
     sort_rows_for_display,
 )
@@ -703,20 +708,51 @@ def _register_access_callbacks(
         Output("main-app", "style"),
         Output(DAILY_VALUES_SECTION_ID, "style"),
         Output(TCP_UI_MODE_STORE_ID, "data"),
-        Input("accept-button", "n_clicks"),
         Input("url", "pathname"),
-        State(TCP_UI_MODE_STORE_ID, "data"),
         prevent_initial_call=False,
     )
-    def _control_public_access(accept_clicks, _pathname, ui_mode):
-        triggered = dash.callback_context.triggered_id
-        if triggered == "accept-button" and accept_clicks:
+    def _bootstrap_gate_on_page_load(_pathname):
+        auth_manager.logout(session)
+        gate_style, main_style, daily_style = resolve_access_visibility(ui_mode=None)
+        return gate_style, main_style, daily_style, None
+
+    @app.callback(
+        Output("disclaimer-screen", "style", allow_duplicate=True),
+        Output("main-app", "style", allow_duplicate=True),
+        Output(DAILY_VALUES_SECTION_ID, "style", allow_duplicate=True),
+        Output(TCP_UI_MODE_STORE_ID, "data", allow_duplicate=True),
+        Input("accept-button", "n_clicks"),
+        prevent_initial_call=True,
+    )
+    def _accept_public_gate(accept_clicks):
+        ui_mode, clear_session = resolve_public_accept_ui_mode(accept_clicks=accept_clicks)
+        if ui_mode != UI_MODE_PUBLIC:
+            raise PreventUpdate
+        if clear_session:
             auth_manager.logout(session)
-            ui_mode = UI_MODE_PUBLIC
-        elif auth_manager.is_authenticated(session) and ui_mode is None:
-            ui_mode = UI_MODE_ADMIN
         gate_style, main_style, daily_style = resolve_access_visibility(ui_mode=ui_mode)
         return gate_style, main_style, daily_style, ui_mode
+
+    prefixes_js = ", ".join(repr(prefix) for prefix in TCP_GATE_SESSION_STORAGE_PREFIXES)
+    app.clientside_callback(
+        f"""
+        function(_pathname) {{
+            if (typeof window !== "undefined" && window.sessionStorage) {{
+                const prefixes = [{prefixes_js}];
+                Object.keys(window.sessionStorage).forEach(function(key) {{
+                    for (let i = 0; i < prefixes.length; i++) {{
+                        if (key.indexOf(prefixes[i]) !== -1) {{
+                            window.sessionStorage.removeItem(key);
+                        }}
+                    }}
+                }});
+            }}
+            return Date.now();
+        }}
+        """,
+        Output(TCP_GATE_STORAGE_PURGE_STORE_ID, "data"),
+        Input("url", "pathname"),
+    )
 
     @app.callback(
         Output(DAILY_VALUES_TOOLBAR_ID, "style"),
