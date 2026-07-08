@@ -2058,18 +2058,15 @@ def serve_layout():
                     html.Div(
                         [
                             html.P(
-                                "Algominds Financial LLC — CTA. "
-                                f"Momentum Pacer Trading Program (live inception {inception_str}).",
+                                "Algominds Financial LLC is a Commodity Trading Advisor "
+                                "operating the Momentum Pacer Trading Program.",
                                 className="lead text-center",
                             ),
                             html.P(
-                                "Instruments: Nasdaq-100 E-mini (NQ) / Micro Nasdaq-100 (MNQ). "
-                                "Objective: Systematic momentum capture in the Nasdaq-100 futures "
-                                "with adaptive position sizing and disciplined risk management. "
-                                "SPX and NDX on this tearsheet are shown as benchmarks for context only. "
-                                "Per the Disclosure Document, the monthly incentive (performance) fee is "
-                                "determined against the S&P 500 (the Benchmark) as described in the Fee Slab "
-                                "Structure, on net new trading profits and subject to a high-water mark.",
+                                "Advisor: Algominds Financial LLC | Program: Momentum Pacer | "
+                                f"Live Inception: {inception_str} | "
+                                "Products Traded: Nasdaq-100 Futures (NQ / MNQ) | "
+                                "Style: Systematic Momentum / Trend-Following",
                                 className="text-center mb-5",
                             ),
                         ],
@@ -2217,23 +2214,32 @@ def serve_layout():
                                                     html.Tbody([
                                                         html.Tr([
                                                             html.Td(
-                                                                html.P(
-                                                                    "The Momentum Pacer Program is a systematic "
-                                                                    "trend-following strategy trading exclusively in "
-                                                                    "Nasdaq-100 futures (NQ / MNQ). The program uses "
-                                                                    "quantitative momentum signals to identify and "
-                                                                    "capture directional moves in the Nasdaq-100. "
-                                                                    "S&P 500 (SPX) and Nasdaq-100 (NDX) index levels "
-                                                                    "are shown as benchmarks for comparison only — "
-                                                                    "the strategy trades Nasdaq-100 futures only and does "
-                                                                    "not trade the S&P 500 cash index or related products for alpha. "
-                                                                    "The contractual incentive fee uses the S&P 500 monthly return "
-                                                                    "(the Benchmark in the Disclosure Document) solely as a "
-                                                                    "reference for fee calculation. "
-                                                                    "Risk is managed through adaptive position sizing "
-                                                                    "and stop-loss orders. "
-                                                                    "The program started live trading on November 13, 2025."
-                                                                ),
+                                                                [
+                                                                    html.P(
+                                                                        "The Momentum Pacer Program is a systematic "
+                                                                        "momentum strategy trading exclusively in "
+                                                                        "Nasdaq-100 futures contracts, including NQ "
+                                                                        "and MNQ. The program uses quantitative "
+                                                                        "momentum signals to identify and capture "
+                                                                        "directional moves in the Nasdaq-100, with "
+                                                                        "risk managed through adaptive position "
+                                                                        "sizing and stop-loss orders.",
+                                                                        className="mb-3",
+                                                                    ),
+                                                                    html.P(
+                                                                        "S&P 500 and Nasdaq-100 index levels are shown "
+                                                                        "as benchmarks for comparison only. The "
+                                                                        "strategy trades Nasdaq-100 futures and does "
+                                                                        "not trade the S&P 500 cash index or related "
+                                                                        "products for alpha. Per the Disclosure "
+                                                                        "Document, the contractual monthly incentive "
+                                                                        "fee uses the S&P 500 monthly return as the "
+                                                                        "Benchmark reference, as described in the "
+                                                                        "Fee Slab Structure, and is applied to net "
+                                                                        "new trading profits subject to a high-water "
+                                                                        "mark.",
+                                                                    ),
+                                                                ],
                                                                 colSpan=3,
                                                                 style={"whiteSpace": "normal",
                                                                        "fontStyle": "italic"},

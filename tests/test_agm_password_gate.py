@@ -57,8 +57,38 @@ def test_agm_disclosure_describes_cta_only_not_cpo(agm_app):
     import mp_ts
 
     layout = str(mp_ts.serve_layout())
-    assert "Algominds Financial LLC — CTA" in layout
+    assert "Commodity Trading Advisor" in layout
+    assert "Momentum Pacer Trading Program" in layout
     assert "CPO" not in layout
+    assert "Commodity Pool Operator" not in layout
+
+
+def test_agm_profile_copy_matches_tkp_tcp_style(agm_app):
+    """Top AGM profile block uses the shorter TKP/TCP-style lead + meta line."""
+    import mp_ts
+
+    layout = str(mp_ts.serve_layout())
+    assert (
+        "Algominds Financial LLC is a Commodity Trading Advisor operating the "
+        "Momentum Pacer Trading Program." in layout
+    )
+    assert "Advisor: Algominds Financial LLC | Program: Momentum Pacer" in layout
+    assert "Live Inception: November 13, 2025" in layout
+    assert "Products Traded: Nasdaq-100 Futures (NQ / MNQ)" in layout
+    assert "Style: Systematic Momentum / Trend-Following" in layout
+    assert "Algominds Financial LLC — CTA" not in layout
+
+
+def test_agm_strategy_overview_benchmark_fee_copy(agm_app):
+    """Longer strategy/benchmark/fee explanation lives in Strategy Overview."""
+    import mp_ts
+
+    layout = str(mp_ts.serve_layout())
+    assert "systematic momentum strategy" in layout
+    assert "S&P 500 monthly return as the Benchmark reference" in layout
+    assert "high-water mark" in layout
+    assert "does not trade the S&P 500 cash index" in layout
+    assert "trades S&P 500 products for alpha" not in layout
 
 
 def test_gate_renders_tearsheet_and_portal_buttons(agm_app):
