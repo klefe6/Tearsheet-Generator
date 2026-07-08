@@ -321,7 +321,11 @@ def build_tcp_header(
                     width=8,
                 ),
                 dbc.Col(
-                    html.Div(desktop_label_children, id="data-current-label-desktop", className="d-none d-md-block"),
+                    html.Div(
+                        desktop_label_children,
+                        id="data-current-label-desktop",
+                        className="d-none d-md-block tearsheet-header-date-block",
+                    ),
                     width=2,
                 ),
             ],
@@ -333,7 +337,11 @@ def build_tcp_header(
         html.Hr(),
         dbc.Row(
             dbc.Col(
-                html.Div(mobile_label_children, id="data-current-label-mobile", className="d-block d-md-none text-end"),
+                html.Div(
+                    mobile_label_children,
+                    id="data-current-label-mobile",
+                    className="d-block d-md-none tearsheet-header-date-block",
+                ),
                 width=12,
             ),
             className="mb-3",

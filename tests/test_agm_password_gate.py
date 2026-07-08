@@ -93,15 +93,16 @@ def _find_by_id(component, target_id):
 
 
 def test_client_mode_has_no_admin_controls_by_default(agm_app):
-    """Public/client-facing render must not show the admin data-entry panel."""
+    """Public/client-facing render carries no admin daily-entry controls at all:
+    the obsolete summary-row data-entry panel is gone entirely, and the new
+    Daily Returns admin controls render server-side only after auth."""
     import mp_ts
 
     layout = mp_ts.serve_layout()
-    # The container exists in the DOM (Dash needs it registered) but must be display:none by default,
-    # since access-mode starts at None (public/client mode) until a TearSheet login succeeds.
-    container = _find_by_id(layout, "agm-admin-data-entry-container")
-    assert container is not None, "admin data-entry container not found in layout"
-    assert container.style == {"display": "none"}
+    assert _find_by_id(layout, "agm-admin-data-entry-container") is None
+    layout_str = str(layout)
+    for admin_id in mp_ts.ADMIN_DAILY_CONTROL_IDS:
+        assert admin_id not in layout_str, f"admin control leaked publicly: {admin_id}"
 
 
 def test_e_click_reveals_row_without_authenticating(agm_app):
@@ -365,47 +366,45 @@ def test_admin_tearsheet_renders_daily_table_and_raw_nlv(agm_app):
         table_content = mp_ts._render_admin_daily_table("secret")
         assert table_content, "authenticated admin should get bottom daily table"
         table_str = str(table_content)
-        assert "Daily Accounting" in table_str
+        assert "Daily Returns" in table_str
         assert DAILY_LATEST_NW in table_str
-        assert "Accrued Unpaid Fees" in table_str
+        assert "Accrued Unpaid Incentive Fee" in table_str
 
 
 def test_daily_table_columns_match_spec(agm_app):
+    """Admin Daily Returns table = client-safe accounting columns (approved
+    terminology) plus the admin-only operational balance-detail columns."""
     import mp_ts
 
-    table = mp_ts.build_agm_daily_balances_table()
-    table_str = str(table)
+    labels = [label for label, _, _ in mp_ts.ADMIN_DAILY_TABLE_COLUMNS]
     for col in [
         "Date",
-        "Actual NLV / TradeStation Net Worth",
-        "Client Net Value / Net of Accrued Fees",
-        "Accrued Unpaid Fees",
+        "Client Net Economic Value",
+        "TradeStation NLV / Statement Value",
+        "Accrued Unpaid Incentive Fee",
+        "Daily $",
+        "Daily %",
+        "Since inception %",
         "SPX Close",
-        "Momentum daily %",
         "SPX daily %",
+        "Momentum daily %",
         "Momentum vs SPX daily spread %",
+        "Fee payment",
         "Cash Balance",
         "Unrealized P/L",
         "Initial Margin Req.",
         "Maint Margin Req.",
         "Buying Power/Margin Deficit",
-        "Daily $",
-        "Daily %",
-        "Since inception %",
-        "Fee payment",
     ]:
-        assert col in table_str, f"missing daily table column: {col}"
+        assert col in labels, f"missing daily table column: {col}"
 
 
 def test_daily_table_newest_date_at_top(agm_app):
     import mp_ts
 
-    table = mp_ts.build_agm_daily_balances_table()
-    # tbody first data row should be the latest date (2026-07-06).
-    tbody = table.children[1]
-    first_row = tbody.children[0]
-    first_cell = first_row.children[0]
-    assert first_cell.children == "2026-07-06"
+    rows = mp_ts.build_agm_admin_daily_table_rows()
+    assert rows, "admin daily table rows should not be empty"
+    assert rows[0]["Date"] == "2026-07-06"
 
 
 def test_portal_uses_latest_daily_net_worth(agm_app):
@@ -603,13 +602,12 @@ def test_admin_nlv_chart_trimmed_to_inception_for_perfect_alignment(agm_app):
 
 
 def test_admin_daily_balances_table_still_shows_pre_inception_days(agm_app):
-    """Trimming the NLV CHART to inception must not trim the raw admin daily
-    balances table -- admins still need to see the full CSV history."""
+    """Trimming the NLV CHART to inception must not trim the admin Daily
+    Returns table -- admins still need to see the full CSV history."""
     import mp_ts
 
-    table = mp_ts.build_agm_daily_balances_table()
-    table_str = str(table)
-    assert "2025-10-20" in table_str  # first CSV row, pre-inception
+    rows = mp_ts.build_agm_admin_daily_table_rows()
+    assert any(r["Date"] == "2025-10-20" for r in rows)  # first CSV row, pre-inception
 
 
 def test_reconciliation_widget_present_in_admin_layout(agm_app):
@@ -780,7 +778,7 @@ def test_client_daily_table_section_exists_in_public_layout(agm_app):
     assert collapse is not None
     assert _find_by_id(layout, mp_ts.CLIENT_DAILY_TABLE_ID) is not None
     assert _find_by_id(layout, mp_ts.CLIENT_DAILY_TOGGLE_ID) is not None
-    assert "Daily Performance" in str(layout)
+    assert "Daily Returns" in str(layout)
 
 
 def test_client_daily_table_collapsed_by_default(agm_app):
@@ -877,3 +875,164 @@ def test_agm_accounting_invariant_unaffected_by_ui_changes():
     import algominds_daily_accounting as ada
 
     assert ada.verify_accounting_invariant(mp_ts.daily_accounting.table)
+
+
+# ── Obsolete summary-row entry form fully removed ────────────────────────────
+
+def _admin_daily_section_str():
+    import mp_ts
+
+    with mp_ts.app.server.test_request_context("/"):
+        from flask import session as fsession
+        fsession[AGM_SESSION_KEY] = True
+        return str(mp_ts._render_admin_daily_table("secret"))
+
+
+def test_obsolete_summary_row_form_removed_everywhere(agm_app):
+    """'Add a new Summary row' and its SPX/NDX/BOT inputs are gone from the
+    public layout AND the authenticated admin render."""
+    import mp_ts
+
+    layout_str = str(mp_ts.serve_layout())
+    admin_str = _admin_daily_section_str()
+    for banned in ("Add a new Summary row", "No manually-entered rows yet"):
+        assert banned not in layout_str
+        assert banned not in admin_str
+    for obsolete_id in (
+        "agm-add-date", "agm-add-spx-start", "agm-add-spx-end",
+        "agm-add-ndx-start", "agm-add-ndx-end", "agm-add-bot-start",
+        "agm-add-bot-end", "agm-add-row-save-btn", "agm-pending-rows-table",
+        "agm-admin-data-entry-container",
+    ):
+        assert obsolete_id not in layout_str, f"obsolete component still shipped: {obsolete_id}"
+    # The admin data-entry form never asks for benchmark/BOT values by hand.
+    for banned_input in ("SPX Start", "SPX End", "NDX Start", "NDX End",
+                         "BOT Start", "BOT End After Fees"):
+        assert banned_input not in admin_str
+
+
+def test_obsolete_summary_row_callbacks_gone(agm_app):
+    for key, cb in agm_app.callback_map.items():
+        blob = key + str(cb.get("inputs", [])) + str(cb.get("state", []))
+        assert "agm-add-row-save-btn" not in blob
+        assert "agm-pending-rows-table" not in blob
+        assert "agm-add-spx-start" not in blob
+
+
+# ── Admin Daily Returns section (TKP/TCP-style table controls) ───────────────
+
+def test_admin_daily_returns_section_has_tkp_style_controls(agm_app):
+    import mp_ts
+
+    section = _admin_daily_section_str()
+    assert "Daily Returns" in section
+    assert mp_ts.ADMIN_DAILY_TOGGLE_ID in section          # Show/Hide toggle
+    assert mp_ts.ADMIN_DAILY_COL_PICKER_ID in section      # Visible Columns
+    assert "Visible Columns" in section
+    assert mp_ts.ADMIN_DAILY_ADD_BTN_ID in section
+    assert "Add Row" in section
+    assert mp_ts.ADMIN_DAILY_DELETE_BTN_ID in section
+    assert "Delete Last Row" in section
+    assert mp_ts.ADMIN_DAILY_CALC_BTN_ID in section
+    assert "Show Calculations" in section
+    assert mp_ts.ADMIN_DAILY_PAGE_SIZE_ID in section       # View per page
+    assert "View per page" in section
+    assert mp_ts.ADMIN_DAILY_EXPORT_BTN_ID in section      # Export Excel
+    assert "Export Excel" in section
+    assert mp_ts.ADMIN_DAILY_TABLE_ID in section
+
+
+def test_admin_daily_returns_controls_are_admin_only(agm_app):
+    import mp_ts
+
+    layout_str = str(mp_ts.serve_layout())
+    for admin_id in mp_ts.ADMIN_DAILY_CONTROL_IDS:
+        assert admin_id not in layout_str, f"admin control leaked publicly: {admin_id}"
+    # Spoofed access-mode without a real authenticated session renders nothing.
+    with mp_ts.app.server.test_request_context("/"):
+        assert mp_ts._render_admin_daily_table("secret") == []
+        assert mp_ts._render_admin_daily_table("standard") == []
+
+
+def test_admin_show_calculations_shows_only_accounting_identity(agm_app):
+    """Show Calculations = the simplified accounting identity ONLY — no fee
+    slabs, no workbook internals, no stale monthly summary fields."""
+    import mp_ts
+
+    body_str = str(mp_ts.build_agm_show_calculations_body())
+    assert mp_ts.AGM_ACCOUNTING_IDENTITY_TEXT in body_str
+    assert mp_ts.AGM_ACCOUNTING_IDENTITY_INVERSE_TEXT in body_str
+    assert (
+        "TradeStation NLV = Client Net Economic Value + Accrued Unpaid Incentive Fee"
+        in body_str
+    )
+    for banned in ("SPX Start", "SPX End", "NDX Start", "NDX End",
+                   "BOT Start", "BOT End After Fees", "Slab", "slab",
+                   "High-Water", "HWM", "workbook", "Momentum Fee Calculation"):
+        assert banned not in body_str, f"Show Calculations leaks internals: {banned}"
+    # Terminology guard: TradeStation NLV is the brokerage statement value,
+    # never described as the client's true net value.
+    assert "not the client's true net value" in body_str
+
+
+def test_admin_daily_table_uses_accepted_accounting_model(agm_app):
+    import mp_ts
+
+    rows = mp_ts.build_agm_admin_daily_table_rows()
+    assert len(rows) == len(mp_ts.daily_accounting.table)
+    assert rows[0]["Date"] == "2026-07-06"
+    assert rows[0]["actual_nlv"] == pytest.approx(45335.28, abs=0.01)
+    for row in rows:
+        residual = row["actual_nlv"] - (row["client_net_value"] + row["accrued_unpaid_fees"])
+        assert abs(residual) <= mp_ts.RECONCILIATION_TOLERANCE
+
+
+def test_admin_add_row_minimum_daily_inputs_only(agm_app, tmp_path, monkeypatch):
+    """Add Row asks for Date + TradeStation NLV / Statement Value only; every
+    other column is derived by re-running the accepted accounting model.
+    Manual rows extend (never overwrite/delete) the TradeStation CSV history."""
+    import mp_ts
+
+    monkeypatch.setattr(
+        mp_ts, "_agm_manual_daily_rows_path",
+        lambda: str(tmp_path / "manual_rows.json"),
+    )
+
+    ok, msg, table = mp_ts.agm_add_manual_daily_row("2026-07-07", 45500.0)
+    assert ok, msg
+    rows = mp_ts.build_agm_admin_daily_table_rows(table)
+    assert rows[0]["Date"] == "2026-07-07"
+    assert rows[0]["actual_nlv"] == pytest.approx(45500.0)
+    residual = rows[0]["actual_nlv"] - (
+        rows[0]["client_net_value"] + rows[0]["accrued_unpaid_fees"]
+    )
+    assert abs(residual) <= mp_ts.RECONCILIATION_TOLERANCE
+
+    # Backdated/duplicate dates are rejected — CSV rows are never overwritten.
+    ok_dup, _msg_dup, _ = mp_ts.agm_add_manual_daily_row("2026-07-06", 45000.0)
+    assert not ok_dup
+    # Missing/invalid inputs are rejected.
+    assert not mp_ts.agm_add_manual_daily_row(None, 45000.0)[0]
+    assert not mp_ts.agm_add_manual_daily_row("2026-07-08", None)[0]
+    assert not mp_ts.agm_add_manual_daily_row("2026-07-08", -5.0)[0]
+
+    # Delete Last Row removes only the manual row; CSV rows are untouchable.
+    ok_del, msg_del, table_del = mp_ts.agm_delete_last_manual_daily_row()
+    assert ok_del, msg_del
+    assert mp_ts.build_agm_admin_daily_table_rows(table_del)[0]["Date"] == "2026-07-06"
+    ok_del2, msg_del2, _ = mp_ts.agm_delete_last_manual_daily_row()
+    assert not ok_del2
+    assert "never deleted" in msg_del2
+
+
+def test_admin_add_row_modal_has_no_obsolete_benchmark_inputs(agm_app):
+    """The Add Row modal asks for the minimum daily inputs and reports the
+    contracts-per-unit field as deferred (not faked)."""
+    import mp_ts
+
+    section = _admin_daily_section_str()
+    assert "TradeStation NLV / Statement Value" in section
+    assert "exchange-fee account-model" in section  # deferred, not faked
+    for banned_input in ("SPX Start", "SPX End", "NDX Start", "NDX End",
+                         "BOT Start", "BOT End After Fees"):
+        assert banned_input not in section

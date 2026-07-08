@@ -42,6 +42,7 @@ Thumbs.db
 # Runtime JSON state (TKP/AGM daily returns) — never commit
 daily_returns_secret_state.json
 daily_returns_secret_state.json.bak*
+momentum_pacer_manual_daily_rows.json
 
 # TCP v2 runtime JSON state (preview)
 tcp_daily_returns_secret_state.json

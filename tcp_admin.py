@@ -204,23 +204,6 @@ def datatable_column_defs(visible_columns: Optional[Sequence[str]] = None) -> Li
     return defs
 
 
-def build_column_selector() -> dbc.Card:
-    return dbc.Card(
-        [
-            dbc.CardHeader("Column visibility"),
-            dbc.CardBody(
-                dbc.Checklist(
-                    id="admin-column-selector",
-                    options=[{"label": col, "value": col} for col in LEDGER_TABLE_COLUMNS],
-                    value=list(LEDGER_TABLE_COLUMNS),
-                    inline=True,
-                )
-            ),
-        ],
-        className="mb-3",
-    )
-
-
 def build_ledger_datatable(rows: List[Dict[str, Any]], visible_columns: Sequence[str]) -> dash_table.DataTable:
     display_rows = [{k: v for k, v in row.items() if k != "_highlight"} for row in rows]
     table = dash_table.DataTable(
@@ -447,10 +430,10 @@ def build_add_row_preview_modal(*, persistence_enabled: bool = False) -> dbc.Mod
 
 
 def build_delete_modal(*, persistence_enabled: bool = False) -> dbc.Modal:
-    confirm_label = "Delete Latest Row" if persistence_enabled else "Confirm Simulation"
+    confirm_label = "Delete Last Row" if persistence_enabled else "Confirm Simulation"
     return dbc.Modal(
         [
-            dbc.ModalHeader("Delete Latest Row"),
+            dbc.ModalHeader("Delete Last Row"),
             dbc.ModalBody(
                 [
                     html.P(
@@ -554,7 +537,10 @@ def build_admin_editor_layout(
                 writable=writable,
                 warning=warning,
             ),
-            build_column_selector(),
+            # Column visibility moved into the Daily Values card's admin toolbar
+            # (tcp_daily_values.build_daily_values_admin_toolbar) to mirror the
+            # TKP Daily Returns pattern — building it here too would duplicate
+            # the admin-column-selector component id.
             build_add_row_modal(),
             build_add_row_preview_modal(persistence_enabled=persistence_enabled and writable),
             build_delete_modal(persistence_enabled=persistence_enabled and writable),

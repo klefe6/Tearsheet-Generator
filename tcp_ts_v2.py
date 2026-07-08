@@ -33,6 +33,7 @@ from tearsheet_gate_auth import (
     gate_password_row_style,
 )
 from tcp_admin import (
+    DEFAULT_PAGE_SIZE,
     DELETE_CONFIRM_MESSAGE,
     DELETE_PERSIST_MESSAGE,
     LOGIN_FORM_HTML,
@@ -127,6 +128,9 @@ from tcp_daily_values import (
     DAILY_VALUES_TABLE_ID,
     DAILY_VALUES_TOOLBAR_ID,
     PUBLIC_DAILY_COLLAPSE_ID,
+    PUBLIC_DAILY_EXPORT_BTN_ID,
+    PUBLIC_DAILY_EXPORT_DOWNLOAD_ID,
+    PUBLIC_DAILY_PAGE_SIZE_ID,
     PUBLIC_DAILY_TOGGLE_BTN_ID,
     PUBLIC_DAILY_TOGGLE_LABEL_HIDE,
     PUBLIC_DAILY_TOGGLE_LABEL_SHOW,
@@ -136,6 +140,7 @@ from tcp_daily_values import (
     TCP_UI_MODE_STORE_ID,
     UI_MODE_ADMIN,
     UI_MODE_PUBLIC,
+    build_daily_values_export_payload,
     build_daily_values_section,
     project_public_daily_rows,
     public_daily_column_defs,
@@ -275,17 +280,19 @@ def _drawdown_table_component(drawdown_df: pd.DataFrame) -> html.Div:
     )
 
 
+# TKP-style header status block (shared .tearsheet-header-date-* classes in
+# assets/styles.css) so the TCP header's date/status typography matches TKP.
 def _desktop_label_children(header: str, date_line: str) -> List[Any]:
     return [
-        html.H6(header, className="text-end text-secondary mb-1", id="data-current-label-desktop-header"),
-        html.H5(date_line, className="text-end text-primary", id="data-current-label-desktop-date"),
+        html.Div(header, className="tearsheet-header-date-label", id="data-current-label-desktop-header"),
+        html.Div(date_line, className="tearsheet-header-date-value", id="data-current-label-desktop-date"),
     ]
 
 
 def _mobile_label_children(header: str, date_line: str) -> List[Any]:
     return [
-        html.Small(header, className="d-block text-end text-primary mb-1", id="data-current-label-mobile-header"),
-        html.Small(date_line, className="d-block text-end text-primary", id="data-current-label-mobile-date"),
+        html.Div(header, className="tearsheet-header-date-label", id="data-current-label-mobile-header"),
+        html.Div(date_line, className="tearsheet-header-date-value", id="data-current-label-mobile-date"),
     ]
 
 
@@ -608,6 +615,7 @@ def _register_access_callbacks(
     app: dash.Dash,
     auth_manager: AdminAuthManager,
     runtime_holder: Dict[str, Any],
+    export_filename: str = "tcp_daily_returns_export.xlsx",
 ) -> None:
     @app.callback(
         Output(GATE_PASSWORD_VISIBLE_STORE_ID, "data"),
@@ -779,6 +787,28 @@ def _register_access_callbacks(
         new_open = not is_open
         label = PUBLIC_DAILY_TOGGLE_LABEL_HIDE if new_open else PUBLIC_DAILY_TOGGLE_LABEL_SHOW
         return new_open, label
+
+    # ── TKP-pattern Daily Values controls: view-per-page + Export Excel ────
+    # Presentation-only: page size changes the native DataTable paging; export
+    # downloads exactly the public rows already rendered in the table.
+    @app.callback(
+        Output(DAILY_VALUES_TABLE_ID, "page_size"),
+        Input(PUBLIC_DAILY_PAGE_SIZE_ID, "value"),
+        prevent_initial_call=True,
+    )
+    def _update_daily_values_page_size(page_size):
+        return page_size or DEFAULT_PAGE_SIZE
+
+    @app.callback(
+        Output(PUBLIC_DAILY_EXPORT_DOWNLOAD_ID, "data"),
+        Input(PUBLIC_DAILY_EXPORT_BTN_ID, "n_clicks"),
+        State(DAILY_VALUES_TABLE_ID, "data"),
+        prevent_initial_call=True,
+    )
+    def _export_daily_values_excel(n_clicks, table_data):
+        if not n_clicks or not table_data:
+            return no_update
+        return build_daily_values_export_payload(table_data, export_filename)
 
 
 def _register_dashboard_callback(app: dash.Dash, runtime_holder: Dict[str, Any]) -> None:
@@ -1153,7 +1183,7 @@ def create_app(
     if state.snapshot is not None:
         benchmark_result = _resolve_benchmark_result(runtime_holder)
         app.layout = build_preview_layout(cfg, state, benchmark_result)
-        _register_access_callbacks(app, auth_manager, runtime_holder)
+        _register_access_callbacks(app, auth_manager, runtime_holder, export_filename=cfg.export_filename)
         _register_dashboard_callback(app, runtime_holder)
         _register_admin_callbacks(app, cfg, paths, runtime_holder, auth_manager)
     else:

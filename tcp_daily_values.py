@@ -9,7 +9,7 @@ from datetime import date, datetime
 from typing import Any, Dict, List, Mapping, Optional, Sequence
 
 import dash_bootstrap_components as dbc
-from dash import dash_table, html
+from dash import dash_table, dcc, html
 
 from tcp_admin import (
     DEFAULT_PAGE_SIZE,
@@ -33,6 +33,11 @@ DAILY_VALUES_TOOLBAR_ID = "tcp-daily-values-admin-toolbar"
 DAILY_VALUES_SUMMARY_ID = "tcp-daily-values-summary"
 PUBLIC_DAILY_COLLAPSE_ID = "tcp-public-daily-collapse"
 PUBLIC_DAILY_TOGGLE_BTN_ID = "tcp-public-daily-toggle-btn"
+# TKP-pattern table controls (public-safe): view-per-page + Export Excel.
+PUBLIC_DAILY_PAGE_SIZE_ID = "tcp-public-daily-page-size"
+PUBLIC_DAILY_EXPORT_BTN_ID = "tcp-public-daily-export-btn"
+PUBLIC_DAILY_EXPORT_DOWNLOAD_ID = "tcp-public-daily-export-download"
+PUBLIC_DAILY_PAGE_SIZE_OPTIONS = (15, 25, 50, 100, 150, 200)
 PUBLIC_DAILY_TOGGLE_LABEL_SHOW = "Show ▾"
 PUBLIC_DAILY_TOGGLE_LABEL_HIDE = "Hide ▴"
 PUBLIC_GATE_ACCEPTED_STORE_ID = "public-gate-accepted-store"
@@ -215,12 +220,46 @@ def build_daily_values_datatable(
     )
 
 
+def build_daily_values_export_payload(
+    table_data: Sequence[Mapping[str, Any]],
+    filename: str,
+):
+    """dcc.send_data_frame payload for the Daily Values Export Excel button.
+
+    Presentation-only: downloads exactly the public rows already rendered in
+    the table (an in-memory workbook served to the browser — never a write to
+    ledger/JSON/workbook state, which is why this lives outside tcp_ts_v2.py's
+    no-mutation-hooks source contract).
+    """
+    import pandas as pd
+
+    export_df = pd.DataFrame(list(table_data))
+    return dcc.send_data_frame(export_df.to_excel, filename, index=False)
+
+
 def build_daily_values_admin_toolbar() -> html.Div:
+    """Admin controls inside the Daily Values card (TKP Daily Returns pattern:
+    Visible Columns picker above the Add Row / Delete Last Row buttons)."""
     return html.Div(
         [
+            html.Div(
+                [
+                    html.Label("Visible Columns", className="fw-bold small mb-1 d-block"),
+                    dbc.Checklist(
+                        id="admin-column-selector",
+                        options=[
+                            {"label": label, "value": col_id}
+                            for col_id, label in PUBLIC_DAILY_COLUMN_MAP
+                        ],
+                        value=list(PUBLIC_DAILY_COLUMN_IDS),
+                        inline=True,
+                    ),
+                ],
+                className="mb-2 w-100",
+            ),
             dbc.Button("Add Row", id="admin-open-add-modal", color="success", size="sm", className="me-2"),
             dbc.Button(
-                "Delete Latest Row",
+                "Delete Last Row",
                 id="admin-open-delete-modal",
                 color="danger",
                 size="sm",
@@ -298,6 +337,46 @@ def build_daily_values_section(
                                 build_daily_values_admin_toolbar(),
                                 id=DAILY_VALUES_TOOLBAR_ID,
                                 style={"display": "none"},
+                            ),
+                            # TKP Daily Returns pattern: view-per-page selector
+                            # (left) + Export Excel (right) above the table.
+                            html.Div(
+                                [
+                                    html.Div(
+                                        [
+                                            html.Span(
+                                                "View per page:",
+                                                className="me-2 small",
+                                                style={"lineHeight": "31px"},
+                                            ),
+                                            dcc.Dropdown(
+                                                id=PUBLIC_DAILY_PAGE_SIZE_ID,
+                                                options=[
+                                                    {"label": str(v), "value": v}
+                                                    for v in PUBLIC_DAILY_PAGE_SIZE_OPTIONS
+                                                ],
+                                                value=DEFAULT_PAGE_SIZE,
+                                                clearable=False,
+                                                style={"width": "80px", "display": "inline-block"},
+                                            ),
+                                        ],
+                                        style={"display": "inline-flex", "alignItems": "center"},
+                                    ),
+                                    html.Div(
+                                        [
+                                            dbc.Button(
+                                                "Export Excel",
+                                                id=PUBLIC_DAILY_EXPORT_BTN_ID,
+                                                color="secondary",
+                                                size="sm",
+                                            ),
+                                            dcc.Download(id=PUBLIC_DAILY_EXPORT_DOWNLOAD_ID),
+                                        ],
+                                        style={"float": "right"},
+                                    ),
+                                ],
+                                className="mb-3",
+                                style={"display": "flex", "justifyContent": "space-between"},
                             ),
                             html.Div(
                                 build_daily_values_datatable(rows),
