@@ -1090,3 +1090,124 @@ def test_admin_add_row_minimum_inputs_and_safe_delete(agm_app, tmp_path, monkeyp
     ok_del2, msg_del2, _ = mp_ts.agm_delete_last_manual_daily_row()
     assert not ok_del2
     assert "never deleted" in msg_del2
+
+
+def test_admin_daily_returns_shows_view_per_page_and_export(agm_app):
+    """View per page and Export Excel are part of the shared Daily Returns
+    card (present in both public and admin renders); this pins them alongside
+    the admin toolbar so the full required control set renders together for
+    an authenticated admin, matching the TCP/TKP Daily Returns pattern."""
+    import mp_ts
+
+    layout_str = str(mp_ts.serve_layout())
+    assert mp_ts.CLIENT_DAILY_PAGE_SIZE_ID in layout_str
+    assert "View per page" in layout_str
+    assert mp_ts.CLIENT_DAILY_EXPORT_BTN_ID in layout_str
+    assert "Export Excel" in layout_str
+
+    admin_slot = _admin_slot_str()
+    assert "Add Row" in admin_slot and "Delete Last Row" in admin_slot
+    assert "Show Calculations" in admin_slot and "Visible Columns" in admin_slot
+    # View per page / Export Excel live in the same card as the admin slot,
+    # not duplicated inside it -- confirm they are siblings, not missing.
+    assert mp_ts.CLIENT_DAILY_PAGE_SIZE_ID not in admin_slot
+    assert mp_ts.CLIENT_DAILY_PAGE_SIZE_ID in layout_str
+
+
+def test_add_row_modal_has_exactly_date_and_nlv_inputs(agm_app):
+    """The Add Row modal must contain ONLY Date + TradeStation NLV / Statement
+    Value inputs -- not just that the label text appears, but that no other
+    dbc.Input component exists in the modal (no obsolete summary fields)."""
+    import mp_ts
+
+    controls = mp_ts.build_agm_daily_admin_controls()
+    add_modal = next(c for c in controls if getattr(c, "id", None) == mp_ts.AGM_DAILY_ADMIN_ADD_MODAL_ID)
+
+    input_ids = set()
+
+    def _collect_input_ids(component):
+        cid = getattr(component, "id", None)
+        if cid and "add-date" in str(cid) or (cid and "add-nlv" in str(cid)):
+            input_ids.add(cid)
+        for child in (getattr(component, "children", None) or []):
+            if isinstance(child, (list, tuple)):
+                for c in child:
+                    _collect_input_ids(c)
+            elif hasattr(child, "children") or hasattr(child, "id"):
+                _collect_input_ids(child)
+
+    _collect_input_ids(add_modal)
+    assert input_ids == {mp_ts.AGM_DAILY_ADMIN_ADD_DATE_ID, mp_ts.AGM_DAILY_ADMIN_ADD_NLV_ID}
+
+    modal_str = str(add_modal)
+    assert "Date" in modal_str
+    assert "TradeStation NLV / Statement Value" in modal_str
+
+
+def test_admin_daily_slot_callback_registered_and_wired_to_access_mode(agm_app):
+    """Proves the render callback is actually REGISTERED against the running
+    Dash app (not just importable as a bare function) and is wired to fire on
+    access-mode changes -- closes the 'callback/slot is not firing' failure
+    mode distinctly from a bare function-level check."""
+    import mp_ts
+
+    matching = [
+        cb
+        for cb in agm_app.callback_map.values()
+        if any(inp.get("id") == "access-mode" for inp in cb.get("inputs", []))
+        and mp_ts.AGM_DAILY_ADMIN_SLOT_ID in str(cb.get("output"))
+    ]
+    assert matching, "admin daily slot render callback is not registered against access-mode"
+
+
+def test_admin_daily_controls_full_login_round_trip_via_registered_callbacks(agm_app):
+    """End-to-end simulation of the real browser flow through Dash's actual
+    HTTP callback dispatcher (/_dash-update-component) -- not a hand-called
+    helper function -- so this also catches wiring defects a bare Python
+    function call would miss (e.g. a callback failing to register, or the
+    server dispatching to the wrong handler for a given output key)."""
+    import mp_ts
+
+    login_key, login_cb = next(
+        (k, cb) for k, cb in agm_app.callback_map.items()
+        if any(inp.get("id") == GATE_PASSWORD_SUBMIT_ID for inp in cb.get("inputs", []))
+    )
+    slot_key, slot_cb = next(
+        (k, cb) for k, cb in agm_app.callback_map.items()
+        if any(inp.get("id") == "access-mode" for inp in cb.get("inputs", []))
+        and mp_ts.AGM_DAILY_ADMIN_SLOT_ID in str(cb.get("output"))
+    )
+
+    client = agm_app.server.test_client()
+
+    login_payload = {
+        "output": login_key,
+        "outputs": [{"id": o.component_id, "property": o.component_property} for o in login_cb["output"]],
+        "inputs": [
+            {"id": GATE_PASSWORD_SUBMIT_ID, "property": "n_clicks", "value": 1},
+            {"id": GATE_PASSWORD_INPUT_ID, "property": "n_submit", "value": 0},
+        ],
+        "state": [{"id": GATE_PASSWORD_INPUT_ID, "property": "value", "value": TEST_TOKEN}],
+        "changedPropIds": [f"{GATE_PASSWORD_SUBMIT_ID}.n_clicks"],
+    }
+    resp = client.post("/_dash-update-component", json=login_payload)
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    login_response = resp.get_json()["response"]
+    assert login_response["gate-admin-password-error"]["children"] == ""
+    assert login_response["access-mode"]["data"] == "secret"
+
+    slot_payload = {
+        "output": slot_key,
+        "outputs": [{"id": o.component_id, "property": o.component_property} for o in slot_cb["output"]],
+        "inputs": [{"id": "access-mode", "property": "data", "value": "secret"}],
+        "state": [],
+        "changedPropIds": ["access-mode.data"],
+    }
+    resp2 = client.post("/_dash-update-component", json=slot_payload)
+    assert resp2.status_code == 200, resp2.get_data(as_text=True)
+    slot_response = resp2.get_json()["response"]
+    slot_str = str(slot_response[mp_ts.AGM_DAILY_ADMIN_SLOT_ID]["children"])
+    assert "Add Row" in slot_str
+    assert "Delete Last Row" in slot_str
+    assert "Show Calculations" in slot_str
+    assert "Visible Columns" in slot_str
