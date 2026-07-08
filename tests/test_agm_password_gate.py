@@ -775,10 +775,11 @@ def test_client_daily_table_has_required_columns(agm_app):
 
     layout_str = str(mp_ts.serve_layout())
     for label in CLIENT_TABLE_REQUIRED_COLUMNS:
-        top, bottom = mp_ts._DAILY_TABLE_HEADER_ROWS[label]
-        assert top in layout_str, f"missing client daily table header line: {top}"
-        if bottom.strip():
-            assert bottom in layout_str, f"missing client daily table header line: {bottom}"
+        # Blank lines (no-break space) are layout filler on short labels —
+        # only the visible header lines must render.
+        for line in mp_ts._DAILY_TABLE_HEADER_ROWS[label]:
+            if line.strip():
+                assert line in layout_str, f"missing client daily table header line: {line}"
 
     col_defs = mp_ts._build_client_daily_table_columns()
     col_ids = {c["id"] for c in col_defs}
@@ -902,13 +903,12 @@ def test_admin_bottom_daily_table_section_removed(agm_app):
         blob = key + str(cb.get("output", "")) + str(cb.get("inputs", []))
         assert "agm-admin-daily-table-container" not in blob
         assert "agm-admin-daily-table-content" not in blob
-    # The removed feature's code is gone from the module too.
+    # The removed bottom-SECTION code stays gone. (The Add Row / Delete /
+    # Show Calculations helpers were later reintroduced inside the client
+    # Daily Returns card's auth-gated admin slot — a different surface.)
     for name in (
         "build_agm_admin_daily_returns_section",
         "build_agm_admin_daily_table_rows",
-        "build_agm_show_calculations_body",
-        "agm_add_manual_daily_row",
-        "agm_delete_last_manual_daily_row",
         "_render_admin_daily_table",
         "ADMIN_DAILY_CONTROL_IDS",
     ):
@@ -931,3 +931,162 @@ def test_upper_admin_sections_survive_hotfix(agm_app):
         assert mp_ts._render_admin_daily_content("secret")
         recon = mp_ts._render_agm_reconciliation_panel("2026-07-06", "secret")
         assert recon and DAILY_LATEST_NW in str(recon)
+
+
+# ── Derived monthly Performance Summary (June 2026 fix) ──────────────────────
+
+def test_performance_summary_includes_june_2026(agm_app):
+    """The Performance Summary no longer stops at the workbook's stale May row:
+    June 2026 (a complete month — daily data extends into July) must appear,
+    and in-progress July must not become a monthly row."""
+    import mp_ts
+
+    dates = list(mp_ts._display_summary_df["date"])
+    assert pd.Timestamp("2026-06-01") in dates
+    assert pd.Timestamp("2026-05-01") in dates
+    assert pd.Timestamp("2026-07-01") not in dates
+    assert max(dates) == pd.Timestamp("2026-06-01")
+
+    layout_str = str(mp_ts.serve_layout())
+    assert "Jun-2026" in layout_str
+    assert "Jul-2026" not in layout_str
+
+
+def test_performance_summary_is_derived_not_workbook(agm_app):
+    """Displayed monthly rows are the DERIVED frame (daily accounting + fee
+    engine + benchmark cache); the workbook Summary stays internal-only as the
+    fee engine's reconciliation reference."""
+    import mp_ts
+
+    assert mp_ts._display_summary_df is mp_ts.monthly_summary.table
+    # The workbook frame is still loaded (fee-engine reference) but is NOT
+    # what is displayed — it has no June row at all.
+    assert not mp_ts.summary_df.empty
+    assert pd.Timestamp("2026-06-01") not in set(mp_ts.summary_df["date"])
+    # June values equal the daily accounting model's month-end client values.
+    acct = mp_ts.daily_accounting.table
+    june_end = float(
+        acct[acct["Date"].dt.to_period("M") == pd.Period("2026-06")]["client_net_value"].iloc[-1]
+    )
+    june_row = mp_ts._display_summary_df[
+        mp_ts._display_summary_df["date"] == pd.Timestamp("2026-06-01")
+    ].iloc[0]
+    assert float(june_row["bot_end_after_fees"]) == pytest.approx(june_end)
+
+
+def test_performance_summary_totals_include_june(agm_app):
+    import mp_ts
+
+    df = mp_ts._display_summary_df
+    assert mp_ts.net_totals["bot_net_pct"] == pytest.approx(
+        float(df["bot_net_ret"].fillna(0).sum())
+    )
+    without_june = float(df[df["date"] < "2026-06-01"]["bot_net_ret"].sum())
+    assert mp_ts.net_totals["bot_net_pct"] != pytest.approx(without_june)
+    assert mp_ts.net_totals["bot_fees_dollar"] == pytest.approx(
+        float(df["bot_fees_pct"].fillna(0).sum()) * 30000.0
+    )
+
+
+# ── Admin Daily Returns controls inside the client card (TKP/TCP pattern) ────
+
+def _admin_slot_str():
+    import mp_ts
+
+    with mp_ts.app.server.test_request_context("/"):
+        from flask import session as fsession
+        fsession[AGM_SESSION_KEY] = True
+        slot, _data = mp_ts._render_agm_daily_admin_controls("secret")
+        return str(slot)
+
+
+def test_admin_daily_controls_render_for_authenticated_admin(agm_app):
+    import mp_ts
+
+    slot = _admin_slot_str()
+    assert mp_ts.AGM_DAILY_ADMIN_ADD_BTN_ID in slot
+    assert "Add Row" in slot
+    assert mp_ts.AGM_DAILY_ADMIN_DELETE_BTN_ID in slot
+    assert "Delete Last Row" in slot
+    assert mp_ts.AGM_DAILY_ADMIN_CALC_BTN_ID in slot
+    assert "Show Calculations" in slot
+    assert mp_ts.AGM_DAILY_ADMIN_COL_PICKER_ID in slot
+    assert "Visible Columns" in slot
+    # Minimum daily inputs only; contracts-per-unit deferred, not faked.
+    assert "TradeStation NLV / Statement Value" in slot
+    assert "exchange-fee account-model" in slot
+    for banned_input in ("SPX Start", "SPX End", "NDX Start", "NDX End",
+                         "BOT Start", "BOT End After Fees"):
+        assert banned_input not in slot
+
+
+def test_admin_daily_controls_are_admin_only(agm_app):
+    import mp_ts
+
+    layout = mp_ts.serve_layout()
+    slot = _find_by_id(layout, mp_ts.AGM_DAILY_ADMIN_SLOT_ID)
+    assert slot is not None
+    assert not getattr(slot, "children", None)  # ships publicly EMPTY
+    layout_str = str(layout)
+    for admin_id in mp_ts.AGM_DAILY_ADMIN_CONTROL_IDS:
+        assert admin_id not in layout_str, f"admin control leaked publicly: {admin_id}"
+    # Spoofed access-mode without a real authenticated session renders nothing.
+    with mp_ts.app.server.test_request_context("/"):
+        slot_children, _ = mp_ts._render_agm_daily_admin_controls("secret")
+        assert slot_children == []
+        slot_children, _ = mp_ts._render_agm_daily_admin_controls("standard")
+        assert slot_children == []
+
+
+def test_show_calculations_shows_only_accounting_identity(agm_app):
+    import mp_ts
+
+    body_str = str(mp_ts.build_agm_show_calculations_body())
+    assert (
+        "TradeStation NLV = Client Net Economic Value + Accrued Unpaid Incentive Fee"
+        in body_str
+    )
+    assert mp_ts.AGM_ACCOUNTING_IDENTITY_INVERSE_TEXT in body_str
+    for banned in ("SPX Start", "SPX End", "NDX Start", "NDX End",
+                   "BOT Start", "BOT End After Fees", "Slab", "slab",
+                   "High-Water", "HWM", "workbook", "Momentum Fee Calculation"):
+        assert banned not in body_str, f"Show Calculations leaks internals: {banned}"
+    # Terminology guard: TradeStation NLV is the brokerage statement value,
+    # never described as the client's true net value.
+    assert "not the client's true net value" in body_str
+
+
+def test_admin_add_row_minimum_inputs_and_safe_delete(agm_app, tmp_path, monkeypatch):
+    """Add Row = Date + TradeStation NLV only; everything else derived by the
+    accepted model. Manual rows extend — never overwrite or delete — the
+    TradeStation CSV history, and the invariant holds on added rows."""
+    import mp_ts
+
+    monkeypatch.setattr(
+        mp_ts, "_agm_manual_daily_rows_path",
+        lambda: str(tmp_path / "manual_rows.json"),
+    )
+
+    ok, msg, table = mp_ts.agm_add_manual_daily_row("2026-07-07", 45500.0)
+    assert ok, msg
+    rows = mp_ts.build_client_daily_table_rows(table=table)
+    assert rows[0]["Date"] == "2026-07-07"
+    assert rows[0]["actual_nlv"] == pytest.approx(45500.0)
+    residual = rows[0]["actual_nlv"] - (
+        rows[0]["client_net_value"] + rows[0]["accrued_unpaid_fees"]
+    )
+    assert abs(residual) <= mp_ts.RECONCILIATION_TOLERANCE
+
+    # Backdated/duplicate dates rejected — CSV rows are never overwritten.
+    assert not mp_ts.agm_add_manual_daily_row("2026-07-06", 45000.0)[0]
+    assert not mp_ts.agm_add_manual_daily_row(None, 45000.0)[0]
+    assert not mp_ts.agm_add_manual_daily_row("2026-07-08", None)[0]
+    assert not mp_ts.agm_add_manual_daily_row("2026-07-08", -5.0)[0]
+
+    # Delete removes only the manual row; then nothing further to delete.
+    ok_del, msg_del, table_del = mp_ts.agm_delete_last_manual_daily_row()
+    assert ok_del, msg_del
+    assert mp_ts.build_client_daily_table_rows(table=table_del)[0]["Date"] == "2026-07-06"
+    ok_del2, msg_del2, _ = mp_ts.agm_delete_last_manual_daily_row()
+    assert not ok_del2
+    assert "never deleted" in msg_del2

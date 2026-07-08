@@ -19,6 +19,7 @@ without Dash debug/reloader (avoids unstable behavior behind a reverse proxy).
 from __future__ import annotations
 
 import base64
+import json
 import math
 import os
 import sys
@@ -56,6 +57,7 @@ import algominds_daily_balances as agm_daily
 import algominds_benchmark_daily as agm_bench
 import algominds_daily_fees as agm_fees
 import algominds_daily_accounting as agm_accounting
+import algominds_monthly_summary as agm_monthly
 
 import numpy as np
 import pandas as pd
@@ -318,16 +320,44 @@ if DAILY_ACCOUNTING_LOAD_ERROR is None and not daily_accounting.table.empty:
         f"invariant_ok={agm_accounting.verify_accounting_invariant(daily_accounting.table)}"
     )
 
+# ── DERIVED monthly Performance Summary (supersedes the workbook for display) ──
+# The workbook Summary sheet is hand-maintained and goes stale between updates
+# (its last entered row froze mid-May 2026, so June never appeared). Monthly
+# display rows are now derived from the accepted daily accounting model, the
+# fee engine's month-end crystallizations, and the cached benchmark closes —
+# only COMPLETE months are emitted, so the in-progress month (e.g. July with
+# data through Jul 6) never shows as a monthly row. The workbook stays loaded
+# strictly as the fee engine's internal payment-reconciliation reference.
+MONTHLY_SUMMARY_LOAD_ERROR = None
+monthly_summary = agm_monthly.AgmMonthlySummary(table=pd.DataFrame())
+try:
+    if not daily_accounting.table.empty:
+        monthly_summary = agm_monthly.compute_agm_monthly_summary(
+            daily_accounting.table,
+            daily_fee_accrual.crystallized,
+            spx_daily_df,
+            ndx_daily_df,
+            inception=pd.Timestamp(PROGRAM_INCEPTION),
+        )
+except Exception as _msex:  # pragma: no cover - defensive
+    traceback.print_exc()
+    monthly_summary = agm_monthly.AgmMonthlySummary(table=pd.DataFrame())
+    MONTHLY_SUMMARY_LOAD_ERROR = str(_msex)
+
+if MONTHLY_SUMMARY_LOAD_ERROR is None and not monthly_summary.table.empty:
+    print(
+        f"[mp_ts] Derived monthly summary: {len(monthly_summary.table)} complete months "
+        f"through {monthly_summary.table['date'].max().strftime('%b %Y')}"
+    )
+
 
 def months_trading_elapsed_approx() -> str:
     """
     Elapsed time from live inception (Nov 13) to the *start* of the latest Summary
-    month row (e.g. May 1), expressed as decimal months using 365.25/12 days/month.
-    This is not the same as the count of monthly return rows in the sheet.
+    month row (e.g. Jun 1), expressed as decimal months using 365.25/12 days/month.
+    This is not the same as the count of monthly return rows displayed.
     """
-    if summary_df.empty:
-        return "—"
-    disp = _summary_through_current_month(summary_df)
+    disp = _display_summary_df
     if disp.empty:
         return "—"
     end = pd.Timestamp(disp["date"].max()).to_pydatetime()
@@ -450,8 +480,17 @@ def _summary_through_current_month(df: pd.DataFrame) -> pd.DataFrame:
     return df[df["date"] <= cur].reset_index(drop=True)
 
 
-# Summary slice on this tearsheet (respects TEARSHEET_AS_OF); metrics + tables use this.
-_display_summary_df = _summary_through_current_month(summary_df)
+# Displayed monthly summary: the DERIVED frame (daily accounting + fee engine
+# + benchmark cache; complete months only, so June appears and in-progress July
+# does not). The stale workbook slice remains only as a defensive fallback if
+# the daily pipeline ever fails to load; net_totals follow the same source.
+if not monthly_summary.table.empty:
+    _display_summary_df = monthly_summary.table
+    net_totals = dict(monthly_summary.totals)
+else:  # pragma: no cover - defensive fallback to the workbook path
+    _display_summary_df = _summary_through_current_month(summary_df)
+if not _display_summary_df.empty:
+    LATEST_DATE = _display_summary_df["date"].max()
 perf_metrics  = calc_performance_metrics(_display_summary_df)
 monthly_stats = calc_monthly_stats(_display_summary_df)
 
@@ -1099,8 +1138,12 @@ CLIENT_DAILY_TABLE_COLUMNS: list[tuple[str, str, str]] = [
 
 # Two-row DataTable headers — keeps each column narrow so the Daily Returns
 # table needs less horizontal scrolling (Dash ``name`` as [top, bottom]).
+# The rows read naturally with merge_duplicate_headers=True: adjacent columns
+# sharing a top line ("Daily" over $/%, "SPX" over Close/daily %) merge into
+# one spanning group header, and short single-line labels sit on the BOTTOM
+# row (blank top) so every specific label lines up along the same baseline.
 _DAILY_TABLE_HEADER_ROWS: dict[str, tuple[str, str]] = {
-    "Date": ("Date", "\u00a0"),
+    "Date": ("\u00a0", "Date"),
     "Client Net Economic Value": ("Client Net", "Economic Value"),
     "TradeStation NLV / Statement Value": ("TradeStation NLV", "Statement Value"),
     "Accrued Unpaid Incentive Fee": ("Accrued Unpaid", "Incentive Fee"),
@@ -1111,7 +1154,7 @@ _DAILY_TABLE_HEADER_ROWS: dict[str, tuple[str, str]] = {
     "SPX daily %": ("SPX", "daily %"),
     "Momentum daily %": ("Momentum", "daily %"),
     "Momentum vs SPX daily spread %": ("Momentum vs SPX", "daily spread %"),
-    "Fee payment": ("Fee", "payment"),
+    "Fee payment": ("\u00a0", "Fee payment"),
 }
 
 
@@ -1146,12 +1189,14 @@ def _build_client_daily_table_columns() -> list[dict]:
     return _daily_table_column_defs(CLIENT_DAILY_TABLE_COLUMNS)
 
 
-def build_client_daily_table_rows(newest_first: bool = True) -> list[dict]:
+def build_client_daily_table_rows(newest_first: bool = True, table=None) -> list[dict]:
     """Row dicts for the client-facing DataTable: client-safe columns only,
-    from live inception onward (matches the client NAV/drawdown charts)."""
-    if daily_accounting is None or daily_accounting.table.empty:
+    from live inception onward (matches the client NAV/drawdown charts).
+    *table* overrides the accounting frame (used by the admin Add Row flow to
+    show admin-entered rows recomputed through the accepted model)."""
+    t = daily_accounting.table if table is None else table
+    if t is None or t.empty:
         return []
-    t = daily_accounting.table
     mask = t["Date"] >= pd.Timestamp(PROGRAM_INCEPTION)
     df = t.loc[mask].reset_index(drop=True)
     if newest_first:
@@ -1180,6 +1225,294 @@ def build_client_daily_table_rows(newest_first: bool = True) -> list[dict]:
     return rows
 
 
+# ── Admin-only Daily Returns controls (TKP/TCP pattern, inside the client card) ──
+# There is no separate bottom admin table anymore (removed 2026-07-08); instead
+# the client Daily Returns card gains an admin toolbar — rendered server-side
+# by an auth-gated callback into AGM_DAILY_ADMIN_SLOT_ID, so none of these
+# controls ever reach a non-admin browser.
+AGM_DAILY_ADMIN_SLOT_ID = "agm-daily-admin-slot"
+AGM_DAILY_ADMIN_COL_PICKER_ID = "agm-daily-admin-col-picker"
+AGM_DAILY_ADMIN_ADD_BTN_ID = "agm-daily-admin-add-btn"
+AGM_DAILY_ADMIN_ADD_MODAL_ID = "agm-daily-admin-add-modal"
+AGM_DAILY_ADMIN_ADD_DATE_ID = "agm-daily-admin-add-date"
+AGM_DAILY_ADMIN_ADD_NLV_ID = "agm-daily-admin-add-nlv"
+AGM_DAILY_ADMIN_ADD_SAVE_ID = "agm-daily-admin-add-save"
+AGM_DAILY_ADMIN_ADD_CANCEL_ID = "agm-daily-admin-add-cancel"
+AGM_DAILY_ADMIN_ADD_ERROR_ID = "agm-daily-admin-add-error"
+AGM_DAILY_ADMIN_DELETE_BTN_ID = "agm-daily-admin-delete-btn"
+AGM_DAILY_ADMIN_DELETE_MODAL_ID = "agm-daily-admin-delete-modal"
+AGM_DAILY_ADMIN_DELETE_BODY_ID = "agm-daily-admin-delete-body"
+AGM_DAILY_ADMIN_DELETE_CONFIRM_ID = "agm-daily-admin-delete-confirm"
+AGM_DAILY_ADMIN_DELETE_CANCEL_ID = "agm-daily-admin-delete-cancel"
+AGM_DAILY_ADMIN_CALC_BTN_ID = "agm-daily-admin-calc-btn"
+AGM_DAILY_ADMIN_CALC_MODAL_ID = "agm-daily-admin-calc-modal"
+AGM_DAILY_ADMIN_CALC_CLOSE_ID = "agm-daily-admin-calc-close"
+
+# Every admin-only control id — tests assert none of these leak into the
+# public/client layout (only the empty slot div ships publicly).
+AGM_DAILY_ADMIN_CONTROL_IDS = (
+    AGM_DAILY_ADMIN_COL_PICKER_ID,
+    AGM_DAILY_ADMIN_ADD_BTN_ID,
+    AGM_DAILY_ADMIN_ADD_MODAL_ID,
+    AGM_DAILY_ADMIN_DELETE_BTN_ID,
+    AGM_DAILY_ADMIN_DELETE_MODAL_ID,
+    AGM_DAILY_ADMIN_CALC_BTN_ID,
+    AGM_DAILY_ADMIN_CALC_MODAL_ID,
+)
+
+# Simplified accounting identity — the ONLY calculation the AGM Show
+# Calculations modal presents (never the internal fee-engine mechanics).
+AGM_ACCOUNTING_IDENTITY_TEXT = (
+    "TradeStation NLV = Client Net Economic Value + Accrued Unpaid Incentive Fee"
+)
+AGM_ACCOUNTING_IDENTITY_INVERSE_TEXT = (
+    "Client Net Economic Value = TradeStation NLV - Accrued Unpaid Incentive Fee"
+)
+
+# Admin-entered daily rows (Date + TradeStation NLV only), persisted separately
+# from the TradeStation CSV export (which the UI never writes to). Mirrors
+# tkp_ts.py's JSON round-trip pattern for its Daily Returns editor. Every other
+# column is derived by re-running the accepted daily accounting model over the
+# CSV rows plus these manual rows — nothing is hand-entered twice.
+AGM_MANUAL_DAILY_ROWS_FILENAME = "momentum_pacer_manual_daily_rows.json"
+
+
+def _agm_manual_daily_rows_path():
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), AGM_MANUAL_DAILY_ROWS_FILENAME)
+
+
+def _load_agm_manual_daily_rows():
+    path = _agm_manual_daily_rows_path()
+    if not os.path.isfile(path):
+        return []
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return []
+    return data if isinstance(data, list) else []
+
+
+def _save_agm_manual_daily_rows(rows):
+    path = _agm_manual_daily_rows_path()
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(rows, f, indent=2)
+    except OSError as e:
+        print(f"⚠️ Could not save Momentum Pacer manual daily rows to {path}: {e}")
+
+
+def _compute_accounting_with_manual_rows(manual_rows) -> pd.DataFrame:
+    """Daily accounting table for the CSV rows plus admin-entered manual rows.
+
+    Manual rows carry only Date + TradeStation NLV; every derived column
+    (accrued fee, client net value, SPX alignment, daily returns) comes from
+    re-running the SAME accepted accounting model over the augmented balance
+    frame — the fee formula itself is never touched here.
+    """
+    if not manual_rows:
+        return daily_accounting.table
+    extra = pd.DataFrame(
+        {
+            "Date": [pd.Timestamp(r["date"]).normalize() for r in manual_rows],
+            "Net Worth": [float(r["actual_nlv"]) for r in manual_rows],
+        }
+    )
+    augmented = (
+        pd.concat([daily_balances_df, extra], ignore_index=True)
+        .sort_values("Date")
+        .reset_index(drop=True)
+    )
+    acct = agm_accounting.compute_agm_daily_accounting(
+        augmented,
+        spx_daily_df,
+        inception=pd.Timestamp(PROGRAM_INCEPTION),
+        monthly_reference=summary_df if not summary_df.empty else None,
+    )
+    return acct.table
+
+
+def agm_add_manual_daily_row(date_val, nlv_val):
+    """Validate and persist one admin-entered daily row (Date + TradeStation
+    NLV / Statement Value). Returns (ok, message, recomputed_table_or_None)."""
+    if not date_val:
+        return False, "Date is required.", None
+    if nlv_val in (None, ""):
+        return False, "TradeStation NLV / Statement Value is required.", None
+    try:
+        date = pd.Timestamp(date_val).normalize()
+    except (ValueError, TypeError):
+        return False, f"Invalid date: {date_val!r}.", None
+    try:
+        nlv = float(nlv_val)
+    except (ValueError, TypeError):
+        return False, "TradeStation NLV / Statement Value must be a number.", None
+    if nlv <= 0:
+        return False, "TradeStation NLV / Statement Value must be positive.", None
+
+    manual = _load_agm_manual_daily_rows()
+    latest_known = pd.Timestamp(daily_balances_df["Date"].max())
+    if manual:
+        latest_known = max(
+            latest_known, max(pd.Timestamp(r["date"]) for r in manual)
+        )
+    if date <= latest_known:
+        return (
+            False,
+            f"Date must be after the latest existing daily row "
+            f"({latest_known.strftime('%Y-%m-%d')}) — TradeStation CSV rows are "
+            f"never overwritten from the tearsheet.",
+            None,
+        )
+
+    manual.append({"date": date.strftime("%Y-%m-%d"), "actual_nlv": nlv})
+    _save_agm_manual_daily_rows(manual)
+    return True, "", _compute_accounting_with_manual_rows(manual)
+
+
+def agm_delete_last_manual_daily_row():
+    """Remove the most recent admin-entered daily row (never a CSV row).
+    Returns (ok, message, recomputed_table_or_None)."""
+    manual = _load_agm_manual_daily_rows()
+    if not manual:
+        return (
+            False,
+            "No manually added daily rows to delete — TradeStation CSV rows "
+            "are never deleted from the tearsheet.",
+            None,
+        )
+    manual.sort(key=lambda r: r["date"])
+    removed = manual.pop()
+    _save_agm_manual_daily_rows(manual)
+    return (
+        True,
+        f"Deleted manually added row for {removed['date']}.",
+        _compute_accounting_with_manual_rows(manual),
+    )
+
+
+def _default_admin_add_row_date() -> str:
+    """Next calendar day after the latest known daily row (ISO date string)."""
+    latest = pd.Timestamp(daily_balances_df["Date"].max())
+    manual = _load_agm_manual_daily_rows()
+    if manual:
+        latest = max(latest, max(pd.Timestamp(r["date"]) for r in manual))
+    return (latest + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
+
+
+def build_agm_show_calculations_body():
+    """Simplified accounting identity ONLY — no fee-engine mechanics, no
+    workbook internals, no monthly summary fields."""
+    return dbc.ModalBody([
+        html.H6("Daily accounting identity", className="fw-bold small"),
+        html.Pre(
+            AGM_ACCOUNTING_IDENTITY_TEXT,
+            className="bg-light p-2 rounded",
+            style={"fontFamily": "monospace", "fontSize": "12px", "whiteSpace": "pre-wrap"},
+        ),
+        html.Pre(
+            AGM_ACCOUNTING_IDENTITY_INVERSE_TEXT,
+            className="bg-light p-2 rounded",
+            style={"fontFamily": "monospace", "fontSize": "12px", "whiteSpace": "pre-wrap"},
+        ),
+        html.Ul([
+            html.Li([
+                html.Strong("TradeStation NLV / Statement Value"),
+                " — the brokerage account value shown on TradeStation statements. "
+                "It still includes any incentive fee accrued but not yet paid to the "
+                "CTA, so it is not the client's true net value.",
+            ]),
+            html.Li([
+                html.Strong("Accrued Unpaid Incentive Fee"),
+                " — the CTA incentive fee owed/accrued but not yet paid.",
+            ]),
+            html.Li([
+                html.Strong("Client Net Economic Value"),
+                " — the client's true economic value after the unpaid incentive "
+                "fee accrual is taken into account.",
+            ]),
+        ], className="small mb-0"),
+    ])
+
+
+def build_agm_daily_admin_controls():
+    """Admin toolbar + modals for the Daily Returns card (rendered only for an
+    authenticated admin session): Visible Columns picker, Add Row (Date +
+    TradeStation NLV only), Delete Last Row (manual rows only), and the
+    Show Calculations accounting-identity modal."""
+    column_labels = [label for label, _, _ in CLIENT_DAILY_TABLE_COLUMNS]
+    toolbar = html.Div(
+        [
+            html.Label("Visible Columns", className="fw-bold small mb-1"),
+            dcc.Dropdown(
+                id=AGM_DAILY_ADMIN_COL_PICKER_ID,
+                options=[{"label": c, "value": c} for c in column_labels],
+                value=list(column_labels),
+                multi=True,
+                clearable=False,
+                placeholder="Select columns…",
+                style={"marginBottom": "12px"},
+            ),
+            html.Div(
+                [
+                    dbc.Button("Add Row", id=AGM_DAILY_ADMIN_ADD_BTN_ID,
+                               color="success", size="sm", className="me-2"),
+                    dbc.Button("Delete Last Row", id=AGM_DAILY_ADMIN_DELETE_BTN_ID,
+                               color="danger", size="sm", className="me-2"),
+                    dbc.Button("Show Calculations", id=AGM_DAILY_ADMIN_CALC_BTN_ID,
+                               color="info", size="sm", className="me-2"),
+                ],
+                className="mb-3",
+            ),
+        ],
+    )
+    add_modal = dbc.Modal([
+        dbc.ModalHeader("Add Row"),
+        dbc.ModalBody([
+            dbc.Label("Date"),
+            dbc.Input(id=AGM_DAILY_ADMIN_ADD_DATE_ID, type="date",
+                      value=_default_admin_add_row_date()),
+            dbc.Label("TradeStation NLV / Statement Value", className="mt-2"),
+            dbc.Input(id=AGM_DAILY_ADMIN_ADD_NLV_ID, type="number", step="0.01"),
+            html.P(
+                "All other columns (SPX close, Accrued Unpaid Incentive Fee, "
+                "Client Net Economic Value, daily returns) are derived "
+                "automatically from the accepted daily accounting model and the "
+                "benchmark cache — never entered by hand.",
+                className="small text-muted fst-italic mt-2 mb-1",
+            ),
+            html.P(
+                "Contracts bought + sold per unit is not in the data model yet; "
+                "it arrives with the exchange-fee account-model branch.",
+                className="small text-muted fst-italic mb-0",
+            ),
+            html.Div(id=AGM_DAILY_ADMIN_ADD_ERROR_ID, className="text-danger small mt-2"),
+        ]),
+        dbc.ModalFooter([
+            dbc.Button("Save", id=AGM_DAILY_ADMIN_ADD_SAVE_ID, color="primary", size="sm"),
+            dbc.Button("Cancel", id=AGM_DAILY_ADMIN_ADD_CANCEL_ID, color="secondary", size="sm"),
+        ]),
+    ], id=AGM_DAILY_ADMIN_ADD_MODAL_ID, is_open=False, centered=True, size="sm")
+    delete_modal = dbc.Modal([
+        dbc.ModalHeader(dbc.ModalTitle("Confirm Delete")),
+        dbc.ModalBody(html.P(id=AGM_DAILY_ADMIN_DELETE_BODY_ID, className="mb-0")),
+        dbc.ModalFooter([
+            dbc.Button("Delete", id=AGM_DAILY_ADMIN_DELETE_CONFIRM_ID,
+                       color="danger", size="sm", className="me-2"),
+            dbc.Button("Cancel", id=AGM_DAILY_ADMIN_DELETE_CANCEL_ID,
+                       color="secondary", size="sm"),
+        ]),
+    ], id=AGM_DAILY_ADMIN_DELETE_MODAL_ID, is_open=False, centered=True, size="sm")
+    calc_modal = dbc.Modal([
+        dbc.ModalHeader("Show Calculations"),
+        build_agm_show_calculations_body(),
+        dbc.ModalFooter(
+            dbc.Button("Close", id=AGM_DAILY_ADMIN_CALC_CLOSE_ID, color="secondary", size="sm"),
+        ),
+    ], id=AGM_DAILY_ADMIN_CALC_MODAL_ID, is_open=False, centered=True, size="lg")
+    return [toolbar, add_modal, delete_modal, calc_modal]
+
+
 def build_client_daily_table_section():
     """Titled, collapsed-by-default client-facing daily table (Show/Hide),
     similar in spirit to the sibling tearsheets' 'Daily Returns' section."""
@@ -1205,6 +1538,11 @@ def build_client_daily_table_section():
                         "true economic value after that unpaid fee accrual is taken into account.",
                         className="small text-muted fst-italic mb-3",
                     ),
+                    # Admin-only controls (Add Row / Delete Last Row / Show
+                    # Calculations / Visible Columns) render into this slot via
+                    # a server-side auth-gated callback — the public layout only
+                    # ever carries this empty div (TCP admin-toolbar pattern).
+                    html.Div(id=AGM_DAILY_ADMIN_SLOT_ID),
                     html.Div(
                         [
                             html.Div(
@@ -1238,6 +1576,7 @@ def build_client_daily_table_section():
                         id=CLIENT_DAILY_TABLE_ID,
                         columns=_build_client_daily_table_columns(),
                         data=build_client_daily_table_rows(newest_first=True),
+                        merge_duplicate_headers=True,
                         sort_action="native",
                         sort_mode="single",
                         sort_by=[{"column_id": "Date", "direction": "desc"}],
@@ -1372,14 +1711,17 @@ def build_performance_summary_table():
     if _display_summary_df.empty:
         return html.P("No data available.", className="text-danger")
 
-    # Header columns
+    # Header columns — every label is deliberately TWO lines (a leading no-break
+    # space where a label is naturally short) so the table stays narrow enough
+    # to fit on screen while the header row keeps one uniform height with all
+    # labels bottom-aligned along the same baseline.
     cols = [
-        "Month",
-        "SPX Start", "SPX End",
-        "NDX Start", "NDX End",
-        "BOT Start", "BOT End\nAfter Fees",
+        " \nMonth",
+        "SPX\nStart", "SPX\nEnd",
+        "NDX\nStart", "NDX\nEnd",
+        "BOT\nStart", "BOT End\nAfter Fees",
         "SPX\nReturns%", "NDX\nReturns%",
-        "BOT Returns\nBefore Fees%", "BOT Fees%",
+        "BOT Returns\nBefore Fees%", "BOT\nFees%",
         "BOT Returns\nAfter Fees%", "Cumul.\nNet%",
     ]
 
@@ -1390,7 +1732,7 @@ def build_performance_summary_table():
         "backgroundColor": GREY_BG, "color": "#000",
         "fontSize": "0.75rem", "padding": "4px 6px",
         "whiteSpace": "pre-wrap", "textAlign": "center",
-        "verticalAlign": "bottom",
+        "verticalAlign": "bottom", "lineHeight": "1.25",
     }
 
     header_cells = []
@@ -2392,6 +2734,134 @@ def _export_client_daily_excel(n_clicks, table_data):
         return dash.no_update
     export_df = pd.DataFrame(table_data)
     return dcc.send_data_frame(export_df.to_excel, "agm_daily_performance.xlsx", index=False)
+
+
+# ── Admin-only Daily Returns controls (auth-gated; TCP admin-toolbar pattern) ──
+
+def _render_agm_daily_admin_controls(access_mode):
+    """Toolbar + modals for the Daily Returns card, plus the table data with
+    any admin-entered manual rows — rendered ONLY for a genuinely
+    authenticated admin session (a spoofed access-mode store yields nothing)."""
+    if access_mode != "secret" or not agm_admin_auth_manager.is_authenticated(session):
+        return [], dash.no_update
+    manual = _load_agm_manual_daily_rows()
+    data = (
+        build_client_daily_table_rows(table=_compute_accounting_with_manual_rows(manual))
+        if manual
+        else dash.no_update
+    )
+    return build_agm_daily_admin_controls(), data
+
+
+@app.callback(
+    Output(AGM_DAILY_ADMIN_SLOT_ID, "children"),
+    Output(CLIENT_DAILY_TABLE_ID, "data"),
+    Input("access-mode", "data"),
+)
+def _render_agm_daily_admin_controls_callback(access_mode):
+    return _render_agm_daily_admin_controls(access_mode)
+
+
+@app.callback(
+    Output(CLIENT_DAILY_TABLE_ID, "columns"),
+    Input(AGM_DAILY_ADMIN_COL_PICKER_ID, "value"),
+    prevent_initial_call=True,
+)
+def _update_agm_daily_visible_columns(selected):
+    if not agm_admin_auth_manager.is_authenticated(session):
+        return dash.no_update
+    labels = [label for label, _, _ in CLIENT_DAILY_TABLE_COLUMNS]
+    if not selected:
+        selected = labels
+    spec = [c for c in CLIENT_DAILY_TABLE_COLUMNS if c[0] in set(selected)]
+    return _daily_table_column_defs(spec)
+
+
+@app.callback(
+    Output(AGM_DAILY_ADMIN_ADD_MODAL_ID, "is_open"),
+    Input(AGM_DAILY_ADMIN_ADD_BTN_ID, "n_clicks"),
+    Input(AGM_DAILY_ADMIN_ADD_CANCEL_ID, "n_clicks"),
+    prevent_initial_call=True,
+)
+def _toggle_agm_daily_add_modal(_open_clicks, _cancel_clicks):
+    triggered = dash.callback_context.triggered[0]["prop_id"].split(".")[0]
+    return triggered == AGM_DAILY_ADMIN_ADD_BTN_ID
+
+
+@app.callback(
+    Output(AGM_DAILY_ADMIN_ADD_MODAL_ID, "is_open", allow_duplicate=True),
+    Output(AGM_DAILY_ADMIN_ADD_ERROR_ID, "children"),
+    Output(CLIENT_DAILY_TABLE_ID, "data", allow_duplicate=True),
+    Input(AGM_DAILY_ADMIN_ADD_SAVE_ID, "n_clicks"),
+    State(AGM_DAILY_ADMIN_ADD_DATE_ID, "value"),
+    State(AGM_DAILY_ADMIN_ADD_NLV_ID, "value"),
+    prevent_initial_call=True,
+)
+def _agm_daily_add_row_save(n_clicks, date_val, nlv_val):
+    if not n_clicks:
+        return dash.no_update, dash.no_update, dash.no_update
+    if not agm_admin_auth_manager.is_authenticated(session):
+        return dash.no_update, "Not authenticated.", dash.no_update
+    ok, message, table = agm_add_manual_daily_row(date_val, nlv_val)
+    if not ok:
+        return dash.no_update, message, dash.no_update
+    return False, "", build_client_daily_table_rows(table=table)
+
+
+@app.callback(
+    Output(AGM_DAILY_ADMIN_DELETE_MODAL_ID, "is_open"),
+    Output(AGM_DAILY_ADMIN_DELETE_BODY_ID, "children"),
+    Input(AGM_DAILY_ADMIN_DELETE_BTN_ID, "n_clicks"),
+    Input(AGM_DAILY_ADMIN_DELETE_CANCEL_ID, "n_clicks"),
+    prevent_initial_call=True,
+)
+def _toggle_agm_daily_delete_modal(_open_clicks, _cancel_clicks):
+    triggered = dash.callback_context.triggered[0]["prop_id"].split(".")[0]
+    if triggered != AGM_DAILY_ADMIN_DELETE_BTN_ID:
+        return False, dash.no_update
+    manual = sorted(_load_agm_manual_daily_rows(), key=lambda r: r["date"])
+    if not manual:
+        body = (
+            "No manually added daily rows to delete — TradeStation CSV rows "
+            "are never deleted from the tearsheet."
+        )
+    else:
+        last = manual[-1]
+        body = (
+            f"Delete manually added row for {last['date']} "
+            f"(TradeStation NLV ${float(last['actual_nlv']):,.2f})? "
+            f"This cannot be undone. TradeStation CSV rows are never deleted."
+        )
+    return True, body
+
+
+@app.callback(
+    Output(AGM_DAILY_ADMIN_DELETE_MODAL_ID, "is_open", allow_duplicate=True),
+    Output(AGM_DAILY_ADMIN_DELETE_BODY_ID, "children", allow_duplicate=True),
+    Output(CLIENT_DAILY_TABLE_ID, "data", allow_duplicate=True),
+    Input(AGM_DAILY_ADMIN_DELETE_CONFIRM_ID, "n_clicks"),
+    prevent_initial_call=True,
+)
+def _agm_daily_delete_last_row(n_clicks):
+    if not n_clicks:
+        return dash.no_update, dash.no_update, dash.no_update
+    if not agm_admin_auth_manager.is_authenticated(session):
+        return dash.no_update, "Not authenticated.", dash.no_update
+    ok, message, table = agm_delete_last_manual_daily_row()
+    if not ok:
+        return True, message, dash.no_update
+    return False, dash.no_update, build_client_daily_table_rows(table=table)
+
+
+@app.callback(
+    Output(AGM_DAILY_ADMIN_CALC_MODAL_ID, "is_open"),
+    Input(AGM_DAILY_ADMIN_CALC_BTN_ID, "n_clicks"),
+    Input(AGM_DAILY_ADMIN_CALC_CLOSE_ID, "n_clicks"),
+    prevent_initial_call=True,
+)
+def _toggle_agm_daily_calc_modal(_open_clicks, _close_clicks):
+    triggered = dash.callback_context.triggered[0]["prop_id"].split(".")[0]
+    return triggered == AGM_DAILY_ADMIN_CALC_BTN_ID
 
 
 @app.server.route("/admin")
