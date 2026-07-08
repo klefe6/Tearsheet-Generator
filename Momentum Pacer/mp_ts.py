@@ -2066,7 +2066,7 @@ def serve_layout():
                                 "Advisor: Algominds Financial LLC | Program: Momentum Pacer | "
                                 f"Live Inception: {inception_str} | "
                                 "Products Traded: Nasdaq-100 Futures (NQ / MNQ) | "
-                                "Style: Systematic Momentum / Trend-Following",
+                                "Style: Systematic Trend Following",
                                 className="text-center mb-5",
                             ),
                         ],
