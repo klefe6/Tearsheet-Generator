@@ -59,6 +59,7 @@ import algominds_benchmark_daily as agm_bench
 import algominds_daily_fees as agm_fees
 import algominds_daily_accounting as agm_accounting
 import algominds_monthly_summary as agm_monthly
+import algominds_monthly_stats as agm_monthly_stats
 import algominds_fee_payment_evidence as agm_fee_evidence
 
 import numpy as np
@@ -423,36 +424,11 @@ def calc_performance_metrics(df: pd.DataFrame) -> dict:
 
 
 def calc_monthly_stats(df: pd.DataFrame) -> dict:
-    """Monthly performance statistics card (mirrors Y&Q's calculate_monthly_stats)."""
+    """Monthly performance statistics card from derived monthly net returns."""
     if df.empty:
         return {}
-    net_rets = df["bot_net_ret"].astype(float)
-    pos  = net_rets[net_rets > 0]
-    neg  = net_rets[net_rets < 0]
-    n    = len(net_rets)
-
-    # Streak calculation
-    signs = (net_rets > 0).astype(int)
-    win_streaks, loss_streaks = [], []
-    cur, cur_sign = 1, signs.iloc[0]
-    for i in range(1, len(signs)):
-        if signs.iloc[i] == cur_sign:
-            cur += 1
-        else:
-            (win_streaks if cur_sign == 1 else loss_streaks).append(cur)
-            cur, cur_sign = 1, signs.iloc[i]
-    (win_streaks if cur_sign == 1 else loss_streaks).append(cur)
-
-    return {
-        "Number of Positive Months": f"{len(pos)} ({len(pos)/n*100:.1f}%)",
-        "Number of Negative Months": f"{len(neg)} ({len(neg)/n*100:.1f}%)",
-        "Average Winning Month %":   f"{pos.mean()*100:.2f}%" if len(pos) else "—",
-        "Average Losing Month %":    f"{neg.mean()*100:.2f}%" if len(neg) else "—",
-        "Best Single Month %":       f"{net_rets.max()*100:.2f}%",
-        "Worst Single Month %":      f"{net_rets.min()*100:.2f}%",
-        "Longest Winning Streak":    f"{max(win_streaks) if win_streaks else 0} months",
-        "Longest Losing Streak":     f"{max(loss_streaks) if loss_streaks else 0} months",
-    }
+    stats = agm_monthly_stats.compute_monthly_return_statistics(df)
+    return dict(agm_monthly_stats.format_monthly_return_statistics(stats))
 
 
 # ==============================================================================
