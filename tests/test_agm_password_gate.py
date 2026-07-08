@@ -1067,9 +1067,11 @@ def test_admin_daily_controls_render_for_authenticated_admin(agm_app):
     assert "Visible Columns" in slot
     # Minimum daily inputs only; contracts-per-unit deferred, not faked.
     assert "TradeStation NLV / Statement Value" in slot
+    assert "Deposit / Withdrawal" in slot
+    assert "Incentive Fee Paid" in slot
     assert "exchange-fee account-model" in slot
     for banned_input in ("SPX Start", "SPX End", "NDX Start", "NDX End",
-                         "BOT Start", "BOT End After Fees"):
+                         "BOT Start", "BOT End After Fees", "Plus500", "StoneX"):
         assert banned_input not in slot
 
 
@@ -1110,9 +1112,11 @@ def test_show_calculations_shows_only_accounting_identity(agm_app):
 
 
 def test_admin_add_row_minimum_inputs_and_safe_delete(agm_app, tmp_path, monkeypatch):
-    """Add Row = Date + TradeStation NLV only; everything else derived by the
-    accepted model. Manual rows extend — never overwrite or delete — the
-    TradeStation CSV history, and the invariant holds on added rows."""
+    """Add Row = Date + TradeStation NLV (+ optional Deposit/Withdrawal +
+    Incentive Fee Paid, both defaulting to 0 when omitted); everything else
+    derived by the accepted model. Manual rows extend — never overwrite or
+    delete — the TradeStation CSV history, and the invariant holds on added
+    rows."""
     import mp_ts
 
     monkeypatch.setattr(
@@ -1167,10 +1171,11 @@ def test_admin_daily_returns_shows_view_per_page_and_export(agm_app):
     assert mp_ts.CLIENT_DAILY_PAGE_SIZE_ID in layout_str
 
 
-def test_add_row_modal_has_exactly_date_and_nlv_inputs(agm_app):
+def test_add_row_modal_has_exactly_date_nlv_deposit_and_fee_paid_inputs(agm_app):
     """The Add Row modal must contain ONLY Date + TradeStation NLV / Statement
-    Value inputs -- not just that the label text appears, but that no other
-    dbc.Input component exists in the modal (no obsolete summary fields)."""
+    Value + Deposit/Withdrawal + Incentive Fee Paid inputs -- not just that the
+    label text appears, but that no other dbc.Input component exists in the
+    modal (no obsolete summary fields, no SPX/NDX/BOT/Plus500/StoneX fields)."""
     import mp_ts
 
     controls = mp_ts.build_agm_daily_admin_controls()
@@ -1180,7 +1185,7 @@ def test_add_row_modal_has_exactly_date_and_nlv_inputs(agm_app):
 
     def _collect_input_ids(component):
         cid = getattr(component, "id", None)
-        if cid and "add-date" in str(cid) or (cid and "add-nlv" in str(cid)):
+        if cid and any(marker in str(cid) for marker in ("add-date", "add-nlv", "add-deposit", "add-fee-paid")):
             input_ids.add(cid)
         for child in (getattr(component, "children", None) or []):
             if isinstance(child, (list, tuple)):
@@ -1190,11 +1195,22 @@ def test_add_row_modal_has_exactly_date_and_nlv_inputs(agm_app):
                 _collect_input_ids(child)
 
     _collect_input_ids(add_modal)
-    assert input_ids == {mp_ts.AGM_DAILY_ADMIN_ADD_DATE_ID, mp_ts.AGM_DAILY_ADMIN_ADD_NLV_ID}
+    assert input_ids == {
+        mp_ts.AGM_DAILY_ADMIN_ADD_DATE_ID,
+        mp_ts.AGM_DAILY_ADMIN_ADD_NLV_ID,
+        mp_ts.AGM_DAILY_ADMIN_ADD_DEPOSIT_ID,
+        mp_ts.AGM_DAILY_ADMIN_ADD_FEE_PAID_ID,
+    }
 
     modal_str = str(add_modal)
     assert "Date" in modal_str
     assert "TradeStation NLV / Statement Value" in modal_str
+    assert "Deposit / Withdrawal" in modal_str
+    assert "Incentive Fee Paid" in modal_str
+    assert "negative number = withdrawal" in modal_str
+    for banned in ("Plus500", "StoneX", "SPX Start", "SPX End", "NDX Start", "NDX End",
+                   "BOT Start", "BOT End After Fees"):
+        assert banned not in modal_str
 
 
 def test_admin_daily_slot_callback_registered_and_wired_to_access_mode(agm_app):

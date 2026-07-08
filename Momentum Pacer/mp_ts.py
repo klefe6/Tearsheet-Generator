@@ -48,6 +48,7 @@ from tearsheet_gate_auth import (
 )
 from tcp_admin import AdminAuthManager, configure_flask_session_secret
 from tearsheet_portal import render_portal_page
+from tearsheet_date_defaults import default_add_row_date_str
 from tearsheet_header import (
     build_header_date_label_children_from_date,
     build_tearsheet_header_row,
@@ -58,6 +59,7 @@ import algominds_benchmark_daily as agm_bench
 import algominds_daily_fees as agm_fees
 import algominds_daily_accounting as agm_accounting
 import algominds_monthly_summary as agm_monthly
+import algominds_fee_payment_evidence as agm_fee_evidence
 
 import numpy as np
 import pandas as pd
@@ -1236,6 +1238,8 @@ AGM_DAILY_ADMIN_ADD_BTN_ID = "agm-daily-admin-add-btn"
 AGM_DAILY_ADMIN_ADD_MODAL_ID = "agm-daily-admin-add-modal"
 AGM_DAILY_ADMIN_ADD_DATE_ID = "agm-daily-admin-add-date"
 AGM_DAILY_ADMIN_ADD_NLV_ID = "agm-daily-admin-add-nlv"
+AGM_DAILY_ADMIN_ADD_DEPOSIT_ID = "agm-daily-admin-add-deposit"
+AGM_DAILY_ADMIN_ADD_FEE_PAID_ID = "agm-daily-admin-add-fee-paid"
 AGM_DAILY_ADMIN_ADD_SAVE_ID = "agm-daily-admin-add-save"
 AGM_DAILY_ADMIN_ADD_CANCEL_ID = "agm-daily-admin-add-cancel"
 AGM_DAILY_ADMIN_ADD_ERROR_ID = "agm-daily-admin-add-error"
@@ -1302,13 +1306,38 @@ def _save_agm_manual_daily_rows(rows):
         print(f"⚠️ Could not save Momentum Pacer manual daily rows to {path}: {e}")
 
 
+def _agm_manual_fee_payments(manual_rows):
+    """Admin-entered 'Incentive Fee Paid' amounts as FeePaymentEvidence, on top
+    of the hand-confirmed EVIDENCED_FEE_PAYMENTS list — same evidence
+    mechanism (algominds_fee_payment_evidence), just a second source. Reduces
+    accrued_unpaid_fees for that date onward; never touches the fee formula."""
+    extra = [
+        agm_fee_evidence.FeePaymentEvidence(
+            date=pd.Timestamp(r["date"]).normalize(),
+            description="Admin-entered incentive fee payment",
+            amount=float(r["incentive_fee_paid"]),
+        )
+        for r in manual_rows
+        if float(r.get("incentive_fee_paid") or 0) > 0
+    ]
+    if not extra:
+        return None
+    return tuple(agm_fee_evidence.EVIDENCED_FEE_PAYMENTS) + tuple(extra)
+
+
 def _compute_accounting_with_manual_rows(manual_rows) -> pd.DataFrame:
     """Daily accounting table for the CSV rows plus admin-entered manual rows.
 
-    Manual rows carry only Date + TradeStation NLV; every derived column
-    (accrued fee, client net value, SPX alignment, daily returns) comes from
-    re-running the SAME accepted accounting model over the augmented balance
-    frame — the fee formula itself is never touched here.
+    Manual rows carry Date + TradeStation NLV (deposit_withdrawal is stored
+    as display-only metadata — the NLV already reflects the cash debit/credit,
+    see build_agm_daily_admin_controls). Every derived column (accrued fee,
+    client net value, SPX alignment, daily returns) comes from re-running the
+    SAME accepted accounting model over the augmented balance frame — the fee
+    formula itself is never touched here. A manually recorded incentive fee
+    payment is passed through as additional evidence to the SAME
+    exact-daily-match/workbook-reconciliation/cash-transaction mechanism the
+    fee engine already uses, so it reduces accrued_unpaid_fees (and therefore
+    increases client_net_value back to par) without double-subtracting.
     """
     if not manual_rows:
         return daily_accounting.table
@@ -1328,13 +1357,15 @@ def _compute_accounting_with_manual_rows(manual_rows) -> pd.DataFrame:
         spx_daily_df,
         inception=pd.Timestamp(PROGRAM_INCEPTION),
         monthly_reference=summary_df if not summary_df.empty else None,
+        cash_transaction_payments=_agm_manual_fee_payments(manual_rows),
     )
     return acct.table
 
 
-def agm_add_manual_daily_row(date_val, nlv_val):
+def agm_add_manual_daily_row(date_val, nlv_val, deposit_val=0, fee_paid_val=0):
     """Validate and persist one admin-entered daily row (Date + TradeStation
-    NLV / Statement Value). Returns (ok, message, recomputed_table_or_None)."""
+    NLV / Statement Value + optional Deposit/Withdrawal + optional Incentive
+    Fee Paid). Returns (ok, message, recomputed_table_or_None)."""
     if not date_val:
         return False, "Date is required.", None
     if nlv_val in (None, ""):
@@ -1349,6 +1380,16 @@ def agm_add_manual_daily_row(date_val, nlv_val):
         return False, "TradeStation NLV / Statement Value must be a number.", None
     if nlv <= 0:
         return False, "TradeStation NLV / Statement Value must be positive.", None
+    try:
+        deposit = float(deposit_val) if deposit_val not in (None, "") else 0.0
+    except (ValueError, TypeError):
+        return False, "Deposit / Withdrawal must be a number.", None
+    try:
+        fee_paid = float(fee_paid_val) if fee_paid_val not in (None, "") else 0.0
+    except (ValueError, TypeError):
+        return False, "Incentive Fee Paid must be a number.", None
+    if fee_paid < 0:
+        return False, "Incentive Fee Paid must not be negative.", None
 
     manual = _load_agm_manual_daily_rows()
     latest_known = pd.Timestamp(daily_balances_df["Date"].max())
@@ -1365,7 +1406,12 @@ def agm_add_manual_daily_row(date_val, nlv_val):
             None,
         )
 
-    manual.append({"date": date.strftime("%Y-%m-%d"), "actual_nlv": nlv})
+    manual.append({
+        "date": date.strftime("%Y-%m-%d"),
+        "actual_nlv": nlv,
+        "deposit_withdrawal": deposit,
+        "incentive_fee_paid": fee_paid,
+    })
     _save_agm_manual_daily_rows(manual)
     return True, "", _compute_accounting_with_manual_rows(manual)
 
@@ -1392,12 +1438,10 @@ def agm_delete_last_manual_daily_row():
 
 
 def _default_admin_add_row_date() -> str:
-    """Next calendar day after the latest known daily row (ISO date string)."""
-    latest = pd.Timestamp(daily_balances_df["Date"].max())
-    manual = _load_agm_manual_daily_rows()
-    if manual:
-        latest = max(latest, max(pd.Timestamp(r["date"]) for r in manual))
-    return (latest + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
+    """Previous business day (Mon -> Fri) as YYYY-MM-DD — mirrors tkp_ts.py's
+    Add Row date default exactly (see tearsheet_date_defaults.py) instead of
+    the account's own latest-known-row date."""
+    return default_add_row_date_str()
 
 
 def build_agm_show_calculations_body():
@@ -1438,8 +1482,9 @@ def build_agm_show_calculations_body():
 def build_agm_daily_admin_controls():
     """Admin toolbar + modals for the Daily Returns card (rendered only for an
     authenticated admin session): Visible Columns picker, Add Row (Date +
-    TradeStation NLV only), Delete Last Row (manual rows only), and the
-    Show Calculations accounting-identity modal."""
+    TradeStation NLV / Statement Value + Deposit/Withdrawal + Incentive Fee
+    Paid), Delete Last Row (manual rows only), and the Show Calculations
+    accounting-identity modal."""
     column_labels = [label for label, _, _ in CLIENT_DAILY_TABLE_COLUMNS]
     toolbar = html.Div(
         [
@@ -1474,6 +1519,20 @@ def build_agm_daily_admin_controls():
                       value=_default_admin_add_row_date()),
             dbc.Label("TradeStation NLV / Statement Value", className="mt-2"),
             dbc.Input(id=AGM_DAILY_ADMIN_ADD_NLV_ID, type="number", step="0.01"),
+            dbc.Label("Deposit / Withdrawal", className="mt-2"),
+            dbc.Input(id=AGM_DAILY_ADMIN_ADD_DEPOSIT_ID, type="number", step="0.01", value=0),
+            html.P(
+                "(negative number = withdrawal)",
+                className="small text-muted fst-italic mt-1 mb-0",
+            ),
+            dbc.Label("Incentive Fee Paid", className="mt-2"),
+            dbc.Input(id=AGM_DAILY_ADMIN_ADD_FEE_PAID_ID, type="number", step="0.01", min=0, value=0),
+            html.P(
+                "(positive number; reduces accrued unpaid incentive fee — "
+                "does not double-subtract from Client Net Economic Value, "
+                "since TradeStation NLV already reflects the cash debit)",
+                className="small text-muted fst-italic mt-1 mb-0",
+            ),
             html.P(
                 "All other columns (SPX close, Accrued Unpaid Incentive Fee, "
                 "Client Net Economic Value, daily returns) are derived "
@@ -2795,14 +2854,16 @@ def _toggle_agm_daily_add_modal(_open_clicks, _cancel_clicks):
     Input(AGM_DAILY_ADMIN_ADD_SAVE_ID, "n_clicks"),
     State(AGM_DAILY_ADMIN_ADD_DATE_ID, "value"),
     State(AGM_DAILY_ADMIN_ADD_NLV_ID, "value"),
+    State(AGM_DAILY_ADMIN_ADD_DEPOSIT_ID, "value"),
+    State(AGM_DAILY_ADMIN_ADD_FEE_PAID_ID, "value"),
     prevent_initial_call=True,
 )
-def _agm_daily_add_row_save(n_clicks, date_val, nlv_val):
+def _agm_daily_add_row_save(n_clicks, date_val, nlv_val, deposit_val, fee_paid_val):
     if not n_clicks:
         return dash.no_update, dash.no_update, dash.no_update
     if not agm_admin_auth_manager.is_authenticated(session):
         return dash.no_update, "Not authenticated.", dash.no_update
-    ok, message, table = agm_add_manual_daily_row(date_val, nlv_val)
+    ok, message, table = agm_add_manual_daily_row(date_val, nlv_val, deposit_val, fee_paid_val)
     if not ok:
         return dash.no_update, message, dash.no_update
     return False, "", build_client_daily_table_rows(table=table)
