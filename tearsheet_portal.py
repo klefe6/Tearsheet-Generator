@@ -15,6 +15,7 @@ from markupsafe import Markup, escape
 PORTAL_COLUMNS: List[str] = [
     "Account",
     "Account number",
+    "Status",
     "Starting date",
     "Benchmark base",
     "Units",
@@ -34,6 +35,7 @@ TEARSHEET_NOT_WIRED_TEXT = "Coming soon"
 PORTAL_ROW_FIELDS: List[str] = [
     "account",
     "account_number",
+    "status",
     "starting_date",
     "benchmark_base",
     "units",

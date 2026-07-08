@@ -476,7 +476,7 @@ def test_no_monthly_backup_navigation_labels(agm_app):
 def test_portal_is_account_registry_with_tearsheet_action(agm_app):
     """Portal = account/user registry (not a monthly view); the CSV-backed live
     account links to the current daily admin tearsheet."""
-    from tearsheet_portal import PORTAL_COLUMNS
+    from tearsheet_portal import PORTAL_COLUMNS, TEARSHEET_NOT_WIRED_TEXT
 
     with agm_app.server.test_client() as client:
         with client.session_transaction() as sess:
@@ -486,10 +486,52 @@ def test_portal_is_account_registry_with_tearsheet_action(agm_app):
         assert b"portal-account-registry" in response.data
         assert b"Tearsheet" in response.data
         assert b"Open tearsheet" in response.data
+        assert TEARSHEET_NOT_WIRED_TEXT.encode("utf-8") in response.data
         # Portal carries no monthly-backup navigation.
         assert b"Monthly backup" not in response.data
         assert b"/monthly" not in response.data
         assert "Tearsheet" in PORTAL_COLUMNS
+        assert "Status" in PORTAL_COLUMNS
+
+
+def test_portal_registry_lists_all_investors_with_account_numbers(agm_app):
+    import algominds_portal_registry as agm_registry
+
+    with agm_app.server.test_client() as client:
+        with client.session_transaction() as sess:
+            sess[AGM_SESSION_KEY] = True
+        response = client.get("/admin")
+        html = response.data.decode("utf-8")
+        assert response.status_code == 200
+        for entry in agm_registry.INVESTOR_REGISTRY:
+            # Names with "&" are HTML-escaped in the rendered table.
+            assert entry["account"].replace("&", "&amp;") in html
+            assert entry["account_number"] in html
+            assert entry["status"] in html
+        assert html.count("Open tearsheet") == 1
+        assert "210TGG51" in html
+        assert "Algominds" in html
+
+
+def test_portal_registry_units_and_blank_unknown_units(agm_app):
+    import algominds_portal_registry as agm_registry
+
+    rows = agm_registry.build_participating_accounts(
+        program_name="Momentum Pacer",
+        inception_date=__import__("datetime").datetime(2025, 11, 1),
+        benchmark_base="S&P 500 (SPX)",
+        after_fee_nlv=45335.28,
+        month_pct=1.23,
+        since_inception_pct_display="49.65%",
+        last_updated="2026-07-06",
+    )
+    by_name = {row["account"]: row["units"] for row in rows}
+    assert by_name["Dr. Rajeev Fernando"] is None
+    assert by_name["Kaladhar Palaniappan"] is None
+    for name, units in by_name.items():
+        if name in ("Dr. Rajeev Fernando", "Kaladhar Palaniappan"):
+            continue
+        assert units == 1, name
 
 
 # ── Admin reconciliation panel (date-based spot-check) ──────────────────────
