@@ -331,7 +331,7 @@ def build_tcp_nav_figure(
             plot_bgcolor=GREY_BG,
             paper_bgcolor=WHITE_BG,
             xaxis_title="Date",
-            yaxis_title="Value Added Daily Index",
+            yaxis_title="NAV",
         )
         return fig
 
@@ -355,7 +355,7 @@ def build_tcp_nav_figure(
         plot_bgcolor=GREY_BG,
         paper_bgcolor=WHITE_BG,
         xaxis_title="Date",
-        yaxis_title="Value Added Daily Index",
+        yaxis_title="NAV",
         autosize=True,
         margin={"l": 36, "r": 12, "t": 44, "b": 36},
     )
@@ -388,6 +388,8 @@ def propagate_tcp_dashboard(
     canonical_records: Sequence[Mapping[str, Any]],
     *,
     benchmark_result: Optional[Any] = None,
+    btc_benchmark_result: Optional[Any] = None,
+    eth_benchmark_result: Optional[Any] = None,
 ) -> DashboardPropagation:
     """Recompute all Step 7 dynamic outputs from one canonical NAV snapshot."""
     from tcp_benchmarks import BENCHMARK_STATUS_UNAVAILABLE, align_benchmark_returns
@@ -401,17 +403,40 @@ def propagate_tcp_dashboard(
     labels = build_tcp_current_data_labels(records_copy)
 
     spxtr_aligned = None
-    if benchmark_result is not None and benchmark_result.status != BENCHMARK_STATUS_UNAVAILABLE:
-        if benchmark_result.returns is not None and not benchmark_result.returns.empty:
-            nav_bd = normalize_drawdown_nav_records(records_copy)
-            if not nav_bd.empty:
-                spxtr_aligned = align_benchmark_returns(benchmark_result.returns, nav_bd.index)
+    btc_aligned = None
+    eth_aligned = None
+    nav_bd = normalize_drawdown_nav_records(records_copy)
+    if not nav_bd.empty:
+        benchmark_pairs = (
+            (benchmark_result, "spxtr"),
+            (btc_benchmark_result, "btc"),
+            (eth_benchmark_result, "eth"),
+        )
+        for result, key in benchmark_pairs:
+            if result is None or result.status == BENCHMARK_STATUS_UNAVAILABLE:
+                continue
+            if result.returns is None or result.returns.empty:
+                continue
+            aligned = align_benchmark_returns(result.returns, nav_bd.index)
+            if aligned.empty:
+                continue
+            if key == "spxtr":
+                spxtr_aligned = aligned
+            elif key == "btc":
+                btc_aligned = aligned
+            else:
+                eth_aligned = aligned
 
     return DashboardPropagation(
         canonical_records=records_copy,
         monthly_calendar=recompute_tcp_monthly_performance(records_copy, baseline_nav=baseline),
         daily_performance=recompute_tcp_daily_metrics(records_copy, baseline_nav=baseline),
-        drawdown_profile=build_drawdown_dataframe(records_copy, spxtr_aligned_returns=spxtr_aligned),
+        drawdown_profile=build_drawdown_dataframe(
+            records_copy,
+            spxtr_aligned_returns=spxtr_aligned,
+            btc_aligned_returns=btc_aligned,
+            eth_aligned_returns=eth_aligned,
+        ),
         nav_figure=build_tcp_nav_figure(records_copy),
         desktop_label=labels,
         mobile_label=labels,

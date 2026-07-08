@@ -104,6 +104,7 @@ def test_incorrect_token_rejected(auth_manager):
     session = {}
     ok, message = auth_manager.login(session, "wrong-token")
     assert not ok
+    # Unified sibling-gate wording (matches INVALID_PASSWORD_MESSAGE in tearsheet_gate_auth).
     assert message == "Invalid password"
     assert not auth_manager.is_authenticated(session)
 
@@ -122,8 +123,8 @@ def test_token_absent_from_healthz(client, app_bundle):
     assert TEST_TOKEN not in json.dumps(payload)
     assert TEST_SECRET not in json.dumps(payload)
     assert payload["admin_auth"] == "configured"
-    assert payload["state_mode"] in ("workbook", "json_active")
-    assert payload["row_save"] in ("disabled", "enabled")
+    assert payload["state_mode"] == "workbook"
+    assert payload["row_save"] == "disabled"
 
 
 def test_token_absent_from_layout_serialization(app_bundle):
@@ -370,6 +371,6 @@ def test_public_route_returns_200(client):
 
 def test_health_reports_workbook_capabilities(client):
     payload = client.get("/healthz").get_json()
-    assert payload["data_source"] in ("workbook", "json")
-    assert payload["state_mode"] in ("workbook", "json_active")
-    assert payload["state_write"] in ("disabled", "enabled")
+    assert payload["data_source"] == "workbook"
+    assert payload["state_mode"] == "workbook"
+    assert payload["state_write"] == "disabled"

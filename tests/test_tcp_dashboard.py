@@ -29,6 +29,20 @@ from tcp_dashboard import (
     InvalidCanonicalNAV,
     NonChronologicalCanonicalDate,
 )
+from tcp_benchmarks import (
+    BENCHMARK_STATUS_READY,
+    BENCHMARK_STATUS_UNAVAILABLE,
+    BTC_SYMBOL,
+    ETH_SYMBOL,
+    BenchmarkResult,
+)
+from tcp_drawdown import (
+    BTC_INCEPTION_COLUMN,
+    ETH_INCEPTION_COLUMN,
+    SPXTR_INCEPTION_COLUMN,
+    STRATEGY_INCEPTION_COLUMN,
+    format_drawdown_table_for_display,
+)
 from tcp_ledger import load_ledger
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -261,9 +275,14 @@ def test_nav_chart_hover_template(propagation):
     assert "NAV=" in propagation.nav_figure.data[0].hovertemplate
 
 
+def test_nav_chart_yaxis_title_is_nav(propagation):
+    assert propagation.nav_figure.layout.yaxis.title.text == "NAV"
+
+
 def test_empty_nav_figure():
     fig = build_tcp_nav_figure([])
     assert isinstance(fig, go.Figure)
+    assert fig.layout.yaxis.title.text == "NAV"
     assert fig.layout.annotations
 
 
@@ -305,3 +324,88 @@ def test_no_tkp_imports():
         elif isinstance(node, ast.ImportFrom) and node.module:
             modules.add(node.module)
     assert "tkp_ts" not in modules
+
+
+def _returns_series(values, start="2026-01-20"):
+    dates = pd.bdate_range(start=start, periods=len(values))
+    return pd.Series(values, index=dates, dtype=float)
+
+
+def test_drawdown_includes_spxtr_btc_eth_when_benchmarks_ready(canonical):
+    returns = _returns_series([0.01] * 120)
+    propagation = propagate_tcp_dashboard(
+        canonical,
+        benchmark_result=BenchmarkResult(
+            status=BENCHMARK_STATUS_READY,
+            symbol="^SP500TR",
+            display_name="SPXTR",
+            as_of="2026-06-24",
+            fetched_at="2026-06-24T00:00:00+00:00",
+            returns=returns,
+            warning=None,
+        ),
+        btc_benchmark_result=BenchmarkResult(
+            status=BENCHMARK_STATUS_READY,
+            symbol=BTC_SYMBOL,
+            display_name="BTC",
+            as_of="2026-06-24",
+            fetched_at="2026-06-24T00:00:00+00:00",
+            returns=returns,
+            warning=None,
+        ),
+        eth_benchmark_result=BenchmarkResult(
+            status=BENCHMARK_STATUS_READY,
+            symbol=ETH_SYMBOL,
+            display_name="ETH",
+            as_of="2026-06-24",
+            fetched_at="2026-06-24T00:00:00+00:00",
+            returns=returns,
+            warning=None,
+        ),
+    )
+    columns = list(propagation.drawdown_profile.columns)
+    assert SPXTR_INCEPTION_COLUMN in columns
+    assert BTC_INCEPTION_COLUMN in columns
+    assert ETH_INCEPTION_COLUMN in columns
+    assert columns.index(SPXTR_INCEPTION_COLUMN) < columns.index(BTC_INCEPTION_COLUMN)
+    assert columns.index(BTC_INCEPTION_COLUMN) < columns.index(ETH_INCEPTION_COLUMN)
+
+
+def test_drawdown_display_renames_shorten_headers():
+    df = pd.DataFrame(
+        {
+            "Metric": ["Depth"],
+            STRATEGY_INCEPTION_COLUMN: ["-1.0%"],
+            SPXTR_INCEPTION_COLUMN: ["-2.0%"],
+            BTC_INCEPTION_COLUMN: ["-3.0%"],
+            ETH_INCEPTION_COLUMN: ["-4.0%"],
+        }
+    )
+    display = format_drawdown_table_for_display(df)
+    assert list(display.columns) == ["Metric", "TCP", "SPXTR", "BTC", "ETH"]
+
+
+def test_drawdown_omits_btc_eth_when_unavailable(canonical):
+    propagation = propagate_tcp_dashboard(
+        canonical,
+        btc_benchmark_result=BenchmarkResult(
+            status=BENCHMARK_STATUS_UNAVAILABLE,
+            symbol=BTC_SYMBOL,
+            display_name="BTC",
+            as_of=None,
+            fetched_at=None,
+            returns=None,
+            warning="unavailable",
+        ),
+        eth_benchmark_result=BenchmarkResult(
+            status=BENCHMARK_STATUS_UNAVAILABLE,
+            symbol=ETH_SYMBOL,
+            display_name="ETH",
+            as_of=None,
+            fetched_at=None,
+            returns=None,
+            warning="unavailable",
+        ),
+    )
+    assert BTC_INCEPTION_COLUMN not in propagation.drawdown_profile.columns
+    assert ETH_INCEPTION_COLUMN not in propagation.drawdown_profile.columns

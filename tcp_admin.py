@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence, Union
 
 import dash_bootstrap_components as dbc
 from dash import dash_table, html
+from flask import render_template_string
 
 from tcp_calculations import (
     CalculationInvariantError,
@@ -201,23 +202,6 @@ def datatable_column_defs(visible_columns: Optional[Sequence[str]] = None) -> Li
             col_def["format"] = {"specifier": ",.3f"}
         defs.append(col_def)
     return defs
-
-
-def build_column_selector() -> dbc.Card:
-    return dbc.Card(
-        [
-            dbc.CardHeader("Column visibility"),
-            dbc.CardBody(
-                dbc.Checklist(
-                    id="admin-column-selector",
-                    options=[{"label": col, "value": col} for col in LEDGER_TABLE_COLUMNS],
-                    value=list(LEDGER_TABLE_COLUMNS),
-                    inline=True,
-                )
-            ),
-        ],
-        className="mb-3",
-    )
 
 
 def build_ledger_datatable(rows: List[Dict[str, Any]], visible_columns: Sequence[str]) -> dash_table.DataTable:
@@ -446,10 +430,10 @@ def build_add_row_preview_modal(*, persistence_enabled: bool = False) -> dbc.Mod
 
 
 def build_delete_modal(*, persistence_enabled: bool = False) -> dbc.Modal:
-    confirm_label = "Delete Latest Row" if persistence_enabled else "Confirm Simulation"
+    confirm_label = "Delete Last Row" if persistence_enabled else "Confirm Simulation"
     return dbc.Modal(
         [
-            dbc.ModalHeader("Delete Latest Row"),
+            dbc.ModalHeader("Delete Last Row"),
             dbc.ModalBody(
                 [
                     html.P(
@@ -553,7 +537,10 @@ def build_admin_editor_layout(
                 writable=writable,
                 warning=warning,
             ),
-            build_column_selector(),
+            # Column visibility moved into the Daily Values card's admin toolbar
+            # (tcp_daily_values.build_daily_values_admin_toolbar) to mirror the
+            # TKP Daily Returns pattern — building it here too would duplicate
+            # the admin-column-selector component id.
             build_add_row_modal(),
             build_add_row_preview_modal(persistence_enabled=persistence_enabled and writable),
             build_delete_modal(persistence_enabled=persistence_enabled and writable),
@@ -609,3 +596,100 @@ LOGIN_FORM_HTML = """
 </body>
 </html>
 """
+
+
+ADMIN_PORTAL_HTML = """
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ title }}</title>
+  <style>
+    body {
+      font-family: Arial, Helvetica, sans-serif;
+      margin: 0;
+      background: #ffffff;
+      color: #212529;
+    }
+    .wrap {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 24px;
+    }
+    h1 {
+      color: #0D3562;
+      font-size: 1.75rem;
+      margin-bottom: 0.5rem;
+    }
+    .muted {
+      color: #6c757d;
+    }
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      margin: 1.5rem 0;
+    }
+    th, td {
+      border: 1px solid #ccc;
+      padding: 8px;
+      text-align: left;
+    }
+    th {
+      background: #EBEBEB;
+    }
+    a {
+      color: #0D3562;
+    }
+    .actions a {
+      margin-right: 0.75rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Admin Overview</h1>
+    <p class="muted">Programs and daily entry access.</p>
+    <table id="admin-account-overview">
+      <thead>
+        <tr>
+          <th>Program</th>
+          <th>Latest completed date</th>
+          <th>Completed rows</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>{{ program_name }}</td>
+          <td>{{ latest_date }}</td>
+          <td>{{ row_count }}</td>
+          <td class="actions">
+            <a href="{{ daily_entry_href }}">Daily entry</a>
+            <a href="/">Public tearsheet</a>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+    <p class="muted"><a href="/admin/logout">Logout</a> · <a href="/">Back to tearsheet</a></p>
+  </div>
+</body>
+</html>
+"""
+
+
+def render_admin_portal_page(
+    *,
+    program_name: str,
+    latest_date: str = "—",
+    row_count: str = "—",
+    daily_entry_href: str = "/",
+) -> str:
+    return render_template_string(
+        ADMIN_PORTAL_HTML,
+        title=f"{program_name} — Admin",
+        program_name=program_name,
+        latest_date=latest_date,
+        row_count=row_count,
+        daily_entry_href=daily_entry_href,
+    )

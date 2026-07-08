@@ -35,11 +35,27 @@ DRAWDOWN_METRIC_ORDER: Tuple[str, ...] = (
 STRATEGY_INCEPTION_COLUMN = f"{STRATEGY_NAME} (Inception)"
 
 SPXTR_INCEPTION_COLUMN = "SPXTR (Inception)"
+BTC_INCEPTION_COLUMN = "BTC (Inception)"
+ETH_INCEPTION_COLUMN = "ETH (Inception)"
 
 DRAWDOWN_FOOTNOTE = (
-    "Both TCP & SPXTR drawdown stats are reflective of the same $150,000 fixed nominal "
-    "exposure at start of drawdown period."
+    "Drawdown benchmark columns (TCP, SPXTR, BTC, ETH) use the same $150,000 fixed nominal "
+    "exposure at the start of the drawdown period."
 )
+
+DRAWDOWN_TABLE_DISPLAY_RENAMES = {
+    STRATEGY_INCEPTION_COLUMN: "TCP",
+    SPXTR_INCEPTION_COLUMN: "SPXTR",
+    BTC_INCEPTION_COLUMN: "BTC",
+    ETH_INCEPTION_COLUMN: "ETH",
+}
+
+
+def format_drawdown_table_for_display(drawdown_df: pd.DataFrame) -> pd.DataFrame:
+    """Short column headers for the public drawdown table layout."""
+    return drawdown_df.rename(
+        columns={key: label for key, label in DRAWDOWN_TABLE_DISPLAY_RENAMES.items() if key in drawdown_df.columns}
+    )
 
 
 class TCPDrawdownError(Exception):
@@ -226,7 +242,7 @@ def format_drawdown_table_records(
     return pd.DataFrame(columns)
 
 
-def build_spxtr_drawdown_period(
+def build_benchmark_drawdown_period(
     aligned_returns: pd.Series,
     *,
     inception_start: pd.Timestamp,
@@ -234,15 +250,18 @@ def build_spxtr_drawdown_period(
 ) -> Optional[DrawdownPeriod]:
     if aligned_returns.empty or baseline == 0:
         return None
-    spxtr_nav = (1.0 + aligned_returns.loc[inception_start:].astype(float)).cumprod() * float(baseline)
-    if spxtr_nav.empty:
+    benchmark_nav = (1.0 + aligned_returns.loc[inception_start:].astype(float)).cumprod() * float(baseline)
+    if benchmark_nav.empty:
         return None
     return worst_drawdown_profile(
-        spxtr_nav,
+        benchmark_nav,
         baseline=float(baseline),
         use_quantstats=True,
         show_price=False,
     )
+
+
+build_spxtr_drawdown_period = build_benchmark_drawdown_period
 
 
 def build_drawdown_dataframe(
@@ -250,14 +269,20 @@ def build_drawdown_dataframe(
     *,
     business_day_forward_fill: bool = True,
     spxtr_aligned_returns: Optional[pd.Series] = None,
+    btc_aligned_returns: Optional[pd.Series] = None,
+    eth_aligned_returns: Optional[pd.Series] = None,
 ) -> pd.DataFrame:
-    """Return v1-shaped worst-drawdown table for TCP and optional SPXTR (Inception)."""
+    """Return v1-shaped worst-drawdown table for TCP and optional benchmark inception columns."""
     records_copy = deepcopy(list(canonical_records))
     nav = normalize_drawdown_nav_records(records_copy, business_day_forward_fill=business_day_forward_fill)
+    benchmark_inputs = (
+        (SPXTR_INCEPTION_COLUMN, spxtr_aligned_returns),
+        (BTC_INCEPTION_COLUMN, btc_aligned_returns),
+        (ETH_INCEPTION_COLUMN, eth_aligned_returns),
+    )
     if nav.empty:
         columns = ["Metric", STRATEGY_INCEPTION_COLUMN]
-        if spxtr_aligned_returns is not None:
-            columns.append(SPXTR_INCEPTION_COLUMN)
+        columns.extend(col for col, aligned in benchmark_inputs if aligned is not None)
         return pd.DataFrame(columns=columns)
 
     baseline = float(nav.iloc[0])
@@ -265,14 +290,16 @@ def build_drawdown_dataframe(
     period = worst_drawdown_profile(nav, baseline=baseline, use_quantstats=False, show_price=False)
 
     extra_columns: Dict[str, DrawdownPeriod] = {}
-    if spxtr_aligned_returns is not None:
-        spxtr_period = build_spxtr_drawdown_period(
-            spxtr_aligned_returns,
+    for column_name, aligned_returns in benchmark_inputs:
+        if aligned_returns is None:
+            continue
+        benchmark_period = build_benchmark_drawdown_period(
+            aligned_returns,
             inception_start=inception_start,
             baseline=baseline,
         )
-        if spxtr_period is not None:
-            extra_columns[SPXTR_INCEPTION_COLUMN] = spxtr_period
+        if benchmark_period is not None:
+            extra_columns[column_name] = benchmark_period
 
     return format_drawdown_table_records(period, extra_columns=extra_columns)
 

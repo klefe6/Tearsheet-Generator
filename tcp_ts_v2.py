@@ -17,11 +17,15 @@ import dash
 import dash_bootstrap_components as dbc
 import pandas as pd
 from dash import Input, Output, State, dcc, html, no_update
+from dash.exceptions import PreventUpdate
 from flask import jsonify, redirect, render_template_string, request, session
 
 from tearsheet_gate_auth import (
+    ADMIN_DAILY_ENTRY_PATH,
+    ADMIN_PORTAL_PATH,
     GATE_PASSWORD_ERROR_ID,
     GATE_PASSWORD_INPUT_ID,
+    GATE_PASSWORD_PORTAL_ID,
     GATE_PASSWORD_ROW_ID,
     GATE_PASSWORD_SUBMIT_ID,
     GATE_PASSWORD_VISIBLE_STORE_ID,
@@ -29,6 +33,7 @@ from tearsheet_gate_auth import (
     gate_password_row_style,
 )
 from tcp_admin import (
+    DEFAULT_PAGE_SIZE,
     DELETE_CONFIRM_MESSAGE,
     DELETE_PERSIST_MESSAGE,
     LOGIN_FORM_HTML,
@@ -44,6 +49,7 @@ from tcp_admin import (
     simulate_add_row,
     simulate_delete_last_row,
 )
+from tearsheet_portal import render_legacy_diagnostics_table, render_portal_page
 from tcp_config import (
     AdminAuthSettings,
     TCPConfig,
@@ -52,6 +58,7 @@ from tcp_config import (
     load_config,
     resolve_benchmark_cache_path,
     resolve_bind_port,
+    resolve_page_title,
     resolve_state_paths,
     validate_bind_port,
     validate_config,
@@ -59,10 +66,19 @@ from tcp_config import (
 from tcp_benchmarks import (
     BENCHMARK_STATUS_STALE,
     BENCHMARK_STATUS_UNAVAILABLE,
+    BTC_DISPLAY_NAME,
+    BTC_SYMBOL,
     BenchmarkResult,
     DEFAULT_CACHE_FILENAME,
+    ETH_DISPLAY_NAME,
+    ETH_SYMBOL,
     benchmark_status_message,
+    load_btc_benchmark,
+    load_btc_benchmark_cache_only,
+    load_eth_benchmark,
+    load_eth_benchmark_cache_only,
     load_spxtr_benchmark,
+    load_spxtr_benchmark_cache_only,
 )
 from tcp_dashboard import (
     GREY_BG,
@@ -77,15 +93,16 @@ from tcp_runtime_state import (
     persist_delete_last_row,
     state_record_to_fields,
 )
+from tcp_drawdown import format_drawdown_table_for_display
 from tcp_public_sections import (
     CONTROLLED_TABLE_OVERFLOW_CLASS,
     DAILY_METRICS_TABLE_CLASS,
     DRAWDOWN_TABLE_CLASS,
+    DRAWDOWN_SECTION_CLASS,
     HEADER_ROW_CLASS,
     MODE_ALERT_CLASS,
     MONTHLY_PERFORMANCE_CLASS,
     NAV_CHART_CONTAINER_CLASS,
-    PERFORMANCE_DRAWDOWN_COLUMN_CLASS,
     POST_ACCOUNT_DISCLAIMERS_CLASS,
     PREVIEW_BANNER_CLASS,
     PUBLIC_CARD_CLASS,
@@ -110,15 +127,27 @@ from tcp_daily_values import (
     DAILY_VALUES_SECTION_ID,
     DAILY_VALUES_TABLE_ID,
     DAILY_VALUES_TOOLBAR_ID,
+    PUBLIC_DAILY_COLLAPSE_ID,
+    PUBLIC_DAILY_EXPORT_BTN_ID,
+    PUBLIC_DAILY_EXPORT_DOWNLOAD_ID,
+    PUBLIC_DAILY_PAGE_SIZE_ID,
+    PUBLIC_DAILY_TOGGLE_BTN_ID,
+    PUBLIC_DAILY_TOGGLE_LABEL_HIDE,
+    PUBLIC_DAILY_TOGGLE_LABEL_SHOW,
     PUBLIC_GATE_ACCEPTED_STORE_ID,
+    TCP_GATE_SESSION_STORAGE_PREFIXES,
+    TCP_GATE_STORAGE_PURGE_STORE_ID,
     TCP_UI_MODE_STORE_ID,
     UI_MODE_ADMIN,
     UI_MODE_PUBLIC,
+    build_daily_values_export_payload,
     build_daily_values_section,
     project_public_daily_rows,
     public_daily_column_defs,
     resolve_access_visibility,
     resolve_daily_values_toolbar_style,
+    resolve_gate_bootstrap_state,
+    resolve_public_accept_ui_mode,
     rows_from_records,
     sort_rows_for_display,
 )
@@ -240,8 +269,9 @@ def _daily_perf_table_component(daily_df: pd.DataFrame) -> html.Div:
 def _drawdown_table_component(drawdown_df: pd.DataFrame) -> html.Div:
     if drawdown_df.empty:
         return html.P("No drawdown profile data available.", className="text-muted")
+    display_df = format_drawdown_table_for_display(drawdown_df)
     return dbc.Table.from_dataframe(
-        drawdown_df,
+        display_df,
         striped=False,
         bordered=True,
         hover=True,
@@ -250,32 +280,39 @@ def _drawdown_table_component(drawdown_df: pd.DataFrame) -> html.Div:
     )
 
 
+# TKP-style header status block (shared tearsheet_header module + styles.css).
+from tearsheet_header import build_header_date_label_children as _shared_header_date_label_children
+
+
 def _desktop_label_children(header: str, date_line: str) -> List[Any]:
-    return [
-        html.H6(header, className="text-end text-secondary mb-1", id="data-current-label-desktop-header"),
-        html.H5(date_line, className="text-end text-primary", id="data-current-label-desktop-date"),
-    ]
+    desktop, _ = _shared_header_date_label_children(header, date_line)
+    return desktop
 
 
 def _mobile_label_children(header: str, date_line: str) -> List[Any]:
-    return [
-        html.Small(header, className="d-block text-end text-primary mb-1", id="data-current-label-mobile-header"),
-        html.Small(date_line, className="d-block text-end text-primary", id="data-current-label-mobile-date"),
-    ]
+    _, mobile = _shared_header_date_label_children(header, date_line)
+    return mobile
 
 
 def build_error_layout(cfg: TCPConfig, state: PreviewState) -> html.Div:
     message = state.error or "Unknown runtime error"
+    production_runtime = is_production_runtime(cfg)
+    banner = (
+        []
+        if production_runtime
+        else [dbc.Alert(cfg.preview_label, color="warning", className="text-center fw-bold")]
+    )
+    error_heading = "Service error" if production_runtime else "Preview error"
     return html.Div(
         [
-            dbc.Alert(cfg.preview_label, color="warning", className="text-center fw-bold"),
+            *banner,
             dbc.Container(
                 fluid=True,
                 className="py-4",
                 children=[
                     dbc.Alert(
                         [
-                            html.H4("Preview error", className="alert-heading"),
+                            html.H4(error_heading, className="alert-heading"),
                             html.P(message, className="mb-0"),
                             html.P(f"Status: {state.error_type or 'error'}", className="small text-muted mt-2"),
                         ],
@@ -289,6 +326,74 @@ def build_error_layout(cfg: TCPConfig, state: PreviewState) -> html.Div:
 
 def _benchmark_cache_path() -> Path:
     return resolve_benchmark_cache_path(REPO_ROOT)
+
+
+def _btc_benchmark_cache_path() -> Path:
+    return resolve_benchmark_cache_path(REPO_ROOT, "btc")
+
+
+def _eth_benchmark_cache_path() -> Path:
+    return resolve_benchmark_cache_path(REPO_ROOT, "eth")
+
+
+def _skip_benchmark_fetch() -> bool:
+    return os.environ.get("TCP_V2_SKIP_BENCHMARK_FETCH") == "1"
+
+
+def _resolve_drawdown_benchmark(
+    runtime_holder: Dict[str, Any],
+    *,
+    symbol: str,
+    display_name: str,
+    cache_path: Path,
+    load_live,
+    load_cache_only,
+) -> BenchmarkResult:
+    cache = runtime_holder.setdefault("drawdown_benchmarks", {})
+    existing = cache.get(symbol)
+    if isinstance(existing, BenchmarkResult):
+        return existing
+    if _skip_benchmark_fetch():
+        result = load_cache_only(cache_path=cache_path)
+    else:
+        result = load_live(cache_path=cache_path)
+    cache[symbol] = result
+    return result
+
+
+def _resolve_btc_benchmark_result(runtime_holder: Dict[str, Any]) -> BenchmarkResult:
+    return _resolve_drawdown_benchmark(
+        runtime_holder,
+        symbol=BTC_SYMBOL,
+        display_name=BTC_DISPLAY_NAME,
+        cache_path=_btc_benchmark_cache_path(),
+        load_live=load_btc_benchmark,
+        load_cache_only=load_btc_benchmark_cache_only,
+    )
+
+
+def _resolve_eth_benchmark_result(runtime_holder: Dict[str, Any]) -> BenchmarkResult:
+    return _resolve_drawdown_benchmark(
+        runtime_holder,
+        symbol=ETH_SYMBOL,
+        display_name=ETH_DISPLAY_NAME,
+        cache_path=_eth_benchmark_cache_path(),
+        load_live=load_eth_benchmark,
+        load_cache_only=load_eth_benchmark_cache_only,
+    )
+
+
+def _propagate_with_drawdown_benchmarks(
+    records: List[Dict[str, Any]],
+    runtime_holder: Dict[str, Any],
+    benchmark_result: BenchmarkResult,
+) -> Any:
+    return propagate_tcp_dashboard(
+        records,
+        benchmark_result=benchmark_result,
+        btc_benchmark_result=_resolve_btc_benchmark_result(runtime_holder),
+        eth_benchmark_result=_resolve_eth_benchmark_result(runtime_holder),
+    )
 
 
 def _unavailable_benchmark_result() -> BenchmarkResult:
@@ -307,10 +412,11 @@ def _resolve_benchmark_result(runtime_holder: Dict[str, Any]) -> BenchmarkResult
     existing = runtime_holder.get("benchmark")
     if isinstance(existing, BenchmarkResult):
         return existing
-    if os.environ.get("TCP_V2_SKIP_BENCHMARK_FETCH") == "1":
-        result = _unavailable_benchmark_result()
+    cache_path = _benchmark_cache_path()
+    if _skip_benchmark_fetch():
+        result = load_spxtr_benchmark_cache_only(cache_path=cache_path)
     else:
-        result = load_spxtr_benchmark(cache_path=_benchmark_cache_path())
+        result = load_spxtr_benchmark(cache_path=cache_path)
     runtime_holder["benchmark"] = result
     return result
 
@@ -332,7 +438,11 @@ def build_preview_layout(cfg: TCPConfig, state: PreviewState, benchmark_result: 
     assert snapshot is not None
     meta = snapshot.ledger.metadata
     first_completed = meta.first_completed_date.strftime("%B %d, %Y") if meta.first_completed_date else "—"
-    propagation = propagate_tcp_dashboard(snapshot.canonical_nav, benchmark_result=benchmark_result)
+    propagation = _propagate_with_drawdown_benchmarks(
+        snapshot.canonical_nav,
+        {},
+        benchmark_result,
+    )
     mode_alert = (
         "JSON state is authoritative. Authenticated Add/Delete persist to preview JSON."
         if cfg.persistence_enabled and snapshot.data_source == "json"
@@ -434,19 +544,17 @@ def build_preview_layout(cfg: TCPConfig, state: PreviewState, benchmark_result: 
                     row_id="tcp-strategy-row",
                 ),
                 build_two_column_shell_row(
-                    html.Div(
-                        [
-                            performance_metrics_card,
-                            build_drawdown_profile_card(
-                                _drawdown_table_component(propagation.drawdown_profile),
-                                benchmark_notice=_benchmark_notice_component(benchmark_result),
-                            ),
-                        ],
-                        id="tcp-performance-drawdown-column",
-                        className=PERFORMANCE_DRAWDOWN_COLUMN_CLASS,
-                    ),
+                    performance_metrics_card,
                     build_investor_information(),
                     row_id="tcp-performance-account-row",
+                ),
+                html.Div(
+                    build_drawdown_profile_card(
+                        _drawdown_table_component(propagation.drawdown_profile),
+                        benchmark_notice=_benchmark_notice_component(benchmark_result),
+                    ),
+                    id="tcp-drawdown-section",
+                    className=DRAWDOWN_SECTION_CLASS,
                 ),
                 html.Div(
                     build_inline_performance_disclaimers(),
@@ -505,6 +613,7 @@ def _register_access_callbacks(
     app: dash.Dash,
     auth_manager: AdminAuthManager,
     runtime_holder: Dict[str, Any],
+    export_filename: str = "tcp_daily_returns_export.xlsx",
 ) -> None:
     @app.callback(
         Output(GATE_PASSWORD_VISIBLE_STORE_ID, "data"),
@@ -549,13 +658,32 @@ def _register_access_callbacks(
         State(ADMIN_AUTH_REVISION_STORE_ID, "data"),
         prevent_initial_call=True,
     )
-    def _gate_admin_login(submit_clicks, _n_submit, password, auth_revision):
+    def _gate_admin_tearsheet_login(submit_clicks, _n_submit, password, auth_revision):
         _ = submit_clicks
         ok, _msg = auth_manager.login(session, password or "")
         if not ok:
             return INVALID_PASSWORD_MESSAGE, no_update, "", no_update, no_update, no_update, no_update, no_update
         gate_style, main_style, daily_style = resolve_access_visibility(ui_mode=UI_MODE_ADMIN)
         return "", False, "", gate_style, main_style, daily_style, UI_MODE_ADMIN, next_admin_auth_revision(auth_revision)
+
+    @app.callback(
+        Output(GATE_PASSWORD_ERROR_ID, "children", allow_duplicate=True),
+        Output(GATE_PASSWORD_VISIBLE_STORE_ID, "data", allow_duplicate=True),
+        Output(GATE_PASSWORD_INPUT_ID, "value", allow_duplicate=True),
+        Output(ADMIN_AUTH_REVISION_STORE_ID, "data", allow_duplicate=True),
+        Output("url", "href"),
+        Output("url", "refresh"),
+        Input(GATE_PASSWORD_PORTAL_ID, "n_clicks"),
+        State(GATE_PASSWORD_INPUT_ID, "value"),
+        State(ADMIN_AUTH_REVISION_STORE_ID, "data"),
+        prevent_initial_call=True,
+    )
+    def _gate_admin_portal_login(portal_clicks, password, auth_revision):
+        _ = portal_clicks
+        ok, _msg = auth_manager.login(session, password or "")
+        if not ok:
+            return INVALID_PASSWORD_MESSAGE, no_update, "", no_update, no_update, no_update
+        return "", False, "", next_admin_auth_revision(auth_revision), ADMIN_PORTAL_PATH, True
 
     @app.callback(
         Output("admin-add-modal", "is_open", allow_duplicate=True),
@@ -586,18 +714,51 @@ def _register_access_callbacks(
         Output("main-app", "style"),
         Output(DAILY_VALUES_SECTION_ID, "style"),
         Output(TCP_UI_MODE_STORE_ID, "data"),
-        Input("accept-button", "n_clicks"),
         Input("url", "pathname"),
-        State(TCP_UI_MODE_STORE_ID, "data"),
         prevent_initial_call=False,
     )
-    def _control_public_access(accept_clicks, _pathname, ui_mode):
-        triggered = dash.callback_context.triggered_id
-        if triggered == "accept-button" and accept_clicks:
+    def _bootstrap_gate_on_page_load(_pathname):
+        auth_manager.logout(session)
+        gate_style, main_style, daily_style = resolve_access_visibility(ui_mode=None)
+        return gate_style, main_style, daily_style, None
+
+    @app.callback(
+        Output("disclaimer-screen", "style", allow_duplicate=True),
+        Output("main-app", "style", allow_duplicate=True),
+        Output(DAILY_VALUES_SECTION_ID, "style", allow_duplicate=True),
+        Output(TCP_UI_MODE_STORE_ID, "data", allow_duplicate=True),
+        Input("accept-button", "n_clicks"),
+        prevent_initial_call=True,
+    )
+    def _accept_public_gate(accept_clicks):
+        ui_mode, clear_session = resolve_public_accept_ui_mode(accept_clicks=accept_clicks)
+        if ui_mode != UI_MODE_PUBLIC:
+            raise PreventUpdate
+        if clear_session:
             auth_manager.logout(session)
-            ui_mode = UI_MODE_PUBLIC
         gate_style, main_style, daily_style = resolve_access_visibility(ui_mode=ui_mode)
         return gate_style, main_style, daily_style, ui_mode
+
+    prefixes_js = ", ".join(repr(prefix) for prefix in TCP_GATE_SESSION_STORAGE_PREFIXES)
+    app.clientside_callback(
+        f"""
+        function(_pathname) {{
+            if (typeof window !== "undefined" && window.sessionStorage) {{
+                const prefixes = [{prefixes_js}];
+                Object.keys(window.sessionStorage).forEach(function(key) {{
+                    for (let i = 0; i < prefixes.length; i++) {{
+                        if (key.indexOf(prefixes[i]) !== -1) {{
+                            window.sessionStorage.removeItem(key);
+                        }}
+                    }}
+                }});
+            }}
+            return Date.now();
+        }}
+        """,
+        Output(TCP_GATE_STORAGE_PURGE_STORE_ID, "data"),
+        Input("url", "pathname"),
+    )
 
     @app.callback(
         Output(DAILY_VALUES_TOOLBAR_ID, "style"),
@@ -611,6 +772,41 @@ def _register_access_callbacks(
             ui_mode=ui_mode,
             admin_authenticated=auth_manager.is_authenticated(session),
         )
+
+    @app.callback(
+        Output(PUBLIC_DAILY_COLLAPSE_ID, "is_open"),
+        Output(PUBLIC_DAILY_TOGGLE_BTN_ID, "children"),
+        Input(PUBLIC_DAILY_TOGGLE_BTN_ID, "n_clicks"),
+        State(PUBLIC_DAILY_COLLAPSE_ID, "is_open"),
+        prevent_initial_call=True,
+    )
+    def _toggle_public_daily_values(n_clicks, is_open):
+        _ = n_clicks
+        new_open = not is_open
+        label = PUBLIC_DAILY_TOGGLE_LABEL_HIDE if new_open else PUBLIC_DAILY_TOGGLE_LABEL_SHOW
+        return new_open, label
+
+    # ── TKP-pattern Daily Values controls: view-per-page + Export Excel ────
+    # Presentation-only: page size changes the native DataTable paging; export
+    # downloads exactly the public rows already rendered in the table.
+    @app.callback(
+        Output(DAILY_VALUES_TABLE_ID, "page_size"),
+        Input(PUBLIC_DAILY_PAGE_SIZE_ID, "value"),
+        prevent_initial_call=True,
+    )
+    def _update_daily_values_page_size(page_size):
+        return page_size or DEFAULT_PAGE_SIZE
+
+    @app.callback(
+        Output(PUBLIC_DAILY_EXPORT_DOWNLOAD_ID, "data"),
+        Input(PUBLIC_DAILY_EXPORT_BTN_ID, "n_clicks"),
+        State(DAILY_VALUES_TABLE_ID, "data"),
+        prevent_initial_call=True,
+    )
+    def _export_daily_values_excel(n_clicks, table_data):
+        if not n_clicks or not table_data:
+            return no_update
+        return build_daily_values_export_payload(table_data, export_filename)
 
 
 def _register_dashboard_callback(app: dash.Dash, runtime_holder: Dict[str, Any]) -> None:
@@ -632,7 +828,11 @@ def _register_dashboard_callback(app: dash.Dash, runtime_holder: Dict[str, Any])
             if benchmark_data
             else _resolve_benchmark_result(runtime_holder)
         )
-        propagation = propagate_tcp_dashboard(records, benchmark_result=benchmark_result)
+        propagation = _propagate_with_drawdown_benchmarks(
+            records,
+            runtime_holder,
+            benchmark_result,
+        )
         return (
             propagation.nav_figure,
             _monthly_table_component(propagation.monthly_calendar),
@@ -897,7 +1097,37 @@ def _register_admin_callbacks(
         return no_update, no_update, no_update, no_update, no_update, no_update, no_update
 
 
-def _register_auth_routes(app: dash.Dash, auth_manager: AdminAuthManager) -> None:
+def _register_auth_routes(
+    app: dash.Dash,
+    auth_manager: AdminAuthManager,
+    runtime_holder: Optional[Dict[str, Any]] = None,
+) -> None:
+    from tcp_public_sections import TCP_PRODUCT_NAME
+
+    @app.server.route("/admin")
+    def admin_portal():
+        if not auth_manager.is_authenticated(session):
+            return redirect("/")
+        latest_date = "—"
+        row_count = "—"
+        snap = (runtime_holder or {}).get("snapshot")
+        if snap is not None:
+            meta = snap.ledger.metadata
+            if meta.latest_completed_date is not None:
+                latest_date = meta.latest_completed_date.isoformat()
+            row_count = str(meta.completed_row_count)
+        diagnostics_html = render_legacy_diagnostics_table(
+            program_name=TCP_PRODUCT_NAME,
+            latest_date=latest_date,
+            row_count=row_count,
+            daily_entry_href=ADMIN_DAILY_ENTRY_PATH,
+        )
+        return render_portal_page(
+            program_name=TCP_PRODUCT_NAME,
+            accounts=[],  # no participating-account registry for TCP yet -> Pending
+            diagnostics_html=diagnostics_html,
+        )
+
     @app.server.route("/admin/login", methods=["GET", "POST"])
     def admin_login():
         if request.method == "POST":
@@ -939,19 +1169,19 @@ def create_app(
         __name__,
         external_stylesheets=[dbc.themes.BOOTSTRAP, "/assets/styles.css"],
         suppress_callback_exceptions=True,
-        title="H&C – TCP v2 Preview",
+        title=resolve_page_title(cfg),
     )
     configure_flask_session_secret(
         app.server,
         auth_settings,
         secure_cookies=is_production_runtime(cfg),
     )
-    _register_auth_routes(app, auth_manager)
+    _register_auth_routes(app, auth_manager, runtime_holder)
 
     if state.snapshot is not None:
         benchmark_result = _resolve_benchmark_result(runtime_holder)
         app.layout = build_preview_layout(cfg, state, benchmark_result)
-        _register_access_callbacks(app, auth_manager, runtime_holder)
+        _register_access_callbacks(app, auth_manager, runtime_holder, export_filename=cfg.export_filename)
         _register_dashboard_callback(app, runtime_holder)
         _register_admin_callbacks(app, cfg, paths, runtime_holder, auth_manager)
     else:

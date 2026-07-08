@@ -25,8 +25,16 @@ SPXTR_DISPLAY_NAME = "SPXTR"
 SPXTR_SYMBOL = "^SP500TR"
 SPXTR_INCEPTION_COLUMN = "SPXTR (Inception)"
 
+BTC_DISPLAY_NAME = "BTC"
+BTC_SYMBOL = "BTC-USD"
+
+ETH_DISPLAY_NAME = "ETH"
+ETH_SYMBOL = "ETH-USD"
+
 DEFAULT_NETWORK_TIMEOUT_SECONDS = 10.0
 DEFAULT_CACHE_FILENAME = "tcp_benchmark_cache.json"
+DEFAULT_BTC_CACHE_FILENAME = "tcp_benchmark_btc_cache.json"
+DEFAULT_ETH_CACHE_FILENAME = "tcp_benchmark_eth_cache.json"
 
 BENCHMARK_STATUS_READY = "ready"
 BENCHMARK_STATUS_STALE = "stale"
@@ -258,7 +266,7 @@ def _deserialize_returns(rows: Sequence[Mapping[str, Any]]) -> pd.Series:
     return series.sort_index()
 
 
-def _read_cache(cache_path: Path) -> Optional[Dict[str, Any]]:
+def _read_cache(cache_path: Path, *, expected_symbol: str) -> Optional[Dict[str, Any]]:
     if not cache_path.is_file():
         return None
     try:
@@ -271,12 +279,12 @@ def _read_cache(cache_path: Path) -> Optional[Dict[str, Any]]:
     if not payload.get("returns"):
         return None
     cached_symbol = str(payload.get("symbol") or "")
-    if cached_symbol and cached_symbol not in _symbol_match_variants(SPXTR_SYMBOL):
+    if cached_symbol and cached_symbol not in _symbol_match_variants(expected_symbol):
         logger.warning("Ignoring benchmark cache with unexpected symbol %s", cached_symbol)
         return None
     try:
         series = _deserialize_returns(payload["returns"])
-        _validate_returns_series(series, SPXTR_SYMBOL)
+        _validate_returns_series(series, expected_symbol)
     except (KeyError, TypeError, ValueError) as exc:
         logger.warning("Ignoring invalid benchmark cache payload: %s", exc)
         return None
@@ -303,10 +311,46 @@ def _fetch_returns_with_timeout(
             raise TimeoutError(f"Benchmark download timed out after {timeout_seconds}s") from exc
 
 
-def load_spxtr_benchmark(
+def load_symbol_benchmark_cache_only(
     *,
+    symbol: str,
+    display_name: str,
+    cache_path: Optional[Path] = None,
+    default_cache_filename: str = DEFAULT_CACHE_FILENAME,
+) -> BenchmarkResult:
+    """Serve validated on-disk benchmark cache without a network fetch."""
+    cache_path = cache_path or Path("_runtime") / default_cache_filename
+    cached = _read_cache(cache_path, expected_symbol=symbol)
+    if not cached:
+        return BenchmarkResult(
+            status=BENCHMARK_STATUS_UNAVAILABLE,
+            symbol=symbol,
+            display_name=display_name,
+            as_of=None,
+            fetched_at=None,
+            returns=None,
+            warning=f"{display_name} benchmark data is temporarily unavailable.",
+        )
+    series = _deserialize_returns(cached["returns"])
+    return BenchmarkResult(
+        status=BENCHMARK_STATUS_READY,
+        symbol=symbol,
+        display_name=display_name,
+        as_of=cached.get("as_of") or _series_as_of(series),
+        fetched_at=cached.get("fetched_at"),
+        returns=series,
+        warning=None,
+        source=str(cached.get("source") or "quantstats"),
+    )
+
+
+def load_symbol_benchmark(
+    *,
+    symbol: str,
+    display_name: str,
     provider: Optional[BenchmarkProvider] = None,
     cache_path: Optional[Path] = None,
+    default_cache_filename: str = DEFAULT_CACHE_FILENAME,
     timeout_seconds: float = DEFAULT_NETWORK_TIMEOUT_SECONDS,
     now: Optional[Callable[[], datetime]] = None,
 ) -> BenchmarkResult:
@@ -318,10 +362,9 @@ def load_spxtr_benchmark(
     - ``unavailable``: no network data and no valid cache
     """
     provider = provider or QuantstatsBenchmarkProvider()
-    cache_path = cache_path or Path("_runtime") / DEFAULT_CACHE_FILENAME
-    clock = now or (lambda: datetime.now(timezone.utc))
+    cache_path = cache_path or Path("_runtime") / default_cache_filename
 
-    cached = _read_cache(cache_path)
+    cached = _read_cache(cache_path, expected_symbol=symbol)
     cached_series: Optional[pd.Series] = None
     if cached and cached.get("returns"):
         try:
@@ -330,17 +373,17 @@ def load_spxtr_benchmark(
             cached_series = None
 
     try:
-        raw = _fetch_returns_with_timeout(provider, SPXTR_SYMBOL, timeout_seconds)
-        series = normalize_provider_returns(raw, SPXTR_SYMBOL)
-        series = _validate_returns_series(series, SPXTR_SYMBOL)
+        raw = _fetch_returns_with_timeout(provider, symbol, timeout_seconds)
+        series = normalize_provider_returns(raw, symbol)
+        series = _validate_returns_series(series, symbol)
         snapshot = deepcopy(series)
         fetched_at = _utc_now_iso()
         as_of = _series_as_of(snapshot)
         _write_cache_atomic(
             cache_path,
             {
-                "symbol": SPXTR_SYMBOL,
-                "display_name": SPXTR_DISPLAY_NAME,
+                "symbol": symbol,
+                "display_name": display_name,
                 "fetched_at": fetched_at,
                 "as_of": as_of,
                 "source": "quantstats",
@@ -349,20 +392,20 @@ def load_spxtr_benchmark(
         )
         return BenchmarkResult(
             status=BENCHMARK_STATUS_READY,
-            symbol=SPXTR_SYMBOL,
-            display_name=SPXTR_DISPLAY_NAME,
+            symbol=symbol,
+            display_name=display_name,
             as_of=as_of,
             fetched_at=fetched_at,
             returns=snapshot,
             warning=None,
         )
     except Exception as exc:
-        logger.warning("SPXTR benchmark fetch failed: %s", exc)
+        logger.warning("%s benchmark fetch failed: %s", display_name, exc)
         if cached_series is not None and not cached_series.empty:
             return BenchmarkResult(
                 status=BENCHMARK_STATUS_STALE,
-                symbol=SPXTR_SYMBOL,
-                display_name=SPXTR_DISPLAY_NAME,
+                symbol=symbol,
+                display_name=display_name,
                 as_of=cached.get("as_of") or _series_as_of(cached_series),
                 fetched_at=cached.get("fetched_at"),
                 returns=cached_series,
@@ -371,13 +414,103 @@ def load_spxtr_benchmark(
             )
         return BenchmarkResult(
             status=BENCHMARK_STATUS_UNAVAILABLE,
-            symbol=SPXTR_SYMBOL,
-            display_name=SPXTR_DISPLAY_NAME,
+            symbol=symbol,
+            display_name=display_name,
             as_of=None,
             fetched_at=None,
             returns=None,
-            warning="SPXTR benchmark data is temporarily unavailable.",
+            warning=f"{display_name} benchmark data is temporarily unavailable.",
         )
+
+
+def load_spxtr_benchmark_cache_only(
+    *,
+    cache_path: Optional[Path] = None,
+) -> BenchmarkResult:
+    return load_symbol_benchmark_cache_only(
+        symbol=SPXTR_SYMBOL,
+        display_name=SPXTR_DISPLAY_NAME,
+        cache_path=cache_path,
+        default_cache_filename=DEFAULT_CACHE_FILENAME,
+    )
+
+
+def load_spxtr_benchmark(
+    *,
+    provider: Optional[BenchmarkProvider] = None,
+    cache_path: Optional[Path] = None,
+    timeout_seconds: float = DEFAULT_NETWORK_TIMEOUT_SECONDS,
+    now: Optional[Callable[[], datetime]] = None,
+) -> BenchmarkResult:
+    return load_symbol_benchmark(
+        symbol=SPXTR_SYMBOL,
+        display_name=SPXTR_DISPLAY_NAME,
+        provider=provider,
+        cache_path=cache_path,
+        default_cache_filename=DEFAULT_CACHE_FILENAME,
+        timeout_seconds=timeout_seconds,
+        now=now,
+    )
+
+
+def load_btc_benchmark(
+    *,
+    provider: Optional[BenchmarkProvider] = None,
+    cache_path: Optional[Path] = None,
+    timeout_seconds: float = DEFAULT_NETWORK_TIMEOUT_SECONDS,
+    now: Optional[Callable[[], datetime]] = None,
+) -> BenchmarkResult:
+    return load_symbol_benchmark(
+        symbol=BTC_SYMBOL,
+        display_name=BTC_DISPLAY_NAME,
+        provider=provider,
+        cache_path=cache_path,
+        default_cache_filename=DEFAULT_BTC_CACHE_FILENAME,
+        timeout_seconds=timeout_seconds,
+        now=now,
+    )
+
+
+def load_btc_benchmark_cache_only(
+    *,
+    cache_path: Optional[Path] = None,
+) -> BenchmarkResult:
+    return load_symbol_benchmark_cache_only(
+        symbol=BTC_SYMBOL,
+        display_name=BTC_DISPLAY_NAME,
+        cache_path=cache_path,
+        default_cache_filename=DEFAULT_BTC_CACHE_FILENAME,
+    )
+
+
+def load_eth_benchmark(
+    *,
+    provider: Optional[BenchmarkProvider] = None,
+    cache_path: Optional[Path] = None,
+    timeout_seconds: float = DEFAULT_NETWORK_TIMEOUT_SECONDS,
+    now: Optional[Callable[[], datetime]] = None,
+) -> BenchmarkResult:
+    return load_symbol_benchmark(
+        symbol=ETH_SYMBOL,
+        display_name=ETH_DISPLAY_NAME,
+        provider=provider,
+        cache_path=cache_path,
+        default_cache_filename=DEFAULT_ETH_CACHE_FILENAME,
+        timeout_seconds=timeout_seconds,
+        now=now,
+    )
+
+
+def load_eth_benchmark_cache_only(
+    *,
+    cache_path: Optional[Path] = None,
+) -> BenchmarkResult:
+    return load_symbol_benchmark_cache_only(
+        symbol=ETH_SYMBOL,
+        display_name=ETH_DISPLAY_NAME,
+        cache_path=cache_path,
+        default_cache_filename=DEFAULT_ETH_CACHE_FILENAME,
+    )
 
 
 def benchmark_status_message(result: BenchmarkResult) -> Optional[str]:

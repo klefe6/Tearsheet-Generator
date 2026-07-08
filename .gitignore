@@ -30,6 +30,20 @@ Thumbs.db
 # Logs
 *.log
 
+# Nested feature worktrees
+/.worktrees/
+
+# Production credential/env files — never commit
+.tcp_production.env
+.tkp_production.env
+.agm_production.env
+.algominds_production.env
+
+# Runtime JSON state (TKP/AGM daily returns) — never commit
+daily_returns_secret_state.json
+daily_returns_secret_state.json.bak*
+momentum_pacer_manual_daily_rows.json
+
 # TCP v2 runtime JSON state (preview)
 .tcp_production.env
 tcp_daily_returns_secret_state.json
@@ -39,8 +53,10 @@ _runtime/
 tests/_tmp_state/
 _runtime/
 tests/_acceptance_state/
+tests/_preflight_state/
 tests/_canary_state/
 tests/_canary_state_step11d/
+tests/_replay_step6.json
 *.json.tmp
 
 # Algominds v2 isolation — repo-root runtime state, credentials, worktrees

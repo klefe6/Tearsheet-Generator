@@ -24,6 +24,14 @@ TCP_PREVIEW_PORT_MAX = 8312
 SUPPORTED_STATE_MODES = frozenset({"workbook", "json_active"})
 DEFAULT_STATE_MODE = "workbook"
 
+PRODUCTION_PAGE_TITLE = "H&C – TCP"
+PREVIEW_PAGE_TITLE = "H&C – TCP v2 Preview"
+
+# Temporary shared sibling admin password for local TKP/TCP/AGM gates (env override supported).
+DEFAULT_SIBLING_ADMIN_TOKEN = "gc11"
+# Internal Flask cookie-signing key only — not a user-facing password.
+DEFAULT_SIBLING_SESSION_SECRET = "hc-sibling-tearsheet-local-session-signing-key-v1"
+
 
 @dataclass(frozen=True)
 class AdminAuthSettings:
@@ -74,12 +82,27 @@ def _env_bool(name: str, default: bool) -> bool:
     return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
-def resolve_benchmark_cache_path(base_dir: str | Path) -> Path:
-    """Resolve SPXTR benchmark cache path. Override with TCP_V2_BENCHMARK_CACHE_PATH."""
-    override = os.environ.get("TCP_V2_BENCHMARK_CACHE_PATH")
+def resolve_benchmark_cache_path(base_dir: str | Path, symbol: str = "spxtr") -> Path:
+    """Resolve benchmark cache path. SPXTR override via TCP_V2_BENCHMARK_CACHE_PATH."""
+    symbol_key = symbol.strip().lower()
+    env_overrides = {
+        "spxtr": "TCP_V2_BENCHMARK_CACHE_PATH",
+        "btc": "TCP_V2_BENCHMARK_BTC_CACHE_PATH",
+        "eth": "TCP_V2_BENCHMARK_ETH_CACHE_PATH",
+    }
+    filenames = {
+        "spxtr": "tcp_benchmark_cache.json",
+        "btc": "tcp_benchmark_btc_cache.json",
+        "eth": "tcp_benchmark_eth_cache.json",
+    }
+    override = os.environ.get(env_overrides.get(symbol_key, ""), "")
     if override:
         return Path(override)
-    return Path(base_dir) / "_runtime" / "tcp_benchmark_cache.json"
+    if symbol_key in ("btc", "eth"):
+        spxtr_override = os.environ.get("TCP_V2_BENCHMARK_CACHE_PATH")
+        if spxtr_override:
+            return Path(spxtr_override).parent / filenames[symbol_key]
+    return Path(base_dir) / "_runtime" / filenames.get(symbol_key, filenames["spxtr"])
 
 
 def load_config() -> TCPConfig:
@@ -130,13 +153,47 @@ def is_production_runtime(cfg: TCPConfig) -> bool:
     return resolve_bind_port(cfg) == cfg.production_port
 
 
-def load_admin_auth_settings() -> AdminAuthSettings:
-    """Load preview admin auth settings from environment variables only."""
-    token = os.environ.get("TCP_V2_ADMIN_TOKEN")
-    secret = os.environ.get("TCP_V2_SESSION_SECRET")
+def resolve_page_title(cfg: TCPConfig) -> str:
+    """Browser tab title: production branding vs preview canary."""
+    if is_production_runtime(cfg):
+        return PRODUCTION_PAGE_TITLE
+    return PREVIEW_PAGE_TITLE
+
+
+def _non_empty_env(name: str) -> Optional[str]:
+    raw = os.environ.get(name)
+    if raw is None:
+        return None
+    stripped = str(raw).strip()
+    return stripped if stripped else None
+
+
+def sibling_admin_auth_explicitly_configured(
+    *,
+    admin_token_env: str,
+    session_secret_env: str,
+) -> bool:
+    """True only when both auth env vars are explicitly set (production preflight)."""
+    return bool(_non_empty_env(admin_token_env) and _non_empty_env(session_secret_env))
+
+
+def resolve_sibling_admin_auth_settings(
+    *,
+    admin_token_env: str,
+    session_secret_env: str,
+) -> AdminAuthSettings:
+    """Load sibling admin auth with env overrides, else shared local defaults."""
     return AdminAuthSettings(
-        admin_token=token if token else None,
-        session_secret=secret if secret else None,
+        admin_token=_non_empty_env(admin_token_env) or DEFAULT_SIBLING_ADMIN_TOKEN,
+        session_secret=_non_empty_env(session_secret_env) or DEFAULT_SIBLING_SESSION_SECRET,
+    )
+
+
+def load_admin_auth_settings() -> AdminAuthSettings:
+    """Load TCP admin auth settings (env override, else shared sibling defaults)."""
+    return resolve_sibling_admin_auth_settings(
+        admin_token_env="TCP_V2_ADMIN_TOKEN",
+        session_secret_env="TCP_V2_SESSION_SECRET",
     )
 
 

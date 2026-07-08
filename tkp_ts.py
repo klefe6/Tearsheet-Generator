@@ -28,27 +28,35 @@ from dash import html, dcc, dash_table
 from dash.dash_table.Format import Format, Scheme, Symbol
 import dash_bootstrap_components as dbc
 from dash.dependencies import Input, Output, State
-from flask import session
-
-from tcp_admin import AdminAuthManager, configure_flask_session_secret
-from tcp_public_sections import GATE_SECRET_E_CLASS, GATE_TITLE_HEADING_CLASS, GATE_TITLE_INLINE_CLASS
-from tearsheet_gate_auth import (
-    GATE_PASSWORD_ERROR_ID,
-    GATE_PASSWORD_INPUT_ID,
-    GATE_PASSWORD_ROW_ID,
-    GATE_PASSWORD_SUBMIT_ID,
-    GATE_PASSWORD_VISIBLE_STORE_ID,
-    INVALID_PASSWORD_MESSAGE,
-    TKP_SESSION_KEY,
-    build_gate_password_row,
-    gate_password_row_style,
-    load_tkp_admin_auth_settings,
-)
 
 import yfinance as yf
 
 import quantstats as qs
 from quantstats import utils
+
+import tearsheet_disclosure as tsd
+from tearsheet_gate_ui import build_sibling_accept_gate
+from tearsheet_gate_auth import (
+    build_gate_password_row,
+    gate_password_row_style,
+    GATE_PASSWORD_ROW_ID,
+    GATE_PASSWORD_INPUT_ID,
+    GATE_PASSWORD_SUBMIT_ID,
+    GATE_PASSWORD_PORTAL_ID,
+    GATE_PASSWORD_ERROR_ID,
+    GATE_PASSWORD_VISIBLE_STORE_ID,
+    INVALID_PASSWORD_MESSAGE,
+    ADMIN_PORTAL_PATH,
+    TKP_SESSION_KEY,
+    load_tkp_admin_auth_settings,
+)
+from tcp_admin import AdminAuthManager, configure_flask_session_secret
+from tearsheet_portal import render_legacy_diagnostics_table, render_portal_page
+from tearsheet_header import (
+    build_header_date_label_children_from_date,
+    build_tearsheet_header_row,
+)
+from flask import session, redirect, jsonify
 from collections import OrderedDict
 
 # ==============================================================================
@@ -1649,10 +1657,7 @@ disclaimer_text = (
     "THE HIGH DEGREE OF LEVERAGE IN COMMODITY INTEREST TRADING MEANS INVESTMENTS SHOULD BE MADE WITH RISK "
     "CAPITAL ONLY. ALL INFORMATION ABOVE IS COMPILED WITH THE INTENTION OF BEING FULLY CORRECT, THOUGH THERE "
     "IS NO GUARANTEE ALL INFORMATION IS CORRECT AND COULD BE SUBJECT TO UNINTENTIONAL CLERICAL ITEMS. "
-    "PAST PERFORMANCE IS NOT NECESSARILY INDICATIVE OF FUTURE RESULTS.\n\n"
-    "PLEASE ENSURE THAT YOU ARE FULLY AWARE AND UNDERSTAND ALL RISKS, FEES, AND OTHER CONCERNS RELATED TO YOUR "
-    "INVESTMENT BY REQUESTING THE COMPLETE DISCLOSURE DOCUMENT & INVESTMENT MANAGEMENT AGREEMENT MATERIALS BY "
-    "REACHING OUT DIRECTLY TO THE ADVISOR."
+    "PAST PERFORMANCE IS NOT NECESSARILY INDICATIVE OF FUTURE RESULTS."
 )
 footer_contact = (
     "HUGHES & COMPANY LLC • NFA ID 0423388 • 330 Himmararshee, Ste 110, FTL, FL 33312 • 954-500-0500 • www.hughesandco.ltd"
@@ -1828,100 +1833,56 @@ app = dash.Dash(
     title="H&C – TKP",
 )
 
-_tkp_auth_settings = load_tkp_admin_auth_settings()
-_tkp_auth_manager = AdminAuthManager(_tkp_auth_settings, session_key=TKP_SESSION_KEY)
-configure_flask_session_secret(app.server, _tkp_auth_settings)
-TKP_ADMIN_AUTH_REVISION_STORE_ID = "tkp-admin-auth-revision-store"
+tkp_admin_auth_manager = AdminAuthManager(load_tkp_admin_auth_settings(), session_key=TKP_SESSION_KEY)
+configure_flask_session_secret(app.server, tkp_admin_auth_manager.settings)
+
+
+def _tkp_admin_board_stats():
+    """Latest completed date / row count for the Portal board, from the persisted secret state."""
+    try:
+        records = _load_fresh_secret_records()
+    except Exception:
+        records = None
+    if not records:
+        return "—", 0
+    latest_date = "—"
+    for row in reversed(records):
+        if row.get("Date"):
+            latest_date = row["Date"]
+            break
+    return latest_date, len(records)
+
+
+def _build_tkp_date_status_label_children(latest_date: str) -> tuple[list, list]:
+    """Desktop/mobile children for the top-right 'Data current to' status block."""
+    return build_header_date_label_children_from_date(latest_date)
+
 
 def serve_layout(records=None):
     if records is None:
         records = secret_table_records
+    desktop_date_label, mobile_date_label = _build_tkp_date_status_label_children(DAILY_RETURNS_LATEST_DATE)
     return dbc.Container(
         id="page-container",
         fluid=True,        # ⇒ always 100% on xs, sm; constrained on md+ breakpoints
         className="py-4",
         children=[
             # ── Header ─────────────────────────────────────────────────────────
-            dbc.Row(
-                [
-                    dbc.Col(
-                        html.Img(
-                            src=logo_src,
-                            className="img-fluid",               # makes it scale down on small screens
-                            style={
-                                "maxHeight": "100px",            # never exceed 100px tall
-                                "height": "auto",
-                                "width": "auto",
-                            },
-                            alt="Hughes & Company Logo"
-                        ),
-                        width=2,
-                    ),
-                    dbc.Col(
-                        html.Div(
-                            [
-                                html.H2("Hughes & Company LLC", className="text-center"),
-                                html.H5("The Keymaker Program", className="text-center text-muted"),
-                            ],
-                            style={"lineHeight": "1.2", "paddingTop": "20px"},
-                        ),
-                        width=8,
-                    ),
-                    dbc.Col(
-                    html.Div(
-                        [
-                            # desktop (md+): two-line “Data current to” / “{date} close”
-                            html.Div(
-                                id="data-current-label-desktop",
-                                className="d-none d-md-block text-end",
-                                style={"paddingTop": "30px", "color": PRIMARY_COLOR},
-                                children=[
-                                    html.Div(
-                                        "Data current to",
-                                        className="d-block",
-                                        style={"fontSize": "20px", "lineHeight": "1.2"},
-                                    ),
-                                    html.Div(
-                                        f"{DAILY_RETURNS_LATEST_DATE} close",
-                                        className="d-block",
-                                        style={"fontSize": "20px", "lineHeight": "1.2", "marginTop": "2px"},
-                                    ),
-                                ],
-                            ),
-                            # mobile: same copy, tighter type
-                            html.Div(
-                                id="data-current-label-mobile",
-                                className="d-block d-md-none text-end",
-                                style={"paddingTop": "20px", "color": PRIMARY_COLOR},
-                                children=[
-                                    html.Div(
-                                        "Data current to",
-                                        className="d-block",
-                                        style={"fontSize": "16px", "lineHeight": "1.2"},
-                                    ),
-                                    html.Div(
-                                        f"{DAILY_RETURNS_LATEST_DATE} close",
-                                        className="d-block",
-                                        style={"fontSize": "16px", "lineHeight": "1.2", "marginTop": "2px"},
-                                    ),
-                                ],
-                            ),
-                        ]
-                    ),
-                    width=2,
-                ),
-                ],
-                align="center",
-                style={"backgroundColor": GREY_BG, "padding": "10px 0", "pageBreakInside": "avoid"},  # Prevent header split
-                className="header-row",
+            *build_tearsheet_header_row(
+                logo_src=logo_src,
+                logo_alt=f"{tsd.HNC_LEGAL_NAME} Logo",
+                firm_name=tsd.HNC_LEGAL_NAME,
+                product_name="The Keymaker Program",
+                desktop_label_children=desktop_date_label,
+                mobile_label_children=mobile_date_label,
+                grey_bg=GREY_BG,
             ),
-            html.Hr(),
 
             # ── Description ────────────────────────────────────────────────────
             html.Div(
                 [
                     html.P(
-                        "Hughes & Company LLC is an introducing brokerage firm with expertise in the futures options industry. ",
+                        f"{tsd.HNC_LEGAL_NAME} is an introducing brokerage firm with expertise in the futures options industry. ",
                         className="lead text-center",
                     ),
                     html.P(
@@ -2008,7 +1969,7 @@ dbc.Row(
                                         html.Td(
                                             [
                                                 html.P(
-                                                    "The Keymaker Program (TKP) is a unique offering by Hughes & Company LLC which utilizes specific strike daily options on the S&P 500 Index. It is oriented to achieve long-biased stable returns through intraday scalping of a proprietarily selected Put strikes in the nearest expiring option chain of the Micro ES product suite, and is most active in Volatile environments. The strategy simultaneously was built to allow for Put assignments for underlying Micro Futures Contracts, writing proprietarily selected Call strikes in sequential fashion to mitigate both drawdown depth and duration regardless of market environment. TKP has been designed as a long term, positively performing, market-neutral offering, with daily visibility and liquidity."
+                                                    f"The Keymaker Program (TKP) is a unique offering by {tsd.HNC_LEGAL_NAME} which utilizes specific strike daily options on the S&P 500 Index. It is oriented to achieve long-biased stable returns through intraday scalping of a proprietarily selected Put strikes in the nearest expiring option chain of the Micro ES product suite, and is most active in Volatile environments. The strategy simultaneously was built to allow for Put assignments for underlying Micro Futures Contracts, writing proprietarily selected Call strikes in sequential fashion to mitigate both drawdown depth and duration regardless of market environment. TKP has been designed as a long term, positively performing, market-neutral offering, with daily visibility and liquidity."
                                                 ),
                                             ],
                                             colSpan=3,
@@ -2913,7 +2874,6 @@ dbc.Row(
                                             html.Div([
                                                 dbc.Button("Export Excel", id="secret-export-btn", color="secondary", size="sm"),
                                                 dcc.Download(id="secret-export-download"),
-                                                dbc.Button("Logout", id="tkp-admin-logout-btn", color="link", size="sm", className="ms-2"),
                                             ], style={"float": "right"}),
                                         ], className="mb-3", style={"display": "flex", "justifyContent": "space-between"}),
                                         dash_table.DataTable(
@@ -3212,24 +3172,13 @@ dbc.Row(
                 ),
             ]),
 
-            # ── Important Disclosure ──────────────────────────────────────────────────
+            # Important Disclosure section (proprietary tier — bottom panel)
             dbc.Row(
                 dbc.Col(
                     html.Div(
-                        [
-                            html.Strong("Important Disclosure: ", className="text-dark"),
-                            "This tear sheet is provided for informational purposes only. "
-                            "The TKP program is not currently available for investor participation. "
-                            "Performance information, if shown, is presented for informational and "
-                            "reporting purposes only and should not be interpreted as an offer, "
-                            "solicitation, or recommendation to invest.",
-                        ],
-                        className="p-3 border rounded",
-                        style={
-                            "backgroundColor": "#f8f9fa",
-                            "borderLeft": "4px solid #6c757d",
-                            "fontSize": "0.875rem",
-                        },
+                        tsd.proprietary_bottom_disclosure_children("TKP"),
+                        className=tsd.DISCLOSURE_PANEL_CLASS,
+                        style=tsd.DISCLOSURE_PANEL_STYLE,
                     ),
                     width=12,
                 ),
@@ -3245,37 +3194,12 @@ dbc.Row(
     )
 
 dcc_store = dcc.Store(id="disclaimer-accepted", storage_type="session")
+# "standard" = Accept & Continue; "secret" = last letter of "Notice" (same UI for now; branch later via this store)
 access_mode_store = dcc.Store(id="access-mode", storage_type="session", data=None)
 
-disclaimer_screen = html.Div(
-    id="disclaimer-screen",
-    children=html.Div(
-        children=[
-            html.H2(
-                [
-                    html.Span("Important Notic", className=GATE_TITLE_INLINE_CLASS),
-                    html.Span(
-                        "e",
-                        id="secret-notice-e",
-                        n_clicks=0,
-                        className=GATE_SECRET_E_CLASS,
-                    ),
-                ],
-                className=f"mb-4 {GATE_TITLE_HEADING_CLASS}",
-                id="tcp-public-gate-title",
-            ),
-            html.P(
-                "By clicking “Accept,” you agree that the performance figures shown are strictly informational and do not amount to investment advice, a solicitation, or an offer to invest or participate in this strategy. This material is not intended to solicit funds.",
-                className="lead mb-5"
-            ),
-            dbc.Button(
-                "Accept & Continue",
-                id="accept-button",
-                color="primary"
-            ),
-            build_gate_password_row(),
-        ]
-    )
+# Accept gate — proprietary tier (no strategy inquiry contact on gate)
+disclaimer_screen = build_sibling_accept_gate(
+    "TKP", extra_children=[build_gate_password_row(portal_enabled=False)]
 )
 
 # Make layout dynamic - this function is called on every page load
@@ -3291,9 +3215,9 @@ def dynamic_layout():
     return html.Div([
         dcc_store,
         access_mode_store,
-        dcc.Store(id=GATE_PASSWORD_VISIBLE_STORE_ID, storage_type="memory", data=False),
-        dcc.Store(id=TKP_ADMIN_AUTH_REVISION_STORE_ID, storage_type="memory", data=0),
         dcc.Store(id="canonical-nav-store", storage_type="memory", data=fresh_canonical),
+        dcc.Store(id=GATE_PASSWORD_VISIBLE_STORE_ID, storage_type="memory", data=False),
+        dcc.Location(id="url", refresh=False),
         disclaimer_screen,
         html.Div(
             id="main-app",
@@ -3306,12 +3230,25 @@ def dynamic_layout():
 app.layout = dynamic_layout
 
 @app.callback(
+    Output("disclaimer-screen", "style"),
+    Output("main-app", "style"),
+    Output("access-mode", "data"),
+    Input("accept-button", "n_clicks"),
+)
+def show_main(n_accept):
+    if n_accept:
+        return {"display": "none"}, {"display": "block"}, "standard"
+    return tsd.GATE_SCREEN_STYLE, {"display": "none"}, None
+
+
+# ── Hidden admin reveal: "e" click opens the password row (no access granted yet) ──
+@app.callback(
     Output(GATE_PASSWORD_VISIBLE_STORE_ID, "data"),
     Input("secret-notice-e", "n_clicks"),
     State(GATE_PASSWORD_VISIBLE_STORE_ID, "data"),
     prevent_initial_call=True,
 )
-def toggle_gate_password_visible(n_clicks, visible):
+def _toggle_gate_password_row(n_clicks, visible):
     if n_clicks:
         return not bool(visible)
     return dash.no_update
@@ -3321,73 +3258,100 @@ def toggle_gate_password_visible(n_clicks, visible):
     Output(GATE_PASSWORD_ROW_ID, "style"),
     Input(GATE_PASSWORD_VISIBLE_STORE_ID, "data"),
 )
-def render_gate_password_row(visible):
+def _render_gate_password_row(visible):
     return gate_password_row_style(bool(visible))
+
+
+@app.callback(
+    Output(GATE_PASSWORD_INPUT_ID, "value", allow_duplicate=True),
+    Input(GATE_PASSWORD_VISIBLE_STORE_ID, "data"),
+    prevent_initial_call=True,
+)
+def _clear_password_when_hidden(visible):
+    if not visible:
+        return ""
+    return dash.no_update
 
 
 @app.callback(
     Output(GATE_PASSWORD_ERROR_ID, "children"),
     Output(GATE_PASSWORD_VISIBLE_STORE_ID, "data", allow_duplicate=True),
+    Output(GATE_PASSWORD_INPUT_ID, "value", allow_duplicate=True),
     Output("disclaimer-screen", "style", allow_duplicate=True),
     Output("main-app", "style", allow_duplicate=True),
     Output("access-mode", "data", allow_duplicate=True),
-    Output(TKP_ADMIN_AUTH_REVISION_STORE_ID, "data", allow_duplicate=True),
     Input(GATE_PASSWORD_SUBMIT_ID, "n_clicks"),
     Input(GATE_PASSWORD_INPUT_ID, "n_submit"),
     State(GATE_PASSWORD_INPUT_ID, "value"),
-    State(TKP_ADMIN_AUTH_REVISION_STORE_ID, "data"),
     prevent_initial_call=True,
 )
-def gate_admin_login(submit_clicks, _n_submit, password, revision):
-    _ = submit_clicks
-    ok, _msg = _tkp_auth_manager.login(session, password or "")
+def _gate_admin_tearsheet_login(_submit_clicks, _n_submit, password):
+    ok, _msg = tkp_admin_auth_manager.login(session, password or "")
     if not ok:
-        return INVALID_PASSWORD_MESSAGE, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
-    return "", False, {"display": "none"}, {"display": "block"}, "standard", (revision or 0) + 1
+        return INVALID_PASSWORD_MESSAGE, dash.no_update, "", dash.no_update, dash.no_update, dash.no_update
+    return "", False, "", {"display": "none"}, {"display": "block"}, "secret"
 
 
 @app.callback(
-    Output("disclaimer-screen", "style"),
-    Output("main-app", "style"),
-    Output("access-mode", "data"),
-    Input("accept-button", "n_clicks"),
-    Input(TKP_ADMIN_AUTH_REVISION_STORE_ID, "data"),
-    State("access-mode", "data"),
+    Output(GATE_PASSWORD_ERROR_ID, "children", allow_duplicate=True),
+    Output(GATE_PASSWORD_VISIBLE_STORE_ID, "data", allow_duplicate=True),
+    Output(GATE_PASSWORD_INPUT_ID, "value", allow_duplicate=True),
+    Output("url", "href"),
+    Output("url", "refresh"),
+    Input(GATE_PASSWORD_PORTAL_ID, "n_clicks"),
+    State(GATE_PASSWORD_INPUT_ID, "value"),
+    prevent_initial_call=True,
 )
-def show_main(n_accept, _auth_revision, access_mode):
-    if _tkp_auth_manager.is_authenticated(session):
-        return {"display": "none"}, {"display": "block"}, access_mode or "standard"
-    ctx = dash.callback_context
-    if not ctx.triggered:
-        return {"padding": "4rem", "textAlign": "center"}, {"display": "none"}, None
-    prop_id = ctx.triggered[0]["prop_id"]
-    button_id = prop_id.split(".")[0]
-    if button_id == "accept-button" and (n_accept or 0) > 0:
-        return {"display": "none"}, {"display": "block"}, "standard"
-    return {"padding": "4rem", "textAlign": "center"}, {"display": "none"}, access_mode
+def _gate_admin_portal_login(_portal_clicks, password):
+    ok, _msg = tkp_admin_auth_manager.login(session, password or "")
+    if not ok:
+        return INVALID_PASSWORD_MESSAGE, dash.no_update, "", dash.no_update, dash.no_update
+    return "", False, "", ADMIN_PORTAL_PATH, True
+
+
+@app.server.route("/admin")
+def tkp_admin_portal():
+    if not tkp_admin_auth_manager.is_authenticated(session):
+        return redirect("/")
+    latest_date, row_count = _tkp_admin_board_stats()
+    diagnostics_html = render_legacy_diagnostics_table(
+        program_name="TKP",
+        latest_date=latest_date,
+        row_count=row_count,
+        daily_entry_href="/",
+    )
+    return render_portal_page(
+        program_name="TKP",
+        accounts=[],  # no participating-account registry for TKP yet -> Pending
+        diagnostics_html=diagnostics_html,
+    )
+
+
+@app.server.route("/admin/logout")
+def tkp_admin_logout():
+    tkp_admin_auth_manager.logout(session)
+    return redirect("/")
+
+
+@app.server.route("/healthz")
+def tkp_healthz():
+    ready = full_daily_df is not None and not full_daily_df.empty
+    return jsonify({
+        "app": "tkp",
+        "status": "ready" if ready else "error",
+        "rows_loaded": int(len(full_daily_df)) if full_daily_df is not None else 0,
+        "admin_auth": "configured" if tkp_admin_auth_manager.is_configured else "not_configured",
+    })
+
 
 @app.callback(
     Output("secret-table-container", "style"),
-    Input(TKP_ADMIN_AUTH_REVISION_STORE_ID, "data"),
     Input("access-mode", "data"),
 )
-def toggle_secret_table(_auth_revision, access_mode):
-    if _tkp_auth_manager.is_authenticated(session):
+def toggle_secret_table(access_mode):
+    if access_mode == "secret":
         return {"display": "block"}
     return {"display": "none"}
-
-
-@app.callback(
-    Output(TKP_ADMIN_AUTH_REVISION_STORE_ID, "data", allow_duplicate=True),
-    Input("tkp-admin-logout-btn", "n_clicks"),
-    State(TKP_ADMIN_AUTH_REVISION_STORE_ID, "data"),
-    prevent_initial_call=True,
-)
-def tkp_admin_logout(n_clicks, revision):
-    if n_clicks:
-        _tkp_auth_manager.logout(session)
-        return (revision or 0) + 1
-    return dash.no_update
 
 # ── Public Daily Returns: sync data from admin store ──────────────────────
 @app.callback(
@@ -3475,8 +3439,6 @@ def update_page_size(page_size):
     prevent_initial_call=True,
 )
 def toggle_add_modal(n_open, n_cancel, n_save, is_open):
-    if not _tkp_auth_manager.is_authenticated(session):
-        return dash.no_update
     ctx = dash.callback_context
     tid = ctx.triggered[0]["prop_id"].split(".")[0]
     if tid == "secret-add-btn":
@@ -3495,8 +3457,6 @@ def toggle_add_modal(n_open, n_cancel, n_save, is_open):
     prevent_initial_call=True,
 )
 def add_row(n_clicks, date_val, plus500_val, balance_val, deposit_val, current_data):
-    if not _tkp_auth_manager.is_authenticated(session):
-        return dash.no_update
     if not n_clicks or not balance_val:
         return dash.no_update
     rows = list(current_data) if current_data else []
@@ -3535,8 +3495,6 @@ def add_row(n_clicks, date_val, plus500_val, balance_val, deposit_val, current_d
     prevent_initial_call=True,
 )
 def toggle_delete_confirm_modal(n_open, n_cancel, n_confirm, current_data, is_open):
-    if not _tkp_auth_manager.is_authenticated(session):
-        return dash.no_update, dash.no_update
     ctx = dash.callback_context
     tid = ctx.triggered[0]["prop_id"].split(".")[0]
     if tid == "secret-delete-last-btn":
@@ -3561,8 +3519,6 @@ def toggle_delete_confirm_modal(n_open, n_cancel, n_confirm, current_data, is_op
     prevent_initial_call=True,
 )
 def delete_last_row(n_clicks, current_data):
-    if not _tkp_auth_manager.is_authenticated(session):
-        return dash.no_update
     if not n_clicks or not current_data:
         return dash.no_update
     rows = list(current_data)
@@ -4139,30 +4095,7 @@ def propagate_dashboard(canonical_nav_rows, secret_store_rows):
                 pass
     if latest == "unavailable" and len(nav_s) > 0:
         latest = nav_s.index.max().strftime("%B %d, %Y")
-    desktop_label_children = [
-        html.Div(
-            "Data current to",
-            className="d-block",
-            style={"fontSize": "20px", "lineHeight": "1.2"},
-        ),
-        html.Div(
-            f"{latest} close",
-            className="d-block",
-            style={"fontSize": "20px", "lineHeight": "1.2", "marginTop": "2px"},
-        ),
-    ]
-    mobile_label_children = [
-        html.Div(
-            "Data current to",
-            className="d-block",
-            style={"fontSize": "16px", "lineHeight": "1.2"},
-        ),
-        html.Div(
-            f"{latest} close",
-            className="d-block",
-            style={"fontSize": "16px", "lineHeight": "1.2", "marginTop": "2px"},
-        ),
-    ]
+    desktop_label_children, mobile_label_children = _build_tkp_date_status_label_children(latest)
 
     return (
         _build_monthly_table(monthly_recs),

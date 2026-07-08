@@ -13,7 +13,17 @@ from dash import dcc, html
 
 from tcp_dashboard import GREY_BG
 from tearsheet_gate_auth import GATE_PASSWORD_VISIBLE_STORE_ID, build_gate_password_row
+from tearsheet_disclosure import TCP_GATE_ACCEPT_TEXT
+from tearsheet_gate_ui import (
+    GATE_SECRET_E_CLASS,
+    GATE_TITLE_HEADING_CLASS,
+    GATE_TITLE_INLINE_CLASS,
+    GATE_TITLE_NORMALIZED,
+    build_sibling_accept_gate,
+    normalized_gate_title_text,
+)
 from tcp_drawdown import DRAWDOWN_FOOTNOTE
+from tearsheet_header import build_tearsheet_header_row
 
 HNC_LEGAL_NAME = "Hughes & Company LLC"
 TCP_PRODUCT_NAME = "The Crypto Program"
@@ -29,10 +39,6 @@ PUBLIC_ROOT_CLASS = "tcp-public-root"
 CONTROLLED_TABLE_OVERFLOW_CLASS = "tcp-table-scroll"
 ADMIN_TOOLBAR_CLASS = "tcp-admin-toolbar"
 ADMIN_MODAL_CLASS = "tcp-admin-modal"
-GATE_SECRET_E_CLASS = "tcp-gate-secret-e"
-GATE_TITLE_NORMALIZED = "Important Notice"
-GATE_TITLE_INLINE_CLASS = "tcp-gate-title-inline"
-GATE_TITLE_HEADING_CLASS = "tcp-public-gate-title"
 LEGAL_NOTICE_CLASS = "tcp-legal-notice-block"
 PUBLIC_SECTION_CLASS = "tcp-public-section"
 POST_ACCOUNT_DISCLAIMERS_CLASS = "tcp-post-account-disclaimers"
@@ -45,19 +51,16 @@ FOOTER_WRAP_CLASS = "tcp-public-footer-wrap"
 PUBLIC_CARD_CLASS = "mb-4 tcp-public-card"
 DESKTOP_TWO_COLUMN_ROW_CLASS = "mb-2 tcp-two-column-row"
 MONTHLY_PERFORMANCE_CLASS = "table-responsive tcp-monthly-performance"
-NAV_CHART_CONTAINER_CLASS = "chart-container tcp-nav-chart-container"
+NAV_CHART_CONTAINER_CLASS = "tcp-nav-chart-container"
 PREVIEW_BANNER_CLASS = "text-center fw-bold tcp-preview-banner"
 MODE_ALERT_CLASS = "tcp-mode-alert"
 DAILY_METRICS_TABLE_CLASS = "fixed-cols tcp-daily-metrics-table"
-DRAWDOWN_TABLE_CLASS = "fixed-cols tcp-drawdown-table"
+DRAWDOWN_TABLE_CLASS = "tcp-drawdown-table"
+DRAWDOWN_SECTION_CLASS = "tcp-drawdown-section"
 RUNTIME_DIAGNOSTICS_CARD_ID = "tcp-runtime-diagnostics-card"
 
 GATE_SCREEN_STYLE: Dict[str, str] = {"padding": "4rem", "textAlign": "center"}
-GATE_ACCEPT_TEXT = (
-    "By clicking “Accept,” you agree that the performance figures shown are strictly "
-    "informational and do not amount to investment advice, a solicitation, or an offer "
-    "to invest or participate in this strategy. This material is not intended to solicit funds."
-)
+GATE_ACCEPT_TEXT = TCP_GATE_ACCEPT_TEXT
 
 STRATEGY_DESCRIPTION = (
     "The Crypto Program (TCP) is a crypto options strategy focused on Bitcoin and Ethereum, "
@@ -189,11 +192,6 @@ def benchmark_notice_class(status: str) -> str:
     return f"py-2 mb-2 small tcp-benchmark-notice {mapping.get(status, 'tcp-benchmark-notice-stale')}"
 
 
-def normalized_gate_title_text() -> str:
-    """Visible gate title with the clickable final letter included."""
-    return GATE_TITLE_NORMALIZED
-
-
 def mobile_responsive_contract() -> Dict[str, str]:
     """Stable mobile/responsive presentation markers for structural tests."""
     return {
@@ -212,6 +210,7 @@ def mobile_responsive_contract() -> Dict[str, str]:
         "footer_wrap": FOOTER_WRAP_CLASS,
         "monthly_performance": MONTHLY_PERFORMANCE_CLASS,
         "drawdown_table": DRAWDOWN_TABLE_CLASS,
+        "drawdown_section": DRAWDOWN_SECTION_CLASS,
         "nav_chart_container": NAV_CHART_CONTAINER_CLASS,
         "two_column_row": DESKTOP_TWO_COLUMN_ROW_CLASS,
         "disclosure_panel": "tcp-public-disclosure-panel",
@@ -253,6 +252,7 @@ def desktop_visual_contract() -> Dict[str, str]:
         "preview_banner": PREVIEW_BANNER_CLASS,
         "daily_metrics_table": DAILY_METRICS_TABLE_CLASS,
         "drawdown_table": DRAWDOWN_TABLE_CLASS,
+        "drawdown_section": DRAWDOWN_SECTION_CLASS,
         "benchmark_notice_prefix": "tcp-benchmark-notice",
         "disclosure_panel": "tcp-public-disclosure-panel",
         "footer_row": "tcp-public-footer-row",
@@ -285,29 +285,12 @@ def _mark(checked: bool, label: str) -> html.Span:
 
 
 def build_public_accept_gate() -> html.Div:
-    return html.Div(
-        id="disclaimer-screen",
-        style=GATE_SCREEN_STYLE,
-        children=html.Div(
-            children=[
-                html.H2(
-                    [
-                        html.Span("Important Notic", className=GATE_TITLE_INLINE_CLASS),
-                        html.Span(
-                            "e",
-                            id="secret-notice-e",
-                            n_clicks=0,
-                            className=GATE_SECRET_E_CLASS,
-                        ),
-                    ],
-                    className=f"mb-4 {GATE_TITLE_HEADING_CLASS}",
-                    id="tcp-public-gate-title",
-                ),
-                html.P(GATE_ACCEPT_TEXT, className="lead mb-5", id="tcp-public-gate-copy"),
-                dbc.Button("Accept & Continue", id="accept-button", color="primary"),
-                build_gate_password_row(),
-            ],
-        ),
+    return build_sibling_accept_gate(
+        "TCP",
+        accept_text=GATE_ACCEPT_TEXT,
+        title_id="tcp-public-gate-title",
+        copy_lead_id="tcp-public-gate-copy",
+        extra_children=[build_gate_password_row(portal_enabled=False)],
     )
 
 
@@ -316,47 +299,16 @@ def build_tcp_header(
     desktop_label_children: List[Any],
     mobile_label_children: List[Any],
 ) -> List[Any]:
-    return [
-        dbc.Row(
-            [
-                dbc.Col(
-                    html.Img(
-                        src=logo_src,
-                        className="img-fluid",
-                        style={"maxHeight": "100px", "height": "auto", "width": "auto"},
-                        alt=f"{HNC_LEGAL_NAME} Logo",
-                    ),
-                    width=2,
-                ),
-                dbc.Col(
-                    html.Div(
-                        [
-                            html.H2(HNC_LEGAL_NAME, className="text-center"),
-                            html.H5(TCP_PRODUCT_NAME, className="text-center text-muted"),
-                        ],
-                        style={"lineHeight": "1.2", "paddingTop": "20px"},
-                    ),
-                    width=8,
-                ),
-                dbc.Col(
-                    html.Div(desktop_label_children, id="data-current-label-desktop", className="d-none d-md-block"),
-                    width=2,
-                ),
-            ],
-            align="center",
-            style={"backgroundColor": GREY_BG, "padding": "10px 0", "pageBreakInside": "avoid"},
-            className="header-row",
-            id="tcp-public-header-row",
-        ),
-        html.Hr(),
-        dbc.Row(
-            dbc.Col(
-                html.Div(mobile_label_children, id="data-current-label-mobile", className="d-block d-md-none text-end"),
-                width=12,
-            ),
-            className="mb-3",
-        ),
-    ]
+    return build_tearsheet_header_row(
+        logo_src=logo_src,
+        logo_alt=f"{HNC_LEGAL_NAME} Logo",
+        firm_name=HNC_LEGAL_NAME,
+        product_name=TCP_PRODUCT_NAME,
+        desktop_label_children=desktop_label_children,
+        mobile_label_children=mobile_label_children,
+        grey_bg=GREY_BG,
+        header_row_id="tcp-public-header-row",
+    )
 
 
 def build_firm_intro() -> html.Div:
@@ -890,7 +842,7 @@ def resolve_public_gate_styles(n_clicks: Optional[int]) -> Tuple[Dict[str, str],
 
 
 def build_public_gate_wrapper(main_children: List[Any]) -> html.Div:
-    from tcp_daily_values import PUBLIC_GATE_ACCEPTED_STORE_ID, TCP_UI_MODE_STORE_ID
+    from tcp_daily_values import PUBLIC_GATE_ACCEPTED_STORE_ID, TCP_GATE_STORAGE_PURGE_STORE_ID, TCP_UI_MODE_STORE_ID
 
     return html.Div(
         [
@@ -898,6 +850,7 @@ def build_public_gate_wrapper(main_children: List[Any]) -> html.Div:
             dcc.Store(id=PUBLIC_GATE_ACCEPTED_STORE_ID, storage_type="memory", data=False),
             dcc.Store(id=TCP_UI_MODE_STORE_ID, storage_type="memory", data=None),
             dcc.Store(id=GATE_PASSWORD_VISIBLE_STORE_ID, storage_type="memory", data=False),
+            dcc.Store(id=TCP_GATE_STORAGE_PURGE_STORE_ID, storage_type="memory", data=0),
             build_public_accept_gate(),
             html.Div(id="main-app", style={"display": "none"}, children=main_children),
         ],

@@ -20,8 +20,8 @@ body, #page-container {
   padding: var(--spacing-unit);
 }
 
-/* Responsive header */
-#page-container > .row:first-child {
+/* Responsive header — TCP v2 public shell only (do not override TKP date block) */
+#tcp-public-header-row {
   padding: calc(var(--spacing-unit) / 2) 0;
   text-align: center;
 }
@@ -100,7 +100,8 @@ body, #page-container {
   align-items: center;
   z-index: 9999;
 }
-#disclaimer-screen > div {
+#disclaimer-screen > div,
+#disclaimer-screen > .tearsheet-gate-inner {
   background-color: var(--header-bg);
   padding: var(--spacing-unit);
   border-radius: 1rem;
@@ -111,31 +112,126 @@ body, #page-container {
   box-shadow: 0 0.25rem 0.75rem rgba(0, 0, 0, 0.1);
   text-align: center;
 }
+#disclaimer-screen h2,
+#disclaimer-screen .tearsheet-gate-title {
+  font-size: 1.75rem;
+  font-weight: 500;
+  line-height: 1.2;
+  white-space: normal;
+  margin: 0 0 1.5rem;
+}
+#disclaimer-screen p.lead,
+#disclaimer-screen .tearsheet-gate-copy-lead {
+  max-width: 30rem;
+  margin: 0 auto 1rem;
+  font-size: 0.95rem;
+  line-height: 1.55;
+}
+#disclaimer-screen .tearsheet-gate-copy-muted {
+  max-width: 30rem;
+  margin: 0 auto 2rem;
+  font-size: 0.9rem;
+  line-height: 1.55;
+  color: #6c757d;
+}
+#disclaimer-screen .tearsheet-gate-copy-bold {
+  font-weight: 700;
+}
+#disclaimer-screen .tearsheet-gate-copy-contact {
+  margin-bottom: 2rem;
+}
+#disclaimer-screen .tearsheet-gate-copy-contact a {
+  color: #0D3562;
+}
 @media (max-width: 480px) {
-  #disclaimer-screen > div {
+  #disclaimer-screen > div,
+  #disclaimer-screen > .tearsheet-gate-inner {
     width: 95vw;
     padding: calc(var(--spacing-unit) / 1.5);
   }
-  #disclaimer-screen button {
+  #disclaimer-screen button,
+  #disclaimer-screen .tearsheet-gate-accept-btn {
     padding: 0.5rem 1rem;
     font-size: 0.9rem;
   }
+  #disclaimer-screen h2,
+  #disclaimer-screen .tearsheet-gate-title {
+    font-size: 1.5rem;
+  }
 }
-#disclaimer-screen button {
+#disclaimer-screen button,
+#disclaimer-screen .tearsheet-gate-accept-btn,
+#disclaimer-screen .btn-primary {
   background-color: var(--primary-color);
   border-color: var(--primary-color);
   padding: 0.75rem 1.5rem;
   font-size: 1rem;
   min-width: 10rem;
+  margin-top: 0.25rem;
 }
 #disclaimer-screen p {
   max-width: 30rem;
-  margin: 0 auto;
-  font-size: 0.9rem;
+  margin-left: auto;
+  margin-right: auto;
 }
 @media (max-width: 480px) {
+  #disclaimer-screen p.lead,
+  #disclaimer-screen .tearsheet-gate-copy-lead,
   #disclaimer-screen p {
-    font-size: 0.8rem;
+    font-size: 0.85rem;
+  }
+}
+
+/* Tearsheet header — top-right “Data current to” status block.
+   Shared design-system block: TKP introduced it (tkp-* names kept for
+   compatibility); the tearsheet-* aliases let sibling tearsheets (TCP)
+   reuse the exact same polished styling. */
+.tkp-header-date-block,
+.tearsheet-header-date-block {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 1.25rem 0.25rem 0.5rem;
+  min-width: 9.5rem;
+  color: var(--primary-color);
+}
+
+.tkp-header-date-label,
+.tearsheet-header-date-label {
+  font-size: 0.875rem;
+  font-weight: 400;
+  line-height: 1.35;
+  color: #6c757d;
+  margin: 0 0 0.25rem;
+}
+
+.tkp-header-date-value,
+.tearsheet-header-date-value {
+  font-size: 1.125rem;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--primary-color);
+  margin: 0;
+}
+
+@media (max-width: 767.98px) {
+  .tkp-header-date-block,
+  .tearsheet-header-date-block {
+    padding: 0.75rem 0.25rem 0.25rem;
+    min-width: 0;
+    width: 100%;
+  }
+
+  .tkp-header-date-label,
+  .tearsheet-header-date-label {
+    font-size: 0.8125rem;
+  }
+
+  .tkp-header-date-value,
+  .tearsheet-header-date-value {
+    font-size: 1rem;
   }
 }
 
@@ -339,11 +435,69 @@ body, #page-container {
 
 .tcp-drawdown-table {
   margin-bottom: 0;
+  width: 100%;
+  min-width: 36rem;
+  table-layout: auto;
+  font-size: 0.875rem;
+}
+
+.tcp-drawdown-table thead th {
+  background-color: var(--header-bg) !important;
+  text-align: center;
+  vertical-align: bottom;
+  white-space: nowrap;
+  padding: 0.45rem 0.5rem;
+  font-size: 0.82rem;
+  line-height: 1.2;
 }
 
 .tcp-drawdown-table td:first-child,
 .tcp-drawdown-table th:first-child {
   font-weight: 600;
+  text-align: left;
+  white-space: nowrap;
+  width: 11rem;
+}
+
+.tcp-drawdown-table td:not(:first-child),
+.tcp-drawdown-table th:not(:first-child) {
+  text-align: center;
+  vertical-align: middle;
+  min-width: 5.5rem;
+}
+
+#drawdown-profile-container {
+  width: 100%;
+  max-width: 100%;
+}
+
+#tcp-drawdown-profile-card {
+  width: 100%;
+  max-width: 100%;
+}
+
+.tcp-drawdown-section {
+  width: 100%;
+  max-width: 100%;
+  margin-top: var(--spacing-unit);
+  margin-bottom: var(--spacing-unit);
+}
+
+#tcp-drawdown-profile-card .card-body {
+  padding: 0.75rem;
+}
+
+#tcp-drawdown-profile-card .card-footer {
+  padding: 0.5rem 0.75rem;
+}
+
+.tcp-daily-values-toggle {
+  color: var(--primary-color) !important;
+  white-space: nowrap;
+}
+
+#tcp-daily-values-card .card-header {
+  cursor: default;
 }
 
 .tcp-benchmark-notice {
@@ -369,7 +523,13 @@ body, #page-container {
   color: #664d03;
 }
 
-.tcp-nav-chart-container,
+.tcp-nav-chart-container {
+  width: 95%;
+  max-width: 100%;
+  margin: 0 auto var(--spacing-unit);
+  page-break-inside: avoid;
+}
+
 .chart-container {
   width: 100%;
   max-width: 900px;
@@ -472,10 +632,12 @@ body, #page-container {
   white-space: normal;
 }
 
+.tearsheet-gate-title-inline,
 .tcp-gate-title-inline {
   display: inline;
 }
 
+.tearsheet-gate-secret-e,
 .tcp-gate-secret-e {
   cursor: pointer;
   user-select: none;
@@ -492,7 +654,8 @@ body, #page-container {
   position: relative;
 }
 
-.tcp-gate-secret-e::after {
+.tcp-gate-secret-e::after,
+.tearsheet-gate-secret-e::after {
   content: "";
   position: absolute;
   inset: -0.35rem -0.25rem;
@@ -503,22 +666,38 @@ body, #page-container {
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   width: 100%;
-  max-width: 340px;
+  max-width: 520px;
   margin: 0 auto;
 }
 
 .tearsheet-gate-password-input {
-  flex: 1 1 auto;
+  flex: 1 1 180px;
   min-width: 0;
   max-width: 240px;
   font-size: 1rem;
 }
 
-.tearsheet-gate-password-submit {
+.tearsheet-gate-password-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+}
+
+.tearsheet-gate-password-submit,
+.tearsheet-gate-password-portal {
   flex: 0 0 auto;
   white-space: nowrap;
+  background-color: var(--primary-color);
+  border-color: var(--primary-color);
+  min-height: 31px;
+  padding: 0.25rem 0.75rem;
+  font-size: 0.875rem;
+  border-radius: 0.25rem;
 }
 
 .tearsheet-gate-password-error {
@@ -531,19 +710,27 @@ body, #page-container {
 #gate-admin-password-row {
   position: static;
   width: 100%;
-  max-width: 340px;
+  max-width: 520px;
   margin-left: auto;
   margin-right: auto;
 }
 
 @media (max-width: 430px) {
   .tearsheet-gate-password-row {
-    max-width: min(340px, calc(100vw - 2rem));
+    max-width: min(520px, calc(100vw - 2rem));
     padding: 0 0.25rem;
+    justify-content: center;
   }
 
   .tearsheet-gate-password-input {
     font-size: 16px;
+    flex-basis: 100%;
+    max-width: none;
+  }
+
+  .tearsheet-gate-password-actions {
+    flex-basis: 100%;
+    justify-content: center;
   }
 }
 
@@ -649,6 +836,11 @@ body,
   #NAV-graph {
     min-height: 260px;
     max-height: 360px;
+  }
+
+  .tcp-nav-chart-container {
+    width: 100%;
+    max-width: 100%;
   }
 
   .tcp-two-column-row > [class*="col-"] {

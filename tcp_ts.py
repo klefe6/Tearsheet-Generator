@@ -21,6 +21,8 @@ import quantstats as qs
 from quantstats import utils
 from collections import OrderedDict
 
+import tearsheet_disclosure as tsd
+
 # ==============================================================================
 # 1) BUSINESS-DAY CALENDAR
 #    Create a CustomBusinessDay that drops weekends & US federal holidays
@@ -317,11 +319,25 @@ if NAV_df.index.has_duplicates:
 # Reindex to your custom business‑day calendar (fills missing dates with NaN)
 # Now safe because all dates are validated
 nav_col_name = NAV_df.columns[0]  # Get the NAV column name (usually "nav-x1")
+nav_col = NAV_df[nav_col_name]
+has_nav_data = nav_col.notna()
+if nav_col.dtype == object:
+    has_nav_data &= (
+        nav_col.astype(str).str.strip().ne("")
+        & nav_col.astype(str).str.strip().str.lower().ne("nan")
+    )
+
+if not has_nav_data.any():
+    print("❌ No rows with data in column L")
+    sys.exit(1)
+
+# Last Updated = last Excel date with a value in column L (ignore date-only rows)
+ACTUAL_LAST_DATE = NAV_df.index[has_nav_data].max()
+NAV_df = NAV_df.loc[has_nav_data]
+
 print(f"📊 Before asfreq: {len(NAV_df)} rows, date range: {NAV_df.index.min().date()} to {NAV_df.index.max().date()}")
 print(f"   Last NAV value before asfreq: ${NAV_df[nav_col_name].iloc[-1]:,.2f}")
-
-# Capture the actual last Excel date BEFORE forward-filling (for "Last Updated" display)
-ACTUAL_LAST_DATE = NAV_df.index.max()
+print(f"   Last updated (column L): {ACTUAL_LAST_DATE.date()}")
 
 NAV_df = NAV_df.asfreq(us_bd)
 
@@ -1199,10 +1215,7 @@ disclaimer_text = (
     "THE HIGH DEGREE OF LEVERAGE IN COMMODITY INTEREST TRADING MEANS INVESTMENTS SHOULD BE MADE WITH RISK "
     "CAPITAL ONLY. ALL INFORMATION ABOVE IS COMPILED WITH THE INTENTION OF BEING FULLY CORRECT, THOUGH THERE "
     "IS NO GUARANTEE ALL INFORMATION IS CORRECT AND COULD BE SUBJECT TO UNINTENTIONAL CLERICAL ITEMS. "
-    "PAST PERFORMANCE IS NOT NECESSARILY INDICATIVE OF FUTURE RESULTS.\n\n"
-    "PLEASE ENSURE THAT YOU ARE FULLY AWARE AND UNDERSTAND ALL RISKS, FEES, AND OTHER CONCERNS RELATED TO YOUR "
-    "INVESTMENT BY REQUESTING THE COMPLETE DISCLOSURE DOCUMENT & INVESTMENT MANAGEMENT AGREEMENT MATERIALS BY "
-    "REACHING OUT DIRECTLY TO THE ADVISOR."
+    "PAST PERFORMANCE IS NOT NECESSARILY INDICATIVE OF FUTURE RESULTS."
 )
 footer_contact = (
     "HUGHES & COMPANY LLC • NFA ID 0423388 • 330 Himmararshee, Ste 110, FTL, FL 33312 • 954-500-0500 • www.hughesandco.ltd"
@@ -1232,7 +1245,7 @@ def build_NAV_figure():
         plot_bgcolor=GREY_BG,
         paper_bgcolor=WHITE_BG,
         xaxis_title="Date",
-        yaxis_title="Value Added Daily Index",
+        yaxis_title="NAV",
         autosize=True,               # ← responsive sizing
         margin={"l": 40, "r": 10, "t": 40, "b": 40}
     )
@@ -1350,14 +1363,14 @@ def serve_layout():
                                 "height": "auto",
                                 "width": "auto",
                             },
-                            alt="Hughes & Company Logo"
+                            alt=f"{tsd.HNC_LEGAL_NAME} Logo"
                         ),
                         width=2,
                     ),
                     dbc.Col(
                         html.Div(
                             [
-                                html.H2("Hughes & Company LLC", className="text-center"),
+                                html.H2(tsd.HNC_LEGAL_NAME, className="text-center"),
                                 html.H5("The Crypto Program", className="text-center text-muted"),
                             ],
                             style={"lineHeight": "1.2", "paddingTop": "20px"},
@@ -1408,7 +1421,7 @@ def serve_layout():
             html.Div(
                 [
                     html.P(
-                        "Hughes & Company LLC is an introducing brokerage firm with expertise in the futures options industry. ",
+                        f"{tsd.HNC_LEGAL_NAME} is an introducing brokerage firm with expertise in the futures options industry. ",
                         className="lead text-center",
                     ),
                     html.P(
@@ -1433,7 +1446,7 @@ def serve_layout():
                 },
             ),
             html.P(
-                "This chart visualizes the growth of a $150,000 investment from inception to today. "
+                "This chart visualizes the growth of a $50,000 investment from inception to today. "
                 "NAV stands for Net Asset Value; it reflects the non-compounded performance, net of all fees.",
                 className="text-center small",
                 style={"marginTop": "4rem"}  # gives some breathing room
@@ -2022,7 +2035,7 @@ dbc.Row(
                                     ),
                                     dbc.CardFooter(
                                         html.Small(
-                                            "Both TCP & SPXTR drawdown stats are reflective of the same $150,000 fixed nominal exposure at start of drawdown period.",
+                                            "Both TCP & SPXTR drawdown stats are reflective of the same $50,000 fixed nominal exposure at start of drawdown period.",
                                             className="text-muted fst-italic"
                                         )
                                     ),
@@ -2089,7 +2102,7 @@ dbc.Row(
                                                 className="small fw-bold mb-1 mt-2"
                                             ),
                                             html.P(
-                                                "TCP allows for efficient, opportunistic deployments of capital in and out of the program in fixed nominal trading levels of $150,000 per tranche. The program will remain perpetually funded with permanent capital of the Introducing Broker in the form of a minimum of two tranches ($300,000 Nominal). The IB itself also has historically allocated more tranches, and closed tranches profitably, and plans on continuing in doing so, in what it considers opportunities for additional capital deployment based on drawdowns of the program itself, with expected recoveries. This capability is allowed for investors as well, with the announcement of any tranche opening or closure by/of the IB shared for complete disclosure and additional visibility for the benefit of all potential participants.",
+                                                "TCP allows for efficient, opportunistic deployments of capital in and out of the program in fixed nominal trading levels of $50,000 per tranche. The program will remain perpetually funded with permanent capital of the Introducing Broker in the form of a minimum of two tranches ($100,000 Nominal). The IB itself also has historically allocated more tranches, and closed tranches profitably, and plans on continuing in doing so, in what it considers opportunities for additional capital deployment based on drawdowns of the program itself, with expected recoveries. This capability is allowed for investors as well, with the announcement of any tranche opening or closure by/of the IB shared for complete disclosure and additional visibility for the benefit of all potential participants.",
                                                 className="mt-2",
                                                 style={"fontSize": "0.9rem"}
                                             ),
@@ -2152,27 +2165,13 @@ dbc.Row(
                 ),
             ]),
 
-            # ── Important Disclosure ──────────────────────────────────────────────────
+            # Important Disclosure section (proprietary tier — bottom panel)
             dbc.Row(
                 dbc.Col(
                     html.Div(
-                        [
-                            html.Strong("Important Disclosure: ", className="text-dark"),
-                            "This tear sheet is provided for informational purposes only and should not "
-                            "be interpreted as an offer, solicitation, or recommendation to invest. "
-                            "Performance information, if shown, may be unaudited and should be reviewed "
-                            "together with the applicable offering documents, advisory agreement, and risk "
-                            "disclosures. For more information about this strategy, please contact Hughes "
-                            "and Company at ",
-                            html.A("info@hughesandco.ltd", href="mailto:info@hughesandco.ltd"),
-                            " or 954 500 0500.",
-                        ],
-                        className="p-3 border rounded",
-                        style={
-                            "backgroundColor": "#f8f9fa",
-                            "borderLeft": "4px solid #6c757d",
-                            "fontSize": "0.875rem",
-                        },
+                        tsd.proprietary_bottom_disclosure_children("TCP"),
+                        className=tsd.DISCLOSURE_PANEL_CLASS,
+                        style=tsd.DISCLOSURE_PANEL_STYLE,
                     ),
                     width=12,
                 ),
@@ -2189,21 +2188,21 @@ dbc.Row(
 
 dcc_store = dcc.Store(id="disclaimer-accepted", storage_type="session")
 
+# Accept gate — proprietary tier (same wording family as TKP; no H&C contact)
 disclaimer_screen = html.Div(
     id="disclaimer-screen",
+    style=tsd.GATE_SCREEN_STYLE,
     children=html.Div(
         children=[
             html.H2("Important Notice", className="mb-4"),
-            html.P(
-                "By clicking “Accept,” you agree that the performance figures shown are strictly informational and do not amount to investment advice, a solicitation, or an offer to invest or participate in this strategy. This material is not intended to solicit funds.",
-                className="lead mb-5"
-            ),
+            *tsd.proprietary_gate_children("TCP", accept_text=tsd.TCP_GATE_ACCEPT_TEXT),
             dbc.Button(
                 "Accept & Continue",
                 id="accept-button",
                 color="primary"
             )
-        ]
+        ],
+        style=tsd.GATE_INNER_CARD_STYLE,
     )
 )
 
@@ -2232,7 +2231,7 @@ app.layout = dynamic_layout
 def show_main(n_clicks):
     if n_clicks and n_clicks > 0:
         return {"display": "none"}, {"display": "block"}
-    return {"padding": "4rem", "textAlign": "center"}, {"display": "none"}
+    return tsd.GATE_SCREEN_STYLE, {"display": "none"}
 
 
 

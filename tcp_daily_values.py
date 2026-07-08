@@ -9,7 +9,7 @@ from datetime import date, datetime
 from typing import Any, Dict, List, Mapping, Optional, Sequence
 
 import dash_bootstrap_components as dbc
-from dash import dash_table, html
+from dash import dash_table, dcc, html
 
 from tcp_admin import (
     DEFAULT_PAGE_SIZE,
@@ -31,11 +31,55 @@ DAILY_VALUES_SECTION_ID = "tcp-daily-values-section"
 DAILY_VALUES_TABLE_ID = "tcp-daily-values-table"
 DAILY_VALUES_TOOLBAR_ID = "tcp-daily-values-admin-toolbar"
 DAILY_VALUES_SUMMARY_ID = "tcp-daily-values-summary"
+PUBLIC_DAILY_COLLAPSE_ID = "tcp-public-daily-collapse"
+PUBLIC_DAILY_TOGGLE_BTN_ID = "tcp-public-daily-toggle-btn"
+# TKP-pattern table controls (public-safe): view-per-page + Export Excel.
+PUBLIC_DAILY_PAGE_SIZE_ID = "tcp-public-daily-page-size"
+PUBLIC_DAILY_EXPORT_BTN_ID = "tcp-public-daily-export-btn"
+PUBLIC_DAILY_EXPORT_DOWNLOAD_ID = "tcp-public-daily-export-download"
+PUBLIC_DAILY_PAGE_SIZE_OPTIONS = (15, 25, 50, 100, 150, 200)
+PUBLIC_DAILY_TOGGLE_LABEL_SHOW = "Show ▾"
+PUBLIC_DAILY_TOGGLE_LABEL_HIDE = "Hide ▴"
 PUBLIC_GATE_ACCEPTED_STORE_ID = "public-gate-accepted-store"
 TCP_UI_MODE_STORE_ID = "tcp-ui-mode-store"
 UI_MODE_PUBLIC = "public"
 UI_MODE_ADMIN = "admin"
 GATE_NOTICE_E_ID = "secret-notice-e"
+TCP_GATE_STORAGE_PURGE_STORE_ID = "tcp-gate-storage-purge-store"
+TCP_GATE_SESSION_STORAGE_PREFIXES = (
+    "tcp-ui-mode-store",
+    "public-gate-accepted-store",
+    "disclaimer-accepted",
+)
+
+
+def resolve_gate_bootstrap_state(*, ui_mode: Optional[str] = None) -> tuple[None, bool]:
+    """Force Important Notice on every page load/refresh.
+
+    Ignores any stale browser-side ui_mode hint (memory/session/local storage).
+    """
+    _ = ui_mode
+    return None, True
+
+
+def resolve_public_accept_ui_mode(*, accept_clicks: Optional[int]) -> tuple[Optional[str], bool]:
+    """Grant public mode only after an explicit Accept click in the current page session."""
+    if accept_clicks is not None and int(accept_clicks) > 0:
+        return UI_MODE_PUBLIC, True
+    return None, True
+
+
+def resolve_public_access_ui_mode(
+    *,
+    triggered_id: Optional[str],
+    accept_clicks: Optional[int],
+    ui_mode: Optional[str],
+) -> tuple[Optional[str], bool]:
+    """Backward-compatible wrapper — prefer resolve_gate_bootstrap_state / resolve_public_accept_ui_mode."""
+    if triggered_id == "accept-button":
+        return resolve_public_accept_ui_mode(accept_clicks=accept_clicks)
+    return resolve_gate_bootstrap_state(ui_mode=ui_mode)
+
 
 DAILY_VALUES_DEFAULT_SORT: List[Dict[str, str]] = [
     {"column_id": "Date", "direction": "desc"},
@@ -176,12 +220,46 @@ def build_daily_values_datatable(
     )
 
 
+def build_daily_values_export_payload(
+    table_data: Sequence[Mapping[str, Any]],
+    filename: str,
+):
+    """dcc.send_data_frame payload for the Daily Values Export Excel button.
+
+    Presentation-only: downloads exactly the public rows already rendered in
+    the table (an in-memory workbook served to the browser — never a write to
+    ledger/JSON/workbook state, which is why this lives outside tcp_ts_v2.py's
+    no-mutation-hooks source contract).
+    """
+    import pandas as pd
+
+    export_df = pd.DataFrame(list(table_data))
+    return dcc.send_data_frame(export_df.to_excel, filename, index=False)
+
+
 def build_daily_values_admin_toolbar() -> html.Div:
+    """Admin controls inside the Daily Values card (TKP Daily Returns pattern:
+    Visible Columns picker above the Add Row / Delete Last Row buttons)."""
     return html.Div(
         [
+            html.Div(
+                [
+                    html.Label("Visible Columns", className="fw-bold small mb-1 d-block"),
+                    dbc.Checklist(
+                        id="admin-column-selector",
+                        options=[
+                            {"label": label, "value": col_id}
+                            for col_id, label in PUBLIC_DAILY_COLUMN_MAP
+                        ],
+                        value=list(PUBLIC_DAILY_COLUMN_IDS),
+                        inline=True,
+                    ),
+                ],
+                className="mb-2 w-100",
+            ),
             dbc.Button("Add Row", id="admin-open-add-modal", color="success", size="sm", className="me-2"),
             dbc.Button(
-                "Delete Latest Row",
+                "Delete Last Row",
                 id="admin-open-delete-modal",
                 color="danger",
                 size="sm",
@@ -228,24 +306,84 @@ def build_daily_values_section(
     return html.Div(
         dbc.Card(
             [
-                dbc.CardHeader(html.H6("Daily Values", className="mb-0"), className=HEADER_ROW_CLASS),
-                dbc.CardBody(
-                    [
-                        build_daily_values_summary(
-                            completed_rows=metadata.completed_row_count,
-                            latest_date=metadata.latest_completed_date,
-                            data_source=data_source,
-                        ),
-                        html.Div(
-                            build_daily_values_admin_toolbar(),
-                            id=DAILY_VALUES_TOOLBAR_ID,
-                            style={"display": "none"},
-                        ),
-                        html.Div(
-                            build_daily_values_datatable(rows),
-                            className=CONTROLLED_TABLE_OVERFLOW_CLASS,
-                        ),
-                    ]
+                dbc.CardHeader(
+                    html.Div(
+                        [
+                            html.H6("Daily Values", className="mb-0"),
+                            dbc.Button(
+                                PUBLIC_DAILY_TOGGLE_LABEL_SHOW,
+                                id=PUBLIC_DAILY_TOGGLE_BTN_ID,
+                                color="link",
+                                size="sm",
+                                className="tcp-daily-values-toggle p-0 text-decoration-none fw-bold",
+                                n_clicks=0,
+                            ),
+                        ],
+                        className="d-flex align-items-center justify-content-between",
+                    ),
+                    className=HEADER_ROW_CLASS,
+                ),
+                dbc.Collapse(
+                    id=PUBLIC_DAILY_COLLAPSE_ID,
+                    is_open=False,
+                    children=dbc.CardBody(
+                        [
+                            build_daily_values_summary(
+                                completed_rows=metadata.completed_row_count,
+                                latest_date=metadata.latest_completed_date,
+                                data_source=data_source,
+                            ),
+                            html.Div(
+                                build_daily_values_admin_toolbar(),
+                                id=DAILY_VALUES_TOOLBAR_ID,
+                                style={"display": "none"},
+                            ),
+                            # TKP Daily Returns pattern: view-per-page selector
+                            # (left) + Export Excel (right) above the table.
+                            html.Div(
+                                [
+                                    html.Div(
+                                        [
+                                            html.Span(
+                                                "View per page:",
+                                                className="me-2 small",
+                                                style={"lineHeight": "31px"},
+                                            ),
+                                            dcc.Dropdown(
+                                                id=PUBLIC_DAILY_PAGE_SIZE_ID,
+                                                options=[
+                                                    {"label": str(v), "value": v}
+                                                    for v in PUBLIC_DAILY_PAGE_SIZE_OPTIONS
+                                                ],
+                                                value=DEFAULT_PAGE_SIZE,
+                                                clearable=False,
+                                                style={"width": "80px", "display": "inline-block"},
+                                            ),
+                                        ],
+                                        style={"display": "inline-flex", "alignItems": "center"},
+                                    ),
+                                    html.Div(
+                                        [
+                                            dbc.Button(
+                                                "Export Excel",
+                                                id=PUBLIC_DAILY_EXPORT_BTN_ID,
+                                                color="secondary",
+                                                size="sm",
+                                            ),
+                                            dcc.Download(id=PUBLIC_DAILY_EXPORT_DOWNLOAD_ID),
+                                        ],
+                                        style={"float": "right"},
+                                    ),
+                                ],
+                                className="mb-3",
+                                style={"display": "flex", "justifyContent": "space-between"},
+                            ),
+                            html.Div(
+                                build_daily_values_datatable(rows),
+                                className=CONTROLLED_TABLE_OVERFLOW_CLASS,
+                            ),
+                        ]
+                    ),
                 ),
             ],
             className=PUBLIC_CARD_CLASS,
