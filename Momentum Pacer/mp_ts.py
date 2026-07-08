@@ -523,19 +523,21 @@ CLIENT_NAV_TRACE_NAME = "Momentum Pacer — Net of Accrued Fees"
 # chart are stacked for admin verification; giving all three the same date
 # range/tick positions/margins (rather than each auto-ranging to its own
 # data) makes it easy to compare a value on one chart to the same calendar
-# date on another. The admin NLV series legitimately starts earlier
-# (pre-inception) than the other two — this only widens the AXIS WINDOW to
-# the widest honest span (the full daily balances CSV range); it never
-# backfills or fabricates data for the charts that start later.
+# date on another. All three series now start on live inception (the Actual
+# NLV chart is trimmed to inception in build_agm_daily_nlv_figure -- the raw
+# CSV's earlier pre-inception flat-$30K days are still visible in the raw
+# admin daily balances table, just not on this chart), so the shared window
+# is simply inception -> the latest daily-balances date.
 ADMIN_XAXIS_MARGIN_LR = {"l": 110, "r": 140}
 ADMIN_XAXIS_TICKS = {"dtick": "M1", "tickformat": "%b %Y"}
 
 
 def _admin_shared_xaxis_range() -> tuple[pd.Timestamp, pd.Timestamp] | tuple[None, None]:
-    """Widest honest x-axis window: the full daily-balances CSV span."""
+    """Shared x-axis window for the 3 admin-verification charts: live
+    inception through the latest daily-balances date."""
     if daily_balances_df is None or daily_balances_df.empty:
         return None, None
-    x_left = pd.Timestamp(daily_balances_df["Date"].min()) - pd.Timedelta(days=7)
+    x_left = pd.Timestamp(PROGRAM_INCEPTION) - pd.Timedelta(days=7)
     x_right = pd.Timestamp(daily_balances_df["Date"].max()) + pd.Timedelta(days=10)
     return x_left, x_right
 
@@ -840,15 +842,23 @@ def build_agm_accrued_fees_figure() -> go.Figure:
 
 def build_agm_daily_nlv_figure() -> go.Figure:
     """Admin only. Actual daily account NLV straight from the TradeStation
-    balances CSV ("Net Worth"). This is the real operational account value, not
-    the client-facing performance curve, so it is clearly labelled and only ever
-    rendered inside admin TearSheet mode."""
+    balances CSV ("Net Worth"), from live inception onward. This is the real
+    operational account value, not the client-facing performance curve, so
+    it is clearly labelled and only ever rendered inside admin TearSheet
+    mode. Trimmed to inception (rather than the full CSV, which also holds
+    pre-inception flat-$30K days) so this chart starts on the same date as
+    the other 2 admin-verification charts -- see _apply_admin_shared_xaxis."""
     if daily_balances_df is None or daily_balances_df.empty:
         return _empty_admin_figure(
             "Admin NLV / TradeStation Net Worth",
             "Daily balances CSV not loaded — no NLV series to show.",
         )
-    df = daily_balances_df
+    df = daily_balances_df[daily_balances_df["Date"] >= pd.Timestamp(PROGRAM_INCEPTION)]
+    if df.empty:
+        return _empty_admin_figure(
+            "Admin NLV / TradeStation Net Worth",
+            "No post-inception daily balances to show.",
+        )
     fig = go.Figure()
     fig.add_trace(go.Scatter(
         x=df["Date"], y=df["Net Worth"], mode="lines",
