@@ -60,7 +60,8 @@ import plotly.graph_objs as go
 import openpyxl
 
 import dash
-from dash import html, dcc
+from dash import html, dcc, dash_table
+from dash.dash_table.Format import Format, Scheme, Symbol, Sign
 import dash_bootstrap_components as dbc
 from dash.dependencies import Input, Output, State
 from flask import jsonify, redirect, session
@@ -517,6 +518,38 @@ _NAV_HOVER = (
 # Client-facing NAV trace label (net of accrued unpaid fees, not raw NLV).
 CLIENT_NAV_TRACE_NAME = "Momentum Pacer — Net of Accrued Fees"
 
+# ── Shared X-axis alignment for the 3 admin-verification graphs ────────────
+# Client Net Economic Value chart, Actual NLV chart, and Accrued Unpaid Fees
+# chart are stacked for admin verification; giving all three the same date
+# range/tick positions/margins (rather than each auto-ranging to its own
+# data) makes it easy to compare a value on one chart to the same calendar
+# date on another. The admin NLV series legitimately starts earlier
+# (pre-inception) than the other two — this only widens the AXIS WINDOW to
+# the widest honest span (the full daily balances CSV range); it never
+# backfills or fabricates data for the charts that start later.
+ADMIN_XAXIS_MARGIN_LR = {"l": 110, "r": 140}
+ADMIN_XAXIS_TICKS = {"dtick": "M1", "tickformat": "%b %Y"}
+
+
+def _admin_shared_xaxis_range() -> tuple[pd.Timestamp, pd.Timestamp] | tuple[None, None]:
+    """Widest honest x-axis window: the full daily-balances CSV span."""
+    if daily_balances_df is None or daily_balances_df.empty:
+        return None, None
+    x_left = pd.Timestamp(daily_balances_df["Date"].min()) - pd.Timedelta(days=7)
+    x_right = pd.Timestamp(daily_balances_df["Date"].max()) + pd.Timedelta(days=10)
+    return x_left, x_right
+
+
+def _apply_admin_shared_xaxis(fig: go.Figure) -> go.Figure:
+    """Apply the shared date range/ticks/margin so this chart's x-axis lines
+    up with the other two admin-verification charts (see ADMIN_XAXIS_MARGIN_LR
+    note above)."""
+    x_left, x_right = _admin_shared_xaxis_range()
+    if x_left is not None:
+        fig.update_xaxes(range=[x_left, x_right], **ADMIN_XAXIS_TICKS)
+        fig.update_layout(margin=ADMIN_XAXIS_MARGIN_LR)
+    return fig
+
 
 def _daily_equity_frame() -> pd.DataFrame:
     """Client daily equity rows (Date / client_net_value) from live inception onward."""
@@ -634,13 +667,16 @@ def build_nav_figure() -> go.Figure:
             "font": {"size": 11},
         },
     )
-    x_right = max(pd.Timestamp(t) for t in bot_x) + pd.Timedelta(days=10)
-    x_left = min(pd.Timestamp(t) for t in bot_x) - pd.Timedelta(days=7)
+    x_left, x_right = _admin_shared_xaxis_range()
+    if x_left is None:
+        x_left = min(pd.Timestamp(t) for t in bot_x) - pd.Timedelta(days=7)
+        x_right = max(pd.Timestamp(t) for t in bot_x) + pd.Timedelta(days=10)
     fig.update_xaxes(
         showgrid=True,
         automargin=True,
         title_standoff=12,
         range=[x_left, x_right],
+        **ADMIN_XAXIS_TICKS,
     )
     # ── Compute shared y range ────────────────────────────────────────────────
     # Both axes share the same numeric dollar range. yaxis2 is just a relabelled
@@ -796,6 +832,7 @@ def build_agm_accrued_fees_figure() -> go.Figure:
                     font=dict(size=10)),
         showlegend=True,
     )
+    _apply_admin_shared_xaxis(fig)
     return fig
 
 
@@ -827,6 +864,7 @@ def build_agm_daily_nlv_figure() -> go.Figure:
         margin=dict(t=60, b=40),
         showlegend=False,
     )
+    _apply_admin_shared_xaxis(fig)
     return fig
 
 
@@ -846,6 +884,132 @@ def _fmt_pct(v) -> str:
     if v is None or (isinstance(v, float) and pd.isna(v)):
         return "—"
     return f"{v:+.2f}%"
+
+
+# ── Admin reconciliation panel (date-based spot-check, admin-only) ─────────
+# TradeStation NLV / Actual NLV = Client Net Economic Value + Accrued Unpaid
+# Incentive Fee. Never a new calculation — just a per-date readout of the
+# already-accepted daily accounting table (algominds_daily_accounting).
+AGM_RECON_DATE_PICKER_ID = "agm-recon-date-picker"
+AGM_RECON_OUTPUT_ID = "agm-recon-output"
+
+# Cent-level display tolerance for the reconciliation checkmark. Looser than
+# the accounting model's own invariant tolerance (1e-6 — effectively float
+# rounding noise; see algominds_daily_accounting.verify_accounting_invariant),
+# but still tight enough that any real formula/data defect would fail it.
+RECONCILIATION_TOLERANCE = 0.01
+
+
+def _recon_date_bounds() -> tuple[pd.Timestamp, pd.Timestamp] | tuple[None, None]:
+    if daily_accounting is None or daily_accounting.table.empty:
+        return None, None
+    dates = daily_accounting.table["Date"]
+    return pd.Timestamp(dates.min()), pd.Timestamp(dates.max())
+
+
+def _agm_reconciliation_lookup(requested_date) -> dict:
+    """
+    Look up the accounting row for *requested_date* (a date string /
+    pd.Timestamp / None). Falls back to the nearest available date on or
+    before the request when the exact date has no row (e.g. a weekend);
+    reports honestly when no data exists at or before the request. Never
+    fabricates a date or a row — always the accepted daily accounting table.
+    """
+    table = daily_accounting.table if daily_accounting is not None else pd.DataFrame()
+    if table is None or table.empty:
+        return {"available": False, "reason": "No daily accounting data loaded."}
+
+    dates = pd.DatetimeIndex(table["Date"])
+    if requested_date is None:
+        target = dates.max()
+    else:
+        try:
+            target = pd.Timestamp(requested_date).normalize()
+        except (ValueError, TypeError):
+            return {"available": False, "reason": f"Invalid date: {requested_date!r}."}
+
+    exact = table.loc[dates == target]
+    if not exact.empty:
+        row = exact.iloc[0]
+        exact_match = True
+    else:
+        prior = table.loc[dates <= target]
+        if prior.empty:
+            return {
+                "available": False,
+                "reason": (
+                    f"No accounting data on or before {target.strftime('%Y-%m-%d')} "
+                    f"(earliest available: {dates.min().strftime('%Y-%m-%d')})."
+                ),
+            }
+        row = prior.iloc[-1]
+        exact_match = False
+
+    actual_nlv = float(row["actual_nlv"])
+    client_net = float(row["client_net_value"])
+    accrued = float(row["accrued_unpaid_fees"])
+    residual = actual_nlv - (client_net + accrued)
+    return {
+        "available": True,
+        "requested_date": target,
+        "row_date": pd.Timestamp(row["Date"]),
+        "exact_match": exact_match,
+        "actual_nlv": actual_nlv,
+        "client_net_value": client_net,
+        "accrued_unpaid_fees": accrued,
+        "residual": residual,
+        "within_tolerance": abs(residual) <= RECONCILIATION_TOLERANCE,
+    }
+
+
+def build_agm_reconciliation_panel(selected_date=None):
+    """Admin-only reconciliation widget: TradeStation NLV / Actual NLV =
+    Client Net Economic Value + Accrued Unpaid Incentive Fee, spot-checked
+    for one date (defaults to the latest available date)."""
+    result = _agm_reconciliation_lookup(selected_date)
+    if not result["available"]:
+        return dbc.Alert(result["reason"], color="secondary", className="mb-0")
+
+    status_ok = result["within_tolerance"]
+    status_badge = dbc.Badge(
+        "✓ Reconciles" if status_ok else "⚠ Does not reconcile",
+        color="success" if status_ok else "danger",
+        className="ms-2",
+    )
+    formula_line = (
+        f"TradeStation NLV (${result['actual_nlv']:,.2f}) = "
+        f"Client Net Economic Value (${result['client_net_value']:,.2f}) + "
+        f"Accrued Unpaid Incentive Fee (${result['accrued_unpaid_fees']:,.2f}) "
+        f"{'✓' if status_ok else '⚠'}"
+    )
+    rows = [
+        ("Date", result["row_date"].strftime("%Y-%m-%d")),
+        ("TradeStation NLV / Actual NLV", _fmt_money(result["actual_nlv"])),
+        ("Client Net Economic Value", _fmt_money(result["client_net_value"])),
+        ("Accrued Unpaid Incentive Fee", _fmt_money(result["accrued_unpaid_fees"])),
+        ("Residual (should be ~$0.00)", f"${result['residual']:+.6f}"),
+    ]
+    table = dbc.Table(
+        html.Tbody([
+            html.Tr([html.Td(label, className="fw-bold"), html.Td(value)])
+            for label, value in rows
+        ]),
+        bordered=True, size="sm", className="mb-2",
+    )
+    children = []
+    if not result["exact_match"]:
+        children.append(html.Div(
+            f"No accounting row for {result['requested_date'].strftime('%Y-%m-%d')} "
+            f"(weekend/holiday) — showing the nearest prior trading day, "
+            f"{result['row_date'].strftime('%Y-%m-%d')}.",
+            className="small text-muted fst-italic mb-2",
+        ))
+    children.append(table)
+    children.append(html.Div(
+        [formula_line, status_badge],
+        className="d-flex align-items-center flex-wrap gap-1",
+    ))
+    return html.Div(children)
 
 
 def build_agm_daily_balances_table():
@@ -913,6 +1077,202 @@ def build_agm_daily_kpi_cards():
             for label, value in cards
         ],
         className="g-2",
+    )
+
+
+# ── Client-facing daily table (collapsed by default, public/gate-safe) ─────
+# Same trust tier as the client NAV chart above (rendered directly in
+# serve_layout, gated only by the Important Notice accept screen — never the
+# admin auth), so it never carries admin-only operational columns (Cash
+# Balance, margin figures, Buying Power/Margin Deficit) and always uses the
+# client-safe "TradeStation NLV / Statement Value" vs "Client Net Economic
+# Value" terminology so the two are never confused.
+CLIENT_DAILY_TOGGLE_ID = "agm-client-daily-toggle-btn"
+CLIENT_DAILY_COLLAPSE_ID = "agm-client-daily-collapse"
+CLIENT_DAILY_TABLE_ID = "agm-client-daily-table"
+CLIENT_DAILY_PAGE_SIZE_ID = "agm-client-daily-page-size"
+CLIENT_DAILY_EXPORT_BTN_ID = "agm-client-daily-export-btn"
+CLIENT_DAILY_EXPORT_DOWNLOAD_ID = "agm-client-daily-export-download"
+
+_MONEY_FMT = Format(precision=2, scheme=Scheme.fixed, symbol=Symbol.yes, symbol_prefix="$")
+_MONEY_SIGNED_FMT = Format(
+    precision=2, scheme=Scheme.fixed, symbol=Symbol.yes, symbol_prefix="$", sign=Sign.positive
+)
+_PCT_SIGNED_FMT = Format(
+    precision=2, scheme=Scheme.fixed, symbol=Symbol.yes, symbol_suffix="%", sign=Sign.positive
+)
+_INDEX_FMT = Format(precision=2, scheme=Scheme.fixed)
+
+# (display label, accounting-table column key, format kind). "Momentum daily %"
+# and "Daily %" both read momentum_daily_pct's client-net-based value today
+# (the accounting model defines daily_pct as an alias of momentum_daily_pct);
+# both display names are kept as distinct columns per the approved spec.
+CLIENT_DAILY_TABLE_COLUMNS: list[tuple[str, str, str]] = [
+    ("Date", "Date", "date"),
+    ("Client Net Economic Value", "client_net_value", "money"),
+    ("TradeStation NLV / Statement Value", "actual_nlv", "money"),
+    ("Accrued Unpaid Incentive Fee", "accrued_unpaid_fees", "money"),
+    ("Daily $", "daily_dollar", "money_signed"),
+    ("Daily %", "daily_pct", "pct_signed"),
+    ("Since inception %", "since_inception_pct", "pct_signed"),
+    ("SPX Close", "spx_close", "index"),
+    ("SPX daily %", "spx_daily_pct", "pct_signed"),
+    ("Momentum daily %", "momentum_daily_pct", "pct_signed"),
+    ("Momentum vs SPX daily spread %", "momentum_vs_spx_daily_spread_pct", "pct_signed"),
+    ("Fee payment", "fee_payment", "money_signed"),
+]
+
+
+def _build_client_daily_table_columns() -> list[dict]:
+    cols = []
+    for label, key, kind in CLIENT_DAILY_TABLE_COLUMNS:
+        if kind == "date":
+            cols.append({"name": label, "id": key})
+        elif kind == "money":
+            cols.append({"name": label, "id": key, "type": "numeric", "format": _MONEY_FMT})
+        elif kind == "money_signed":
+            cols.append({"name": label, "id": key, "type": "numeric", "format": _MONEY_SIGNED_FMT})
+        elif kind == "pct_signed":
+            cols.append({"name": label, "id": key, "type": "numeric", "format": _PCT_SIGNED_FMT})
+        elif kind == "index":
+            cols.append({"name": label, "id": key, "type": "numeric", "format": _INDEX_FMT})
+        else:  # pragma: no cover - defensive, every kind above is handled
+            cols.append({"name": label, "id": key})
+    return cols
+
+
+def build_client_daily_table_rows(newest_first: bool = True) -> list[dict]:
+    """Row dicts for the client-facing DataTable: client-safe columns only,
+    from live inception onward (matches the client NAV/drawdown charts)."""
+    if daily_accounting is None or daily_accounting.table.empty:
+        return []
+    t = daily_accounting.table
+    mask = t["Date"] >= pd.Timestamp(PROGRAM_INCEPTION)
+    df = t.loc[mask].reset_index(drop=True)
+    if newest_first:
+        df = df.iloc[::-1].reset_index(drop=True)
+
+    def _num(r, col):
+        v = r.get(col)
+        return float(v) if pd.notna(v) else None
+
+    rows = []
+    for _, r in df.iterrows():
+        rows.append({
+            "Date": pd.Timestamp(r["Date"]).strftime("%Y-%m-%d"),
+            "client_net_value": _num(r, "client_net_value"),
+            "actual_nlv": _num(r, "actual_nlv"),
+            "accrued_unpaid_fees": _num(r, "accrued_unpaid_fees"),
+            "daily_dollar": _num(r, "daily_dollar"),
+            "daily_pct": _num(r, "daily_pct"),
+            "since_inception_pct": _num(r, "since_inception_pct"),
+            "spx_close": _num(r, "spx_close"),
+            "spx_daily_pct": _num(r, "spx_daily_pct"),
+            "momentum_daily_pct": _num(r, "momentum_daily_pct"),
+            "momentum_vs_spx_daily_spread_pct": _num(r, "momentum_vs_spx_daily_spread_pct"),
+            "fee_payment": _num(r, "fee_payment"),
+        })
+    return rows
+
+
+def build_client_daily_table_section():
+    """Titled, collapsed-by-default client-facing daily table (Show/Hide),
+    similar in spirit to the sibling tearsheets' 'Daily Returns' section."""
+    return dbc.Card(
+        [
+            dbc.CardHeader(
+                html.Div([
+                    html.H6("Daily Performance", className="mb-0 d-inline"),
+                    dbc.Button(
+                        "Show ▾", id=CLIENT_DAILY_TOGGLE_ID, color="link", size="sm",
+                        className="float-end p-0 text-decoration-none fw-bold", n_clicks=0,
+                    ),
+                ]),
+            ),
+            dbc.Collapse(
+                id=CLIENT_DAILY_COLLAPSE_ID,
+                is_open=False,
+                children=dbc.CardBody([
+                    html.P(
+                        "TradeStation NLV / Statement Value is the raw brokerage account value "
+                        "shown on TradeStation statements — it still includes any incentive fee "
+                        "accrued but not yet paid to the CTA. Client Net Economic Value is your "
+                        "true economic value after that unpaid fee accrual is taken into account.",
+                        className="small text-muted fst-italic mb-3",
+                    ),
+                    html.Div(
+                        [
+                            html.Div(
+                                [
+                                    html.Span("View per page:", className="me-2 small",
+                                               style={"lineHeight": "31px"}),
+                                    dcc.Dropdown(
+                                        id=CLIENT_DAILY_PAGE_SIZE_ID,
+                                        options=[{"label": str(v), "value": v}
+                                                 for v in [25, 50, 100, 150, 200]],
+                                        value=25,
+                                        clearable=False,
+                                        style={"width": "80px", "display": "inline-block"},
+                                    ),
+                                ],
+                                style={"display": "inline-flex", "alignItems": "center"},
+                            ),
+                            html.Div(
+                                [
+                                    dbc.Button("Export Excel", id=CLIENT_DAILY_EXPORT_BTN_ID,
+                                               color="secondary", size="sm"),
+                                    dcc.Download(id=CLIENT_DAILY_EXPORT_DOWNLOAD_ID),
+                                ],
+                                style={"float": "right"},
+                            ),
+                        ],
+                        className="mb-3",
+                        style={"display": "flex", "justifyContent": "space-between"},
+                    ),
+                    dash_table.DataTable(
+                        id=CLIENT_DAILY_TABLE_ID,
+                        columns=_build_client_daily_table_columns(),
+                        data=build_client_daily_table_rows(newest_first=True),
+                        sort_action="native",
+                        sort_mode="single",
+                        sort_by=[{"column_id": "Date", "direction": "desc"}],
+                        page_size=25,
+                        editable=False,
+                        style_table={"overflowX": "auto"},
+                        style_cell={
+                            "textAlign": "right",
+                            "padding": "4px 8px",
+                            "fontSize": "12px",
+                            "fontFamily": "monospace",
+                            "whiteSpace": "nowrap",
+                        },
+                        style_cell_conditional=[
+                            {"if": {"column_id": "Date"}, "textAlign": "left"},
+                        ],
+                        style_header={
+                            "backgroundColor": PRIMARY_COLOR,
+                            "color": "white",
+                            "fontWeight": "bold",
+                            "fontSize": "11px",
+                            "textAlign": "center",
+                        },
+                        style_data_conditional=[
+                            {"if": {"filter_query": "{daily_pct} > 0", "column_id": "daily_pct"},
+                             "color": "green"},
+                            {"if": {"filter_query": "{daily_pct} < 0", "column_id": "daily_pct"},
+                             "color": "red"},
+                            {"if": {"filter_query": "{momentum_vs_spx_daily_spread_pct} > 0",
+                                    "column_id": "momentum_vs_spx_daily_spread_pct"},
+                             "color": "green"},
+                            {"if": {"filter_query": "{momentum_vs_spx_daily_spread_pct} < 0",
+                                    "column_id": "momentum_vs_spx_daily_spread_pct"},
+                             "color": "red"},
+                        ],
+                    ),
+                ]),
+            ),
+        ],
+        className="mb-4",
     )
 
 
@@ -1273,6 +1633,11 @@ def serve_layout():
         if not _display_summary_df.empty
         else PROGRAM_INCEPTION.strftime("%B %Y")
     )
+    _recon_min_ts, _recon_max_ts = _recon_date_bounds()
+    # DatePickerSingle expects ISO date strings (not raw Timestamp objects)
+    # for correct browser-side serialization.
+    _recon_min = _recon_min_ts.strftime("%Y-%m-%d") if _recon_min_ts is not None else None
+    _recon_max = _recon_max_ts.strftime("%Y-%m-%d") if _recon_max_ts is not None else None
 
     return dbc.Container(
         id="page-container",
@@ -1463,6 +1828,25 @@ def serve_layout():
                                 config={"displayModeBar": False, "responsive": True},
                                 style={"width": "100%", "minHeight": "340px"},
                             ),
+
+                            # ── Admin reconciliation panel (date-based spot-check) ──
+                            html.Hr(className="my-3"),
+                            html.H6("Reconciliation Check (Admin)", className="mb-2"),
+                            html.P(
+                                "Spot-check any date: TradeStation NLV / Actual NLV always "
+                                "equals Client Net Economic Value plus Accrued Unpaid "
+                                "Incentive Fee.",
+                                className="small text-muted mb-2",
+                            ),
+                            dcc.DatePickerSingle(
+                                id=AGM_RECON_DATE_PICKER_ID,
+                                min_date_allowed=_recon_min,
+                                max_date_allowed=_recon_max,
+                                initial_visible_month=_recon_max,
+                                date=_recon_max,
+                                display_format="YYYY-MM-DD",
+                            ),
+                            html.Div(id=AGM_RECON_OUTPUT_ID, className="mt-3"),
                         ],
                     ),
 
@@ -1861,6 +2245,9 @@ def serve_layout():
                         },
                     ),
 
+                    # ── Client-facing daily table (collapsed by default) ────────
+                    build_client_daily_table_section(),
+
                     html.Hr(className="my-4"),
 
                     # ── Footer / disclaimers  (identical to Y&Q) ───────────────
@@ -2104,6 +2491,59 @@ def _render_admin_daily_content_callback(access_mode):
 )
 def _render_admin_daily_table_callback(access_mode):
     return _render_admin_daily_table(access_mode)
+
+
+def _render_agm_reconciliation_panel(selected_date, access_mode):
+    """Admin-only reconciliation readout for *selected_date* — verified
+    server-side against a genuine authenticated session (a spoofed
+    client-side access-mode store yields nothing)."""
+    if access_mode != "secret" or not agm_admin_auth_manager.is_authenticated(session):
+        return []
+    return build_agm_reconciliation_panel(selected_date)
+
+
+@app.callback(
+    Output(AGM_RECON_OUTPUT_ID, "children"),
+    Input(AGM_RECON_DATE_PICKER_ID, "date"),
+    Input("access-mode", "data"),
+)
+def _render_agm_reconciliation_panel_callback(selected_date, access_mode):
+    return _render_agm_reconciliation_panel(selected_date, access_mode)
+
+
+# ── Client-facing daily table: toggle / page size / export ─────────────────
+@app.callback(
+    Output(CLIENT_DAILY_COLLAPSE_ID, "is_open"),
+    Output(CLIENT_DAILY_TOGGLE_ID, "children"),
+    Input(CLIENT_DAILY_TOGGLE_ID, "n_clicks"),
+    State(CLIENT_DAILY_COLLAPSE_ID, "is_open"),
+    prevent_initial_call=True,
+)
+def _toggle_client_daily_table(n_clicks, is_open):
+    new_open = not is_open
+    label = "Hide ▴" if new_open else "Show ▾"
+    return new_open, label
+
+
+@app.callback(
+    Output(CLIENT_DAILY_TABLE_ID, "page_size"),
+    Input(CLIENT_DAILY_PAGE_SIZE_ID, "value"),
+)
+def _update_client_daily_page_size(page_size):
+    return page_size or 25
+
+
+@app.callback(
+    Output(CLIENT_DAILY_EXPORT_DOWNLOAD_ID, "data"),
+    Input(CLIENT_DAILY_EXPORT_BTN_ID, "n_clicks"),
+    State(CLIENT_DAILY_TABLE_ID, "data"),
+    prevent_initial_call=True,
+)
+def _export_client_daily_excel(n_clicks, table_data):
+    if not n_clicks or not table_data:
+        return dash.no_update
+    export_df = pd.DataFrame(table_data)
+    return dcc.send_data_frame(export_df.to_excel, "agm_daily_performance.xlsx", index=False)
 
 
 def _render_agm_pending_rows_table():

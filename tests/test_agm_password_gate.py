@@ -1,6 +1,7 @@
 """AGM (Momentum Pacer / mp_ts.py) Important Notice gate auth tests — parity with TCP/TKP."""
 from __future__ import annotations
 
+import pandas as pd
 import pytest
 
 from tearsheet_gate_auth import (
@@ -482,3 +483,320 @@ def test_portal_is_account_registry_with_tearsheet_action(agm_app):
         assert b"Monthly backup" not in response.data
         assert b"/monthly" not in response.data
         assert "Tearsheet" in PORTAL_COLUMNS
+
+
+# ── Admin reconciliation panel (date-based spot-check) ──────────────────────
+
+def test_three_admin_graphs_share_xaxis_configuration(agm_app):
+    """Client Net Economic Value, Actual NLV, and Accrued Unpaid Fees charts
+    must share the same visible date range and tick configuration so values
+    on the same calendar date are easy to compare across the stacked charts."""
+    import mp_ts
+
+    client_fig = mp_ts.build_nav_figure()
+    nlv_fig = mp_ts.build_agm_daily_nlv_figure()
+    fees_fig = mp_ts.build_agm_accrued_fees_figure()
+
+    ranges = {
+        tuple(client_fig.layout.xaxis.range),
+        tuple(nlv_fig.layout.xaxis.range),
+        tuple(fees_fig.layout.xaxis.range),
+    }
+    assert len(ranges) == 1, f"x-axis ranges differ across the 3 admin graphs: {ranges}"
+
+    dticks = {client_fig.layout.xaxis.dtick, nlv_fig.layout.xaxis.dtick, fees_fig.layout.xaxis.dtick}
+    assert len(dticks) == 1
+    formats = {
+        client_fig.layout.xaxis.tickformat,
+        nlv_fig.layout.xaxis.tickformat,
+        fees_fig.layout.xaxis.tickformat,
+    }
+    assert len(formats) == 1
+
+    # Same left/right margins so the plot areas line up vertically.
+    for fig in (client_fig, nlv_fig, fees_fig):
+        assert fig.layout.margin.l == mp_ts.ADMIN_XAXIS_MARGIN_LR["l"]
+        assert fig.layout.margin.r == mp_ts.ADMIN_XAXIS_MARGIN_LR["r"]
+
+
+def test_shared_xaxis_covers_the_widest_honest_range(agm_app):
+    """The admin NLV series legitimately starts earlier (pre-inception) than
+    the client/accrued-fees series; the shared range must cover its full span
+    without truncating or fabricating data on any of the 3 charts."""
+    import mp_ts
+
+    nlv_fig = mp_ts.build_agm_daily_nlv_figure()
+    assert len(nlv_fig.data[0].x) == len(mp_ts.daily_balances_df)  # untruncated, full CSV
+
+    x_left, x_right = nlv_fig.layout.xaxis.range
+    import pandas as pd
+
+    assert pd.Timestamp(x_left) <= pd.Timestamp(mp_ts.daily_balances_df["Date"].min())
+    assert pd.Timestamp(x_right) >= pd.Timestamp(mp_ts.daily_balances_df["Date"].max())
+
+
+def test_reconciliation_widget_present_in_admin_layout(agm_app):
+    """The date picker and its output container exist in the admin
+    fee-charts section, under the 3 graphs."""
+    import mp_ts
+
+    layout = mp_ts.serve_layout()
+    container = _find_by_id(layout, "agm-admin-fee-charts-container")
+    assert container is not None
+    picker = _find_by_id(container, mp_ts.AGM_RECON_DATE_PICKER_ID)
+    assert picker is not None
+    assert _find_by_id(container, mp_ts.AGM_RECON_OUTPUT_ID) is not None
+
+
+def test_reconciliation_widget_defaults_to_latest_available_date(agm_app):
+    import mp_ts
+
+    layout = mp_ts.serve_layout()
+    picker = _find_by_id(layout, mp_ts.AGM_RECON_DATE_PICKER_ID)
+    latest = mp_ts.daily_accounting.table["Date"].max()
+    assert str(picker.date) == latest.strftime("%Y-%m-%d")
+    assert str(picker.max_date_allowed) == latest.strftime("%Y-%m-%d")
+
+
+def test_reconciliation_panel_displays_required_fields():
+    import mp_ts
+
+    panel_str = str(mp_ts.build_agm_reconciliation_panel(None))
+    assert "TradeStation NLV / Actual NLV" in panel_str
+    assert "Client Net Economic Value" in panel_str
+    assert "Accrued Unpaid Incentive Fee" in panel_str
+    assert "Date" in panel_str
+    # Reconciliation status is present (checkmark or warning glyph).
+    assert "✓" in panel_str or "⚠" in panel_str
+
+
+def test_reconciliation_formula_matches_exact_math():
+    """Exact math string, e.g. 'TradeStation NLV ($45,675.81) = Client Net
+    Economic Value ($42,327.59) + Accrued Unpaid Incentive Fee ($3,348.22) ✓'."""
+    import mp_ts
+
+    result = mp_ts._agm_reconciliation_lookup("2026-07-01")
+    panel_str = str(mp_ts.build_agm_reconciliation_panel("2026-07-01"))
+    expected_fragment = (
+        f"TradeStation NLV (${result['actual_nlv']:,.2f}) = "
+        f"Client Net Economic Value (${result['client_net_value']:,.2f}) + "
+        f"Accrued Unpaid Incentive Fee (${result['accrued_unpaid_fees']:,.2f})"
+    )
+    assert expected_fragment in panel_str
+    assert DAILY_LATEST_NW in panel_str  # "45,675.81"
+
+
+def test_reconciliation_verifies_formula_within_tolerance():
+    """TradeStation NLV = Client Net Economic Value + Accrued Unpaid
+    Incentive Fee within RECONCILIATION_TOLERANCE, for every date in the
+    accepted daily accounting table."""
+    import mp_ts
+
+    for _, row in mp_ts.daily_accounting.table.iterrows():
+        residual = float(row["actual_nlv"]) - (
+            float(row["client_net_value"]) + float(row["accrued_unpaid_fees"])
+        )
+        assert abs(residual) <= mp_ts.RECONCILIATION_TOLERANCE
+
+    result = mp_ts._agm_reconciliation_lookup(None)
+    assert result["within_tolerance"] is True
+    assert result["residual"] == pytest.approx(0.0, abs=mp_ts.RECONCILIATION_TOLERANCE)
+
+
+def test_reconciliation_selected_date_values_come_from_accounting_table():
+    import mp_ts
+
+    result = mp_ts._agm_reconciliation_lookup("2026-04-30")
+    row = mp_ts.daily_accounting.table.set_index("Date").loc[pd.Timestamp("2026-04-30")]
+    assert result["actual_nlv"] == pytest.approx(float(row["actual_nlv"]))
+    assert result["client_net_value"] == pytest.approx(float(row["client_net_value"]))
+    assert result["accrued_unpaid_fees"] == pytest.approx(float(row["accrued_unpaid_fees"]))
+
+
+def test_reconciliation_handles_unavailable_date_gracefully():
+    """A non-trading date (e.g. weekend) falls back to the nearest prior
+    trading day rather than crashing or fabricating a row."""
+    import mp_ts
+
+    result = mp_ts._agm_reconciliation_lookup("2026-06-28")  # a Sunday
+    assert result["available"] is True
+    assert result["exact_match"] is False
+    assert result["row_date"] < pd.Timestamp("2026-06-28")
+
+    before_history = mp_ts._agm_reconciliation_lookup("2020-01-01")
+    assert before_history["available"] is False
+    assert "reason" in before_history
+
+    invalid = mp_ts._agm_reconciliation_lookup("not-a-real-date")
+    assert invalid["available"] is False
+
+
+def test_reconciliation_panel_admin_only_via_callback(agm_app):
+    import mp_ts
+
+    # access-mode alone is not enough -- spoofed 'secret' with no real session
+    # yields nothing (checked outside a request context, matching how
+    # is_authenticated() would see no session at all).
+    with mp_ts.app.server.test_request_context("/"):
+        assert mp_ts._render_agm_reconciliation_panel("2026-07-01", "standard") == []
+        assert mp_ts._render_agm_reconciliation_panel("2026-07-01", None) == []
+        assert mp_ts._render_agm_reconciliation_panel("2026-07-01", "secret") == []
+
+        from flask import session as fsession
+        fsession[AGM_SESSION_KEY] = True
+        content = mp_ts._render_agm_reconciliation_panel("2026-07-01", "secret")
+        assert content, "authenticated admin should get reconciliation content"
+        assert DAILY_LATEST_NW in str(content)  # 2026-07-01 is the latest CSV date
+        assert "TradeStation NLV / Actual NLV" in str(content)
+
+
+def test_public_layout_does_not_expose_reconciliation_values(agm_app):
+    """The reconciliation output container exists (Dash needs it registered)
+    but is empty in the initial public layout -- values only ever render via
+    the auth-gated callback. The static instructional copy in the panel's
+    label/caption text is fine to ship publicly; only the computed dollar
+    figures for a specific date must never leak."""
+    import mp_ts
+
+    layout = mp_ts.serve_layout()
+    output_div = _find_by_id(layout, mp_ts.AGM_RECON_OUTPUT_ID)
+    assert output_div is not None
+    assert not getattr(output_div, "children", None)
+    layout_str = str(layout)
+    result = mp_ts._agm_reconciliation_lookup(None)
+    assert f"{result['actual_nlv']:,.2f}" not in layout_str
+    assert f"{result['client_net_value']:,.2f}" not in layout_str
+    assert f"{result['accrued_unpaid_fees']:,.2f}" not in layout_str
+
+
+def test_reconciliation_isolated_from_tkp_and_tcp():
+    import tkp_ts
+    import tcp_ts_v2
+
+    assert not hasattr(tkp_ts, "build_agm_reconciliation_panel")
+    assert not hasattr(tcp_ts_v2, "build_agm_reconciliation_panel")
+
+
+# ── Client-facing daily table (collapsed by default) ─────────────────────────
+
+CLIENT_TABLE_REQUIRED_COLUMNS = [
+    "Date",
+    "Client Net Economic Value",
+    "TradeStation NLV / Statement Value",
+    "Accrued Unpaid Incentive Fee",
+    "Daily $",
+    "Daily %",
+    "Since inception %",
+    "SPX Close",
+    "SPX daily %",
+    "Momentum daily %",
+    "Momentum vs SPX daily spread %",
+    "Fee payment",
+]
+
+
+def test_client_daily_table_section_exists_in_public_layout(agm_app):
+    import mp_ts
+
+    layout = mp_ts.serve_layout()
+    collapse = _find_by_id(layout, mp_ts.CLIENT_DAILY_COLLAPSE_ID)
+    assert collapse is not None
+    assert _find_by_id(layout, mp_ts.CLIENT_DAILY_TABLE_ID) is not None
+    assert _find_by_id(layout, mp_ts.CLIENT_DAILY_TOGGLE_ID) is not None
+    assert "Daily Performance" in str(layout)
+
+
+def test_client_daily_table_collapsed_by_default(agm_app):
+    import mp_ts
+
+    layout = mp_ts.serve_layout()
+    collapse = _find_by_id(layout, mp_ts.CLIENT_DAILY_COLLAPSE_ID)
+    assert collapse.is_open is False
+    toggle_btn = _find_by_id(layout, mp_ts.CLIENT_DAILY_TOGGLE_ID)
+    assert "Show" in str(toggle_btn.children)
+
+
+def test_client_daily_table_toggle_shows_and_hides(agm_app):
+    import mp_ts
+
+    is_open, label = mp_ts._toggle_client_daily_table(1, False)
+    assert is_open is True
+    assert "Hide" in label
+    is_open2, label2 = mp_ts._toggle_client_daily_table(2, True)
+    assert is_open2 is False
+    assert "Show" in label2
+
+
+def test_client_daily_table_has_required_columns(agm_app):
+    import mp_ts
+
+    layout_str = str(mp_ts.serve_layout())
+    for label in CLIENT_TABLE_REQUIRED_COLUMNS:
+        assert label in layout_str, f"missing client daily table column: {label}"
+
+    col_ids = {c["id"] for c in mp_ts._build_client_daily_table_columns()}
+    assert col_ids == {
+        "Date", "client_net_value", "actual_nlv", "accrued_unpaid_fees",
+        "daily_dollar", "daily_pct", "since_inception_pct", "spx_close",
+        "spx_daily_pct", "momentum_daily_pct", "momentum_vs_spx_daily_spread_pct",
+        "fee_payment",
+    }
+
+
+def test_client_daily_table_rows_from_accepted_accounting_model(agm_app):
+    import mp_ts
+
+    rows = mp_ts.build_client_daily_table_rows(newest_first=True)
+    inception_tbl = mp_ts.daily_accounting.table[
+        mp_ts.daily_accounting.table["Date"] >= pd.Timestamp(mp_ts.PROGRAM_INCEPTION)
+    ]
+    assert len(rows) == len(inception_tbl)
+    assert rows[0]["Date"] == inception_tbl["Date"].max().strftime("%Y-%m-%d")
+    latest_row = inception_tbl.sort_values("Date").iloc[-1]
+    assert rows[0]["client_net_value"] == pytest.approx(float(latest_row["client_net_value"]))
+    assert rows[0]["actual_nlv"] == pytest.approx(float(latest_row["actual_nlv"]))
+    assert rows[0]["accrued_unpaid_fees"] == pytest.approx(float(latest_row["accrued_unpaid_fees"]))
+
+
+def test_client_daily_table_invariant_holds_on_rendered_rows(agm_app):
+    """actual_nlv = client_net_value + accrued_unpaid_fees on every row shown
+    in the client-facing table."""
+    import mp_ts
+
+    for row in mp_ts.build_client_daily_table_rows():
+        residual = row["actual_nlv"] - (row["client_net_value"] + row["accrued_unpaid_fees"])
+        assert abs(residual) <= mp_ts.RECONCILIATION_TOLERANCE
+
+
+def test_client_daily_table_does_not_expose_admin_only_content(agm_app):
+    """The client table must not carry admin-only operational columns or the
+    admin-only component ids/callback content."""
+    import mp_ts
+
+    layout_str = str(mp_ts.serve_layout())
+    col_ids = {c["id"] for c in mp_ts._build_client_daily_table_columns()}
+    for admin_only in ("Cash Balance", "Initial Margin Req.", "Maint Margin Req.",
+                       "Buying Power/Margin Deficit"):
+        assert admin_only not in col_ids
+    # Admin-only components are distinct ids, never reused by the client table.
+    assert mp_ts.CLIENT_DAILY_TABLE_ID != "agm-admin-daily-table-content"
+    assert "agm-admin-daily-table-content" not in str(
+        _find_by_id(mp_ts.serve_layout(), mp_ts.CLIENT_DAILY_TABLE_ID)
+    )
+
+
+def test_client_daily_table_isolated_from_tkp_and_tcp():
+    import tkp_ts
+    import tcp_ts_v2
+
+    assert not hasattr(tkp_ts, "build_client_daily_table_section")
+    assert not hasattr(tcp_ts_v2, "build_client_daily_table_section")
+
+
+def test_agm_accounting_invariant_unaffected_by_ui_changes():
+    """Sanity check: this session's UI-only changes never touch the
+    accepted accounting model / fee formula."""
+    import mp_ts
+    import algominds_daily_accounting as ada
+
+    assert ada.verify_accounting_invariant(mp_ts.daily_accounting.table)
