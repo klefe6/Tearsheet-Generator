@@ -71,15 +71,24 @@ def test_client_layout_does_not_expose_raw_admin_table(mp):
     values — that content only renders via the server-side auth-gated callback."""
     layout_str = str(mp.serve_layout())
     assert "Buying Power/Margin Deficit" not in layout_str
-    assert "45,675.81" not in layout_str  # latest raw NLV
+    assert "45,335.28" not in layout_str  # latest raw NLV
     assert "agm-daily-nlv-graph" not in layout_str
 
 
 # ── Admin NLV chart ──────────────────────────────────────────────────────────
 
-def test_admin_nlv_chart_shows_every_csv_trading_day(mp):
+def test_admin_nlv_chart_shows_every_post_inception_trading_day(mp):
+    """Trimmed to live inception onward (matching the client/accrued-fees
+    charts) so the 3 admin-verification charts share the same start date;
+    the raw admin daily balances table still shows every CSV row incl. the
+    earlier pre-inception days."""
     fig = mp.build_agm_daily_nlv_figure()
-    assert len(fig.data[0].x) == len(mp.daily_balances_df)
+    inception_rows = mp.daily_balances_df[
+        mp.daily_balances_df["Date"] >= pd.Timestamp(mp.PROGRAM_INCEPTION)
+    ]
+    assert len(fig.data[0].x) == len(inception_rows)
+    assert len(fig.data[0].x) < len(mp.daily_balances_df)  # pre-inception days excluded
+    assert pd.Timestamp(fig.data[0].x[0]) == pd.Timestamp(mp.PROGRAM_INCEPTION)
     assert fig.layout.title.text == "Actual NLV / TradeStation Net Worth"
 
 

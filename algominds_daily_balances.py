@@ -21,7 +21,7 @@ from typing import List, Optional
 import pandas as pd
 
 # Filename of the current export. Kept as a constant so callers don't hardcode it.
-DAILY_BALANCES_FILENAME = "balances_210TGG51_20OCT2025_02JUL2026.csv"
+DAILY_BALANCES_FILENAME = "balances_210TGG51_20OCT2025_07JUL2026.csv"
 
 # The real data header, exactly as it appears after the metadata block.
 RAW_COLUMNS: List[str] = [
@@ -69,6 +69,9 @@ def _parse_money(value: object) -> Optional[float]:
     if s.startswith("(") and s.endswith(")"):
         negative = True
         s = s[1:-1].strip()
+    elif s.startswith("-"):
+        negative = True
+        s = s[1:].strip()
     s = s.replace("$", "").replace(",", "").strip()
     if s == "":
         return None
@@ -77,6 +80,124 @@ def _parse_money(value: object) -> Optional[float]:
     except ValueError:
         return None
     return -num if negative else num
+
+
+def _parse_trade_station_date(series: pd.Series) -> pd.Series:
+    """Parse TradeStation balance dates (M/D/YYYY or MM-DD-YYYY)."""
+    raw = series.astype(str).str.strip()
+    parsed = pd.to_datetime(raw, format="%m/%d/%Y", errors="coerce")
+    missing = parsed.isna()
+    if missing.any():
+        parsed.loc[missing] = pd.to_datetime(raw[missing], format="%m-%d-%Y", errors="coerce")
+    return parsed
+
+
+def _format_money(value: float) -> str:
+    """Serialize a float back to TradeStation-style money text for CSV export."""
+    if value < 0:
+        return f'"(${abs(value):,.2f})"'
+    return f'"${value:,.2f} "'
+
+
+def _format_trade_station_date(dt: pd.Timestamp) -> str:
+    month = int(dt.month)
+    day = int(dt.day)
+    return f"{month}/{day}/{dt.year}"
+
+
+def write_daily_balances_csv(df: pd.DataFrame, path: os.PathLike | str) -> Path:
+    """
+    Write a canonical TradeStation Historical Balances CSV from a cleaned frame.
+
+    *df* must contain RAW_COLUMNS sorted oldest→newest with numeric money columns.
+    """
+    out_path = Path(path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    work = df[RAW_COLUMNS].copy().sort_values("Date").reset_index(drop=True)
+    min_date = work["Date"].min().strftime("%m/%d/%Y").lstrip("0").replace("/0", "/")
+    max_date = work["Date"].max().strftime("%m/%d/%Y").lstrip("0").replace("/0", "/")
+
+    lines = [
+        "# -----------------------------------------------,,,,,,,",
+        "TradeStation Historical Balances Report,,,,,,,",
+        f"Dates: {min_date} - {max_date},,,,,,",
+        "Account: 210TGG51,,,,,,,",
+        "Type: Futures,,,,,,,",
+        "Alias: AMF MNQRdr GG51,,,,,,,",
+        "# -----------------------------------------------,,,,,,,",
+        ",,,,,,,",
+        ",,,,,,,",
+        ",".join(RAW_COLUMNS),
+    ]
+    for _, row in work.iterrows():
+        cells = [_format_trade_station_date(pd.Timestamp(row["Date"]))]
+        for col in MONEY_COLUMNS:
+            val = row[col]
+            cells.append(_format_money(float(val)) if pd.notna(val) else '"$0.00 "')
+        lines.append(",".join(cells))
+    out_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return out_path
+
+
+def merge_daily_balances_exports(
+    canonical_path: os.PathLike | str,
+    source_path: os.PathLike | str,
+    output_path: Optional[os.PathLike | str] = None,
+) -> dict:
+    """
+    Merge a newer TradeStation export into the canonical daily balances CSV.
+
+    Overlapping dates take values from *source_path*; genuinely new dates append.
+  Returns a summary dict suitable for changelog / PR notes.
+    """
+    canonical_path = Path(canonical_path)
+    source_path = Path(source_path)
+    output_path = Path(output_path) if output_path is not None else canonical_path
+
+    before = load_daily_balances(canonical_path)
+    incoming = load_daily_balances(source_path)
+    if before.empty and incoming.empty:
+        raise ValueError("both canonical and source balances are empty")
+
+    appended: list[str] = []
+    changed: list[dict] = []
+    overlap_count = 0
+
+    base = before if not before.empty else pd.DataFrame(columns=RAW_COLUMNS)
+    if incoming.empty:
+        merged = base[RAW_COLUMNS] if not base.empty else base
+    else:
+        base_idx = base.set_index("Date")
+        incoming_idx = incoming.set_index("Date")
+        overlap = base_idx.index.intersection(incoming_idx.index)
+        overlap_count = int(len(overlap))
+        for dt in overlap:
+            old = float(base_idx.loc[dt, "Net Worth"])
+            new = float(incoming_idx.loc[dt, "Net Worth"])
+            if abs(old - new) > 1e-6:
+                changed.append({"date": pd.Timestamp(dt).date().isoformat(), "old": old, "new": new})
+        if overlap_count:
+            base_idx.loc[overlap, RAW_COLUMNS[1:]] = incoming_idx.loc[overlap, RAW_COLUMNS[1:]]
+        append_idx = incoming_idx.index.difference(base_idx.index)
+        appended = [pd.Timestamp(d).date().isoformat() for d in sorted(append_idx)]
+        if len(append_idx):
+            base_idx = pd.concat([base_idx, incoming_idx.loc[append_idx]], axis=0)
+        merged = base_idx.reset_index().sort_values("Date").reset_index(drop=True)[RAW_COLUMNS]
+
+    write_daily_balances_csv(merged, output_path)
+    after = load_daily_balances(output_path)
+    return {
+        "canonical_path": str(output_path),
+        "source_path": str(source_path),
+        "previous_max_date": None if before.empty else before["Date"].max().date().isoformat(),
+        "new_max_date": None if after.empty else after["Date"].max().date().isoformat(),
+        "overlapping_rows_updated": overlap_count,
+        "new_rows_appended": len(appended),
+        "appended_dates": appended,
+        "overwritten_dates": changed,
+        "latest_net_worth": None if after.empty else float(after["Net Worth"].iloc[-1]),
+        "row_count": int(len(after)),
+    }
 
 
 def _find_header_row_index(path: Path) -> int:
@@ -123,7 +244,7 @@ def load_daily_balances(path: Optional[os.PathLike | str] = None) -> pd.DataFram
     if "Date" not in df.columns or "Net Worth" not in df.columns:
         return pd.DataFrame(columns=RAW_COLUMNS)
 
-    df["Date"] = pd.to_datetime(df["Date"].astype(str).str.strip(), format="%m/%d/%Y", errors="coerce")
+    df["Date"] = _parse_trade_station_date(df["Date"])
     df = df[df["Date"].notna()].copy()
 
     for col in MONEY_COLUMNS:

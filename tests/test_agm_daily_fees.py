@@ -219,7 +219,7 @@ def test_accrued_total_is_daily_and_never_negative(real_result):
     # One row per AGM trading day since inception — genuinely daily resolution.
     assert len(d) > 100
     assert d["Date"].iloc[0] == pd.Timestamp("2025-11-13")
-    assert d["Date"].iloc[-1] == pd.Timestamp("2026-07-01")
+    assert d["Date"].iloc[-1] == pd.Timestamp("2026-07-06")
     # Invariant: plotted series = current-month accrual + outstanding ledger.
     assert (d["accrued_total"] - d["month_accrual"] - d["outstanding_total"]).abs().max() < 1e-9
 

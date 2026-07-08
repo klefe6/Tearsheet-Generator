@@ -302,7 +302,7 @@ def test_fee_charts_isolated_from_tkp_and_tcp():
 
 # ── Admin-only DAILY TradeStation balances view (raw NLV, AGM only) ──────────
 
-DAILY_LATEST_NW = "45,675.81"  # latest daily Net Worth from the CSV (2026-07-01)
+DAILY_LATEST_NW = "45,335.28"  # latest daily Net Worth from the CSV (2026-07-06)
 
 
 def test_daily_container_present_but_content_not_shipped_publicly(agm_app):
@@ -390,11 +390,11 @@ def test_daily_table_newest_date_at_top(agm_app):
     import mp_ts
 
     table = mp_ts.build_agm_daily_balances_table()
-    # tbody first data row should be the latest date (2026-07-01).
+    # tbody first data row should be the latest date (2026-07-06).
     tbody = table.children[1]
     first_row = tbody.children[0]
     first_cell = first_row.children[0]
-    assert first_cell.children == "2026-07-01"
+    assert first_cell.children == "2026-07-06"
 
 
 def test_portal_uses_latest_daily_net_worth(agm_app):
@@ -411,12 +411,19 @@ def test_portal_uses_latest_daily_net_worth(agm_app):
 
 
 def test_daily_nlv_graph_uses_csv_net_worth(agm_app):
+    """Trimmed to live inception onward so it starts on the same date as
+    the other 2 admin-verification charts -- values still come straight
+    from the raw CSV Net Worth column, just not the pre-inception days."""
     import mp_ts
 
     fig = mp_ts.build_agm_daily_nlv_figure()
+    inception_rows = mp_ts.daily_balances_df[
+        mp_ts.daily_balances_df["Date"] >= pd.Timestamp(mp_ts.PROGRAM_INCEPTION)
+    ]
     assert len(fig.data) == 1
-    assert len(fig.data[0].x) == len(mp_ts.daily_balances_df)
-    assert float(fig.data[0].y[-1]) == pytest.approx(45675.81, abs=0.01)
+    assert len(fig.data[0].x) == len(inception_rows)
+    assert pd.Timestamp(fig.data[0].x[0]) == pd.Timestamp(mp_ts.PROGRAM_INCEPTION)
+    assert float(fig.data[0].y[-1]) == pytest.approx(45335.28, abs=0.01)
 
 
 def test_daily_logic_isolated_from_tkp_and_tcp():
@@ -519,20 +526,35 @@ def test_three_admin_graphs_share_xaxis_configuration(agm_app):
         assert fig.layout.margin.r == mp_ts.ADMIN_XAXIS_MARGIN_LR["r"]
 
 
-def test_shared_xaxis_covers_the_widest_honest_range(agm_app):
-    """The admin NLV series legitimately starts earlier (pre-inception) than
-    the client/accrued-fees series; the shared range must cover its full span
-    without truncating or fabricating data on any of the 3 charts."""
+def test_admin_nlv_chart_trimmed_to_inception_for_perfect_alignment(agm_app):
+    """All 3 admin-verification charts now start on live inception (the NLV
+    chart is trimmed from the full CSV, which also holds pre-inception
+    flat-$30K days), so the shared x-axis range needs no left-side padding
+    for a series that starts earlier -- true alignment, not just an
+    overlapping window."""
     import mp_ts
 
+    client_fig = mp_ts.build_nav_figure()
     nlv_fig = mp_ts.build_agm_daily_nlv_figure()
-    assert len(nlv_fig.data[0].x) == len(mp_ts.daily_balances_df)  # untruncated, full CSV
+    fees_fig = mp_ts.build_agm_accrued_fees_figure()
+
+    assert pd.Timestamp(client_fig.data[0].x[0]) == pd.Timestamp(mp_ts.PROGRAM_INCEPTION)
+    assert pd.Timestamp(nlv_fig.data[0].x[0]) == pd.Timestamp(mp_ts.PROGRAM_INCEPTION)
+    assert pd.Timestamp(fees_fig.data[0].x[0]) == pd.Timestamp(mp_ts.PROGRAM_INCEPTION)
 
     x_left, x_right = nlv_fig.layout.xaxis.range
-    import pandas as pd
-
-    assert pd.Timestamp(x_left) <= pd.Timestamp(mp_ts.daily_balances_df["Date"].min())
+    assert pd.Timestamp(x_left) <= pd.Timestamp(mp_ts.PROGRAM_INCEPTION)
     assert pd.Timestamp(x_right) >= pd.Timestamp(mp_ts.daily_balances_df["Date"].max())
+
+
+def test_admin_daily_balances_table_still_shows_pre_inception_days(agm_app):
+    """Trimming the NLV CHART to inception must not trim the raw admin daily
+    balances table -- admins still need to see the full CSV history."""
+    import mp_ts
+
+    table = mp_ts.build_agm_daily_balances_table()
+    table_str = str(table)
+    assert "2025-10-20" in table_str  # first CSV row, pre-inception
 
 
 def test_reconciliation_widget_present_in_admin_layout(agm_app):
@@ -583,7 +605,7 @@ def test_reconciliation_formula_matches_exact_math():
         f"Accrued Unpaid Incentive Fee (${result['accrued_unpaid_fees']:,.2f})"
     )
     assert expected_fragment in panel_str
-    assert DAILY_LATEST_NW in panel_str  # "45,675.81"
+    assert "45,675.81" in panel_str
 
 
 def test_reconciliation_verifies_formula_within_tolerance():
@@ -644,9 +666,9 @@ def test_reconciliation_panel_admin_only_via_callback(agm_app):
 
         from flask import session as fsession
         fsession[AGM_SESSION_KEY] = True
-        content = mp_ts._render_agm_reconciliation_panel("2026-07-01", "secret")
+        content = mp_ts._render_agm_reconciliation_panel("2026-07-06", "secret")
         assert content, "authenticated admin should get reconciliation content"
-        assert DAILY_LATEST_NW in str(content)  # 2026-07-01 is the latest CSV date
+        assert DAILY_LATEST_NW in str(content)  # latest CSV date
         assert "TradeStation NLV / Actual NLV" in str(content)
 
 

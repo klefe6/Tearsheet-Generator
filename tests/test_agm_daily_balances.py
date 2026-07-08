@@ -32,7 +32,14 @@ def test_finds_correct_header_row():
 
 def test_loads_daily_rows(df):
     assert not df.empty
-    assert len(df) == 181
+    assert len(df) == 184
+
+
+def test_parses_dash_date_and_leading_minus_money_formats():
+    assert adb._parse_money("-$732.33") == pytest.approx(-732.33)
+    parsed = adb._parse_trade_station_date(pd.Series(["06-08-2026", "7/1/2026"]))
+    assert parsed.iloc[0] == pd.Timestamp("2026-06-08")
+    assert parsed.iloc[1] == pd.Timestamp("2026-07-01")
 
 
 def test_money_columns_are_numeric(df):
@@ -57,22 +64,22 @@ def test_money_parser_handles_formats():
 
 def test_date_range_parsed(df):
     assert df["Date"].min().date().isoformat() == "2025-10-20"
-    assert df["Date"].max().date().isoformat() == "2026-07-01"
+    assert df["Date"].max().date().isoformat() == "2026-07-06"
     assert pd.api.types.is_datetime64_any_dtype(df["Date"])
 
 
 def test_latest_net_worth_available(df):
-    assert adb.latest_net_worth(df) == pytest.approx(45675.81)
+    assert adb.latest_net_worth(df) == pytest.approx(45335.28)
     row = adb.latest_row(df)
-    assert row["Date"].date().isoformat() == "2026-07-01"
+    assert row["Date"].date().isoformat() == "2026-07-06"
 
 
 def test_derived_fields_compute(df):
     for col in ["daily_net_worth_change", "daily_net_worth_change_pct",
                 "since_inception_pct", "mtd_pct", "wtd_pct"]:
         assert col in df.columns
-    # First Net Worth is $30,000; since-inception at the latest row is (45675.81/30000 - 1).
-    expected_since = (45675.81 / 30000.0 - 1.0) * 100.0
+    latest_nw = float(df["Net Worth"].iloc[-1])
+    expected_since = (latest_nw / 30000.0 - 1.0) * 100.0
     assert df["since_inception_pct"].iloc[-1] == pytest.approx(expected_since, abs=0.01)
     # daily change reconciles with a raw diff of Net Worth.
     assert df["daily_net_worth_change"].iloc[-1] == pytest.approx(
