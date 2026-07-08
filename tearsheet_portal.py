@@ -169,6 +169,8 @@ def render_portal_page(
     diagnostics_html: Optional[str] = None,
     logout_href: str = "/admin/logout",
     back_href: str = "/",
+    columns: Optional[List[str]] = None,
+    row_fields: Optional[List[str]] = None,
 ) -> str:
     """Render the shared account-registry Portal page.
 
@@ -176,11 +178,14 @@ def render_portal_page(
     diagnostics_html: optional pre-rendered HTML block shown below the registry
         (e.g. legacy program-status info), kept separate so it can't be mistaken
         for the account registry itself.
+    columns / row_fields: optional overrides (AGM omits Status from its registry).
     """
+    field_keys = row_fields if row_fields is not None else PORTAL_ROW_FIELDS
+    column_labels = columns if columns is not None else PORTAL_COLUMNS
     rows = [
         [
             _tearsheet_cell(account) if field == "tearsheet" else _format_cell(account.get(field))
-            for field in PORTAL_ROW_FIELDS
+            for field in field_keys
         ]
         for account in (accounts or [])
     ]
@@ -188,7 +193,7 @@ def render_portal_page(
         PORTAL_HTML,
         title=f"{program_name} — Portal",
         program_name=program_name,
-        columns=PORTAL_COLUMNS,
+        columns=column_labels,
         rows=rows,
         empty_state_text=empty_state_text,
         diagnostics=diagnostics_html,

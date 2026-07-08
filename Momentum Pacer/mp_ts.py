@@ -2645,7 +2645,12 @@ def agm_admin_portal():
         since_inception_pct_display=since_inception_display,
         last_updated=last_updated,
     )
-    return render_portal_page(program_name="Momentum Pacer", accounts=accounts)
+    return render_portal_page(
+        program_name="Momentum Pacer",
+        accounts=accounts,
+        columns=agm_registry.AGM_PORTAL_COLUMNS,
+        row_fields=agm_registry.AGM_PORTAL_ROW_FIELDS,
+    )
 
 
 @app.server.route("/admin/logout")
