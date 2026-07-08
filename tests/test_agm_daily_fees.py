@@ -144,6 +144,77 @@ def test_exact_net_worth_drop_detected_as_payment():
     assert d.loc[d["Date"] == "2026-02-03", "accrued_total"].iloc[0] == pytest.approx(0.0)
 
 
+def test_cash_transaction_evidence_reduces_liability_despite_blended_nw_change():
+    """A confirmed cash-transaction withdrawal must reduce accrued liability
+    even on a day when ordinary trading P/L lands simultaneously and the
+    day's AGGREGATE Net-Worth change no longer matches the fee amount exactly
+    -- the scenario exact-daily-match cannot detect on its own."""
+    import algominds_fee_payment_evidence as agm_fee_evidence
+
+    bal = _balances([
+        ("2026-01-05", 30_000.0),
+        ("2026-01-30", 32_000.0),   # fee crystallizes: 1,000 (flat SPX)
+        ("2026-02-02", 32_000.0),
+        # Withdrawal of exactly 1,000 blended with +500 trading P/L the same
+        # day -> aggregate NW change is only -500, NOT a clean 1,000 drop.
+        ("2026-02-03", 31_500.0),
+        ("2026-02-27", 31_500.0),
+    ])
+    bench = _bench([(d, 100.0) for d in
+                    ["2025-12-31", "2026-01-05", "2026-01-30",
+                     "2026-02-02", "2026-02-03", "2026-02-27"]])
+    evidence = (
+        agm_fee_evidence.FeePaymentEvidence(
+            date=pd.Timestamp("2026-02-03"),
+            description="Jan 2026 Incentive Fee - Jan 2026 Incentive Fee",
+            amount=1000.0,
+        ),
+    )
+    res = adf.compute_daily_fee_accrual(
+        bal, bench, inception=pd.Timestamp("2026-01-05"),
+        cash_transaction_payments=evidence,
+    )
+    assert len(res.payments) == 1
+    assert res.payments[0]["method"] == "cash-transaction-evidence"
+    assert res.payments[0]["date"] == pd.Timestamp("2026-02-03")
+    assert res.payments[0]["amount"] == pytest.approx(1000.0)  # positive payment amount
+    assert res.outstanding == []
+    d = res.daily.set_index("Date")
+    assert d.loc["2026-02-02", "outstanding_total"] == pytest.approx(1000.0)
+    assert d.loc["2026-02-03", "outstanding_total"] == pytest.approx(0.0)
+
+
+def test_cash_transaction_evidence_never_goes_negative_on_overpayment():
+    """An evidenced payment larger than total outstanding clears the ledger
+    to exactly $0 rather than going negative."""
+    import algominds_fee_payment_evidence as agm_fee_evidence
+
+    bal = _balances([
+        ("2026-01-05", 30_000.0),
+        ("2026-01-30", 32_000.0),   # fee crystallizes: 1,000
+        ("2026-02-02", 32_000.0),
+        ("2026-02-03", 32_000.0),   # evidenced payment lands with no NW change
+        ("2026-02-27", 32_000.0),
+    ])
+    bench = _bench([(d, 100.0) for d in
+                    ["2025-12-31", "2026-01-05", "2026-01-30",
+                     "2026-02-02", "2026-02-03", "2026-02-27"]])
+    evidence = (
+        agm_fee_evidence.FeePaymentEvidence(
+            date=pd.Timestamp("2026-02-03"),
+            description="Overpayment test",
+            amount=5000.0,  # exceeds the $1,000 outstanding
+        ),
+    )
+    res = adf.compute_daily_fee_accrual(
+        bal, bench, inception=pd.Timestamp("2026-01-05"),
+        cash_transaction_payments=evidence,
+    )
+    assert res.outstanding == []
+    assert (res.daily["outstanding_total"] >= 0).all()
+    assert (res.daily["accrued_total"] >= 0).all()
+
+
 def test_missing_benchmark_days_are_skipped_not_fabricated():
     bal = _balances([
         ("2026-01-05", 30_000.0),
@@ -201,15 +272,28 @@ def test_payment_events_only_where_evidenced(real_result):
     # Nov / Jan fees are only evidenced by month-end workbook reconciliation.
     assert ("2025-12-31", "workbook-reconciliation") in methods
     assert ("2026-02-27", "workbook-reconciliation") in methods
-    assert len(real_result.payments) == 3  # nothing fabricated beyond these
+    # Apr / May fees are evidenced by confirmed TradeStation cash-transaction
+    # withdrawals (algominds_fee_payment_evidence) -- ordinary NW-delta
+    # inference missed them because trading P/L landed the same days.
+    assert ("2026-05-14", "cash-transaction-evidence") in methods
+    assert ("2026-06-23", "cash-transaction-evidence") in methods
+    assert len(real_result.payments) == 5  # nothing fabricated beyond these
 
 
-def test_unpaid_fees_reported_honestly(real_result):
-    # Apr 2026 ($2,967.85) and May 2026 fees show no payment evidence in the
-    # CSV -> they must remain outstanding, not silently reset.
+def test_apr_may_fees_evidenced_by_cash_transactions_not_outstanding(real_result):
+    """Apr 2026 ($2,967.85, paid 2026-05-14) and May 2026 ($1,330.25, paid
+    2026-06-23) are now evidenced payments, not stale unpaid liabilities."""
+    payments_by_month = {}
+    for p in real_result.payments:
+        if p["method"] == "cash-transaction-evidence":
+            for m in p["months"]:
+                payments_by_month[m] = p["amount"]
+    assert payments_by_month["2026-04"] == pytest.approx(2967.85, abs=0.01)
+    assert payments_by_month["2026-05"] == pytest.approx(1330.25, abs=0.01)
+    # Both fully resolved -> nothing left outstanding for either month.
     out = {o["month"]: o["fee"] for o in real_result.outstanding}
-    assert out["2026-04"] == pytest.approx(2967.85, abs=0.01)
-    assert "2026-05" in out
+    assert "2026-04" not in out
+    assert "2026-05" not in out
 
 
 def test_accrued_total_is_daily_and_never_negative(real_result):

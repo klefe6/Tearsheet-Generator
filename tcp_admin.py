@@ -33,6 +33,7 @@ from tcp_calculations import (
 )
 from tcp_public_sections import ADMIN_MODAL_CLASS
 from tcp_ledger import CURRENCY_HEADERS, INTEGER_HEADERS, PERCENTAGE_HEADERS, REQUIRED_HEADERS, LedgerRecord
+from tearsheet_date_defaults import default_add_row_date_str
 
 SESSION_KEY = "tcp_v2_admin_authenticated"
 SIMULATION_BANNER_TEXT = "TCP v2 Admin — Simulation Only"
@@ -285,7 +286,7 @@ def build_export_disabled_control() -> dbc.Button:
 
 def default_add_row_values(latest_record: Mapping[str, Any]) -> Dict[str, Any]:
     return {
-        "date": "",
+        "date": default_add_row_date_str(),
         "cash_balance": "",
         "cash_transfers": 0,
         "tranche_count": int(latest_record.get("#") or 1),

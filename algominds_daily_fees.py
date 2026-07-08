@@ -38,16 +38,27 @@ stay in an "outstanding" ledger until a payment/removal is actually EVIDENCED:
 No payment events are fabricated: fees with no such evidence remain in the
 outstanding ledger and are reported in ``DailyFeeAccrual.outstanding``.
 
+A third evidence method exists for a hand-confirmed TradeStation CASH
+TRANSACTION history (algominds_fee_payment_evidence.py): some withdrawals land
+on a day with ordinary trading P/L happening simultaneously, so the day's
+aggregate Net-Worth change never matches the withdrawal amount exactly and
+exact-daily-match cannot detect it, even though the payment is directly
+confirmed by the broker's own transaction export. This method reduces the
+OLDEST outstanding crystallized fee(s) first (oldest-month-first, same
+ordering convention as the other two methods); an amount exceeding total
+outstanding simply clears the ledger to $0 rather than going negative.
+
 Deterministic and network-free: callers supply both dataframes. Safe to import.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import List, Optional, Sequence
 
 import pandas as pd
 
 import algominds_benchmark_daily as agm_bench
+import algominds_fee_payment_evidence as agm_fee_evidence
 
 # Fixed nominal trading level used by every workbook fee calculation.
 NOMINAL_CAPITAL = 30_000.0
@@ -116,6 +127,7 @@ def compute_daily_fee_accrual(
     inception: pd.Timestamp = DEFAULT_INCEPTION,
     nominal: float = NOMINAL_CAPITAL,
     monthly_reference: Optional[pd.DataFrame] = None,
+    cash_transaction_payments: Optional[Sequence[agm_fee_evidence.FeePaymentEvidence]] = None,
 ) -> DailyFeeAccrual:
     """
     Walk the daily balances chronologically and accrue incentive fees daily.
@@ -128,9 +140,17 @@ def compute_daily_fee_accrual(
     monthly_reference : optional workbook Summary frame (internal reference
                   only) with columns date / bot_end_after_fees / bot_fees_pct,
                   used solely as payment-reconciliation EVIDENCE.
+    cash_transaction_payments : hand-confirmed TradeStation cash-transaction
+                  withdrawals (defaults to algominds_fee_payment_evidence's
+                  committed list). Pass an empty tuple to disable.
 
     Returns DailyFeeAccrual. Never fabricates SPX values or payment events.
     """
+    if cash_transaction_payments is None:
+        cash_transaction_payments = agm_fee_evidence.EVIDENCED_FEE_PAYMENTS
+    cash_payments_by_date: dict = {}
+    for ev in cash_transaction_payments:
+        cash_payments_by_date.setdefault(pd.Timestamp(ev.date).normalize(), []).append(ev)
     empty = pd.DataFrame(
         columns=["Date", "net_worth", "spx_close", "spx_anchor", "benchmark_dollars",
                  "hwm", "month_accrual", "outstanding_total", "accrued_total"]
@@ -219,6 +239,31 @@ def compute_daily_fee_accrual(
                             })
                             outstanding.remove(f)
                             break
+
+        # ── payment evidence 3: confirmed TradeStation cash transaction ─
+        # Direct broker evidence, independent of the day's blended Net-Worth
+        # change (ordinary trading P/L can land the same day and mask an
+        # exact match). Reduces the OLDEST outstanding fee(s) first; any
+        # amount beyond total outstanding simply clears the ledger to $0
+        # rather than going negative or crediting a future month.
+        if date in cash_payments_by_date:
+            for ev in cash_payments_by_date[date]:
+                remaining = float(ev.amount)
+                applied_months = []
+                for f in list(outstanding):
+                    if remaining <= 0:
+                        break
+                    take = min(f["fee"], remaining)
+                    f["fee"] -= take
+                    remaining -= take
+                    applied_months.append(str(f["month"]))
+                    if f["fee"] <= 1e-9:
+                        outstanding.remove(f)
+                payments.append({
+                    "date": date, "amount": float(ev.amount),
+                    "months": applied_months,
+                    "method": "cash-transaction-evidence",
+                })
 
         # A month is complete when a later balance row exists in a newer month;
         # the file's final month is in-progress and never crystallizes.

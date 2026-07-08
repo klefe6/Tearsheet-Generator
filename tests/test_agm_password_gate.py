@@ -274,8 +274,36 @@ def test_accrued_fees_reset_only_on_evidenced_payments():
     assert acc.loc["2026-03-27", "accrued_total"] == pytest.approx(0.0, abs=0.01)
     day_before = acc.loc["2026-03-26", "accrued_total"]
     assert day_before == pytest.approx(718.59, abs=0.01)
-    # Apr/May fees have no payment evidence -> still carried at the end.
-    assert acc["accrued_total"].iloc[-1] >= 2967.0
+    # Apr/May fees are now evidenced (confirmed TradeStation cash-transaction
+    # withdrawals on 2026-05-14 / 2026-06-23) and June's fee is $0 -> nothing
+    # outstanding remains by the end of the loaded CSV.
+    assert acc["accrued_total"].iloc[-1] == pytest.approx(0.0, abs=0.01)
+
+
+def test_evidenced_cash_transaction_payments_reduce_accrued_fees():
+    """The two hand-confirmed TradeStation cash-transaction withdrawals
+    (April fee paid 2026-05-14, May fee paid 2026-06-23) must be detected as
+    payments and drop the accrued liability on those exact dates."""
+    import mp_ts
+
+    methods = {(p["date"].date().isoformat(), p["method"], round(p["amount"], 2))
+               for p in mp_ts.daily_fee_accrual.payments}
+    assert ("2026-05-14", "cash-transaction-evidence", 2967.85) in methods
+    assert ("2026-06-23", "cash-transaction-evidence", 1330.25) in methods
+
+    acc = mp_ts.daily_fee_accrual.daily.set_index("Date")
+    outstanding_before_apr_payment = acc.loc["2026-05-13", "outstanding_total"]
+    outstanding_after_apr_payment = acc.loc["2026-05-14", "outstanding_total"]
+    assert outstanding_before_apr_payment == pytest.approx(2967.85, abs=0.01)
+    assert outstanding_after_apr_payment == pytest.approx(0.0, abs=0.01)
+
+    outstanding_before_may_payment = acc.loc["2026-06-22", "outstanding_total"]
+    outstanding_after_may_payment = acc.loc["2026-06-23", "outstanding_total"]
+    assert outstanding_before_may_payment == pytest.approx(1330.25, abs=0.01)
+    assert outstanding_after_may_payment == pytest.approx(0.0, abs=0.01)
+
+    # Nothing remains outstanding at the end -> both are fully resolved.
+    assert mp_ts.daily_fee_accrual.outstanding == []
 
 
 def test_accrued_fees_never_negative():
@@ -707,9 +735,21 @@ def test_public_layout_does_not_expose_reconciliation_values(agm_app):
     assert not getattr(output_div, "children", None)
     layout_str = str(layout)
     result = mp_ts._agm_reconciliation_lookup(None)
-    assert f"{result['actual_nlv']:,.2f}" not in layout_str
-    assert f"{result['client_net_value']:,.2f}" not in layout_str
-    assert f"{result['accrued_unpaid_fees']:,.2f}" not in layout_str
+    # Dollar-formatted (with "$" prefix), matching how the panel actually
+    # renders these figures -- a bare "N.NN" substring (e.g. "0.00") can
+    # coincidentally collide with unrelated chart hover-percentage strings
+    # (e.g. "+0.00%") that are legitimately baked into the static layout.
+    assert f"${result['actual_nlv']:,.2f}" not in layout_str
+    assert f"${result['client_net_value']:,.2f}" not in layout_str
+    assert f"${result['accrued_unpaid_fees']:,.2f}" not in layout_str
+    # The full reconciliation sentence (the strongest, least ambiguous check)
+    # must never appear in the initial public layout.
+    formula_fragment = (
+        f"TradeStation NLV (${result['actual_nlv']:,.2f}) = "
+        f"Client Net Economic Value (${result['client_net_value']:,.2f}) + "
+        f"Accrued Unpaid Incentive Fee (${result['accrued_unpaid_fees']:,.2f})"
+    )
+    assert formula_fragment not in layout_str
 
 
 def test_reconciliation_isolated_from_tkp_and_tcp():
@@ -817,6 +857,19 @@ def test_client_daily_table_invariant_holds_on_rendered_rows(agm_app):
     for row in mp_ts.build_client_daily_table_rows():
         residual = row["actual_nlv"] - (row["client_net_value"] + row["accrued_unpaid_fees"])
         assert abs(residual) <= mp_ts.RECONCILIATION_TOLERANCE
+
+
+def test_client_daily_table_fee_payment_column_shows_both_evidenced_payments(agm_app):
+    """The client-facing Daily Returns table's Fee payment column must carry
+    both confirmed TradeStation cash-transaction incentive-fee withdrawals."""
+    import mp_ts
+
+    rows_by_date = {r["Date"]: r for r in mp_ts.build_client_daily_table_rows()}
+    assert rows_by_date["2026-05-14"]["fee_payment"] == pytest.approx(2967.85, abs=0.01)
+    assert rows_by_date["2026-06-23"]["fee_payment"] == pytest.approx(1330.25, abs=0.01)
+    # Fee payment column ids are always present in the client column contract.
+    col_ids = {c["id"] for c in mp_ts._build_client_daily_table_columns()}
+    assert "fee_payment" in col_ids
 
 
 def test_client_daily_table_does_not_expose_admin_only_content(agm_app):
@@ -1014,9 +1067,11 @@ def test_admin_daily_controls_render_for_authenticated_admin(agm_app):
     assert "Visible Columns" in slot
     # Minimum daily inputs only; contracts-per-unit deferred, not faked.
     assert "TradeStation NLV / Statement Value" in slot
+    assert "Deposit / Withdrawal" in slot
+    assert "Incentive Fee Paid" in slot
     assert "exchange-fee account-model" in slot
     for banned_input in ("SPX Start", "SPX End", "NDX Start", "NDX End",
-                         "BOT Start", "BOT End After Fees"):
+                         "BOT Start", "BOT End After Fees", "Plus500", "StoneX"):
         assert banned_input not in slot
 
 
@@ -1057,9 +1112,11 @@ def test_show_calculations_shows_only_accounting_identity(agm_app):
 
 
 def test_admin_add_row_minimum_inputs_and_safe_delete(agm_app, tmp_path, monkeypatch):
-    """Add Row = Date + TradeStation NLV only; everything else derived by the
-    accepted model. Manual rows extend — never overwrite or delete — the
-    TradeStation CSV history, and the invariant holds on added rows."""
+    """Add Row = Date + TradeStation NLV (+ optional Deposit/Withdrawal +
+    Incentive Fee Paid, both defaulting to 0 when omitted); everything else
+    derived by the accepted model. Manual rows extend — never overwrite or
+    delete — the TradeStation CSV history, and the invariant holds on added
+    rows."""
     import mp_ts
 
     monkeypatch.setattr(
@@ -1090,3 +1147,136 @@ def test_admin_add_row_minimum_inputs_and_safe_delete(agm_app, tmp_path, monkeyp
     ok_del2, msg_del2, _ = mp_ts.agm_delete_last_manual_daily_row()
     assert not ok_del2
     assert "never deleted" in msg_del2
+
+
+def test_admin_daily_returns_shows_view_per_page_and_export(agm_app):
+    """View per page and Export Excel are part of the shared Daily Returns
+    card (present in both public and admin renders); this pins them alongside
+    the admin toolbar so the full required control set renders together for
+    an authenticated admin, matching the TCP/TKP Daily Returns pattern."""
+    import mp_ts
+
+    layout_str = str(mp_ts.serve_layout())
+    assert mp_ts.CLIENT_DAILY_PAGE_SIZE_ID in layout_str
+    assert "View per page" in layout_str
+    assert mp_ts.CLIENT_DAILY_EXPORT_BTN_ID in layout_str
+    assert "Export Excel" in layout_str
+
+    admin_slot = _admin_slot_str()
+    assert "Add Row" in admin_slot and "Delete Last Row" in admin_slot
+    assert "Show Calculations" in admin_slot and "Visible Columns" in admin_slot
+    # View per page / Export Excel live in the same card as the admin slot,
+    # not duplicated inside it -- confirm they are siblings, not missing.
+    assert mp_ts.CLIENT_DAILY_PAGE_SIZE_ID not in admin_slot
+    assert mp_ts.CLIENT_DAILY_PAGE_SIZE_ID in layout_str
+
+
+def test_add_row_modal_has_exactly_date_nlv_deposit_and_fee_paid_inputs(agm_app):
+    """The Add Row modal must contain ONLY Date + TradeStation NLV / Statement
+    Value + Deposit/Withdrawal + Incentive Fee Paid inputs -- not just that the
+    label text appears, but that no other dbc.Input component exists in the
+    modal (no obsolete summary fields, no SPX/NDX/BOT/Plus500/StoneX fields)."""
+    import mp_ts
+
+    controls = mp_ts.build_agm_daily_admin_controls()
+    add_modal = next(c for c in controls if getattr(c, "id", None) == mp_ts.AGM_DAILY_ADMIN_ADD_MODAL_ID)
+
+    input_ids = set()
+
+    def _collect_input_ids(component):
+        cid = getattr(component, "id", None)
+        if cid and any(marker in str(cid) for marker in ("add-date", "add-nlv", "add-deposit", "add-fee-paid")):
+            input_ids.add(cid)
+        for child in (getattr(component, "children", None) or []):
+            if isinstance(child, (list, tuple)):
+                for c in child:
+                    _collect_input_ids(c)
+            elif hasattr(child, "children") or hasattr(child, "id"):
+                _collect_input_ids(child)
+
+    _collect_input_ids(add_modal)
+    assert input_ids == {
+        mp_ts.AGM_DAILY_ADMIN_ADD_DATE_ID,
+        mp_ts.AGM_DAILY_ADMIN_ADD_NLV_ID,
+        mp_ts.AGM_DAILY_ADMIN_ADD_DEPOSIT_ID,
+        mp_ts.AGM_DAILY_ADMIN_ADD_FEE_PAID_ID,
+    }
+
+    modal_str = str(add_modal)
+    assert "Date" in modal_str
+    assert "TradeStation NLV / Statement Value" in modal_str
+    assert "Deposit / Withdrawal" in modal_str
+    assert "Incentive Fee Paid" in modal_str
+    assert "negative number = withdrawal" in modal_str
+    for banned in ("Plus500", "StoneX", "SPX Start", "SPX End", "NDX Start", "NDX End",
+                   "BOT Start", "BOT End After Fees"):
+        assert banned not in modal_str
+
+
+def test_admin_daily_slot_callback_registered_and_wired_to_access_mode(agm_app):
+    """Proves the render callback is actually REGISTERED against the running
+    Dash app (not just importable as a bare function) and is wired to fire on
+    access-mode changes -- closes the 'callback/slot is not firing' failure
+    mode distinctly from a bare function-level check."""
+    import mp_ts
+
+    matching = [
+        cb
+        for cb in agm_app.callback_map.values()
+        if any(inp.get("id") == "access-mode" for inp in cb.get("inputs", []))
+        and mp_ts.AGM_DAILY_ADMIN_SLOT_ID in str(cb.get("output"))
+    ]
+    assert matching, "admin daily slot render callback is not registered against access-mode"
+
+
+def test_admin_daily_controls_full_login_round_trip_via_registered_callbacks(agm_app):
+    """End-to-end simulation of the real browser flow through Dash's actual
+    HTTP callback dispatcher (/_dash-update-component) -- not a hand-called
+    helper function -- so this also catches wiring defects a bare Python
+    function call would miss (e.g. a callback failing to register, or the
+    server dispatching to the wrong handler for a given output key)."""
+    import mp_ts
+
+    login_key, login_cb = next(
+        (k, cb) for k, cb in agm_app.callback_map.items()
+        if any(inp.get("id") == GATE_PASSWORD_SUBMIT_ID for inp in cb.get("inputs", []))
+    )
+    slot_key, slot_cb = next(
+        (k, cb) for k, cb in agm_app.callback_map.items()
+        if any(inp.get("id") == "access-mode" for inp in cb.get("inputs", []))
+        and mp_ts.AGM_DAILY_ADMIN_SLOT_ID in str(cb.get("output"))
+    )
+
+    client = agm_app.server.test_client()
+
+    login_payload = {
+        "output": login_key,
+        "outputs": [{"id": o.component_id, "property": o.component_property} for o in login_cb["output"]],
+        "inputs": [
+            {"id": GATE_PASSWORD_SUBMIT_ID, "property": "n_clicks", "value": 1},
+            {"id": GATE_PASSWORD_INPUT_ID, "property": "n_submit", "value": 0},
+        ],
+        "state": [{"id": GATE_PASSWORD_INPUT_ID, "property": "value", "value": TEST_TOKEN}],
+        "changedPropIds": [f"{GATE_PASSWORD_SUBMIT_ID}.n_clicks"],
+    }
+    resp = client.post("/_dash-update-component", json=login_payload)
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    login_response = resp.get_json()["response"]
+    assert login_response["gate-admin-password-error"]["children"] == ""
+    assert login_response["access-mode"]["data"] == "secret"
+
+    slot_payload = {
+        "output": slot_key,
+        "outputs": [{"id": o.component_id, "property": o.component_property} for o in slot_cb["output"]],
+        "inputs": [{"id": "access-mode", "property": "data", "value": "secret"}],
+        "state": [],
+        "changedPropIds": ["access-mode.data"],
+    }
+    resp2 = client.post("/_dash-update-component", json=slot_payload)
+    assert resp2.status_code == 200, resp2.get_data(as_text=True)
+    slot_response = resp2.get_json()["response"]
+    slot_str = str(slot_response[mp_ts.AGM_DAILY_ADMIN_SLOT_ID]["children"])
+    assert "Add Row" in slot_str
+    assert "Delete Last Row" in slot_str
+    assert "Show Calculations" in slot_str
+    assert "Visible Columns" in slot_str
