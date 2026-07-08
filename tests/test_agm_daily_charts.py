@@ -126,6 +126,34 @@ def test_monthly_spike_functions_removed(mp):
     assert not hasattr(mp, "build_agm_nlv_figure")
 
 
+def test_accrued_fees_chart_shows_evidenced_payment_markers_both_dates(mp):
+    """The two confirmed TradeStation cash-transaction payments (April fee
+    paid 2026-05-14, May fee paid 2026-06-23) must appear as markers on the
+    Accrued Unpaid Fees chart."""
+    fig = mp.build_agm_accrued_fees_figure()
+    marker_trace = next(t for t in fig.data if t.name == "Fee payment (evidenced)")
+    marker_dates = {pd.Timestamp(x).date().isoformat() for x in marker_trace.x}
+    assert "2026-05-14" in marker_dates
+    assert "2026-06-23" in marker_dates
+    amounts = dict(zip(
+        (pd.Timestamp(x).date().isoformat() for x in marker_trace.x),
+        (float(v) for v in marker_trace.customdata),
+    ))
+    assert amounts["2026-05-14"] == pytest.approx(2967.85, abs=0.01)
+    assert amounts["2026-06-23"] == pytest.approx(1330.25, abs=0.01)
+
+
+def test_accrued_fees_chart_outstanding_note_no_longer_lists_apr_may(mp):
+    """Both fees are now evidenced as paid, so the chart's 'Outstanding' note
+    (only rendered when something remains unpaid) no longer mentions them."""
+    fig = mp.build_agm_accrued_fees_figure()
+    annotations = [a.text for a in fig.layout.annotations if a.text]
+    outstanding_notes = [t for t in annotations if t.startswith("Outstanding")]
+    for note in outstanding_notes:
+        assert "2026-04" not in note
+        assert "2026-05" not in note
+
+
 # ── Monthly workbook stays internal-only ─────────────────────────────────────
 
 def test_monthly_workbook_still_loaded_as_internal_reference(mp):

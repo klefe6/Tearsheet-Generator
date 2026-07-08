@@ -274,8 +274,36 @@ def test_accrued_fees_reset_only_on_evidenced_payments():
     assert acc.loc["2026-03-27", "accrued_total"] == pytest.approx(0.0, abs=0.01)
     day_before = acc.loc["2026-03-26", "accrued_total"]
     assert day_before == pytest.approx(718.59, abs=0.01)
-    # Apr/May fees have no payment evidence -> still carried at the end.
-    assert acc["accrued_total"].iloc[-1] >= 2967.0
+    # Apr/May fees are now evidenced (confirmed TradeStation cash-transaction
+    # withdrawals on 2026-05-14 / 2026-06-23) and June's fee is $0 -> nothing
+    # outstanding remains by the end of the loaded CSV.
+    assert acc["accrued_total"].iloc[-1] == pytest.approx(0.0, abs=0.01)
+
+
+def test_evidenced_cash_transaction_payments_reduce_accrued_fees():
+    """The two hand-confirmed TradeStation cash-transaction withdrawals
+    (April fee paid 2026-05-14, May fee paid 2026-06-23) must be detected as
+    payments and drop the accrued liability on those exact dates."""
+    import mp_ts
+
+    methods = {(p["date"].date().isoformat(), p["method"], round(p["amount"], 2))
+               for p in mp_ts.daily_fee_accrual.payments}
+    assert ("2026-05-14", "cash-transaction-evidence", 2967.85) in methods
+    assert ("2026-06-23", "cash-transaction-evidence", 1330.25) in methods
+
+    acc = mp_ts.daily_fee_accrual.daily.set_index("Date")
+    outstanding_before_apr_payment = acc.loc["2026-05-13", "outstanding_total"]
+    outstanding_after_apr_payment = acc.loc["2026-05-14", "outstanding_total"]
+    assert outstanding_before_apr_payment == pytest.approx(2967.85, abs=0.01)
+    assert outstanding_after_apr_payment == pytest.approx(0.0, abs=0.01)
+
+    outstanding_before_may_payment = acc.loc["2026-06-22", "outstanding_total"]
+    outstanding_after_may_payment = acc.loc["2026-06-23", "outstanding_total"]
+    assert outstanding_before_may_payment == pytest.approx(1330.25, abs=0.01)
+    assert outstanding_after_may_payment == pytest.approx(0.0, abs=0.01)
+
+    # Nothing remains outstanding at the end -> both are fully resolved.
+    assert mp_ts.daily_fee_accrual.outstanding == []
 
 
 def test_accrued_fees_never_negative():
@@ -707,9 +735,21 @@ def test_public_layout_does_not_expose_reconciliation_values(agm_app):
     assert not getattr(output_div, "children", None)
     layout_str = str(layout)
     result = mp_ts._agm_reconciliation_lookup(None)
-    assert f"{result['actual_nlv']:,.2f}" not in layout_str
-    assert f"{result['client_net_value']:,.2f}" not in layout_str
-    assert f"{result['accrued_unpaid_fees']:,.2f}" not in layout_str
+    # Dollar-formatted (with "$" prefix), matching how the panel actually
+    # renders these figures -- a bare "N.NN" substring (e.g. "0.00") can
+    # coincidentally collide with unrelated chart hover-percentage strings
+    # (e.g. "+0.00%") that are legitimately baked into the static layout.
+    assert f"${result['actual_nlv']:,.2f}" not in layout_str
+    assert f"${result['client_net_value']:,.2f}" not in layout_str
+    assert f"${result['accrued_unpaid_fees']:,.2f}" not in layout_str
+    # The full reconciliation sentence (the strongest, least ambiguous check)
+    # must never appear in the initial public layout.
+    formula_fragment = (
+        f"TradeStation NLV (${result['actual_nlv']:,.2f}) = "
+        f"Client Net Economic Value (${result['client_net_value']:,.2f}) + "
+        f"Accrued Unpaid Incentive Fee (${result['accrued_unpaid_fees']:,.2f})"
+    )
+    assert formula_fragment not in layout_str
 
 
 def test_reconciliation_isolated_from_tkp_and_tcp():
@@ -817,6 +857,19 @@ def test_client_daily_table_invariant_holds_on_rendered_rows(agm_app):
     for row in mp_ts.build_client_daily_table_rows():
         residual = row["actual_nlv"] - (row["client_net_value"] + row["accrued_unpaid_fees"])
         assert abs(residual) <= mp_ts.RECONCILIATION_TOLERANCE
+
+
+def test_client_daily_table_fee_payment_column_shows_both_evidenced_payments(agm_app):
+    """The client-facing Daily Returns table's Fee payment column must carry
+    both confirmed TradeStation cash-transaction incentive-fee withdrawals."""
+    import mp_ts
+
+    rows_by_date = {r["Date"]: r for r in mp_ts.build_client_daily_table_rows()}
+    assert rows_by_date["2026-05-14"]["fee_payment"] == pytest.approx(2967.85, abs=0.01)
+    assert rows_by_date["2026-06-23"]["fee_payment"] == pytest.approx(1330.25, abs=0.01)
+    # Fee payment column ids are always present in the client column contract.
+    col_ids = {c["id"] for c in mp_ts._build_client_daily_table_columns()}
+    assert "fee_payment" in col_ids
 
 
 def test_client_daily_table_does_not_expose_admin_only_content(agm_app):
