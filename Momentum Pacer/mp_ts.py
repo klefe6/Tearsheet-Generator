@@ -1738,7 +1738,7 @@ def serve_layout():
                     html.Div(
                         [
                             html.P(
-                                "Algominds Financial LLC — CTA & CPO. "
+                                "Algominds Financial LLC — CTA. "
                                 f"Momentum Pacer Trading Program (live inception {inception_str}).",
                                 className="lead text-center",
                             ),

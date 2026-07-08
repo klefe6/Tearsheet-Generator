@@ -52,6 +52,15 @@ def test_accept_and_continue_present(agm_app):
     assert "Accept & Continue" in layout
 
 
+def test_agm_disclosure_describes_cta_only_not_cpo(agm_app):
+    """Algominds Financial LLC is a CTA only — never describe it as a CPO."""
+    import mp_ts
+
+    layout = str(mp_ts.serve_layout())
+    assert "Algominds Financial LLC — CTA" in layout
+    assert "CPO" not in layout
+
+
 def test_gate_renders_tearsheet_and_portal_buttons(agm_app):
     import mp_ts
 
