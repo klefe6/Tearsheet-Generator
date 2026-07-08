@@ -121,6 +121,7 @@ def compute_agm_daily_accounting(
     fee_accrual: Optional[agm_fees.DailyFeeAccrual] = None,
     inception: pd.Timestamp = DEFAULT_INCEPTION,
     monthly_reference: Optional[pd.DataFrame] = None,
+    cash_transaction_payments=None,
 ) -> AgmDailyAccounting:
     """
     Build the AGM daily accounting table and derived performance series.
@@ -128,6 +129,11 @@ def compute_agm_daily_accounting(
     balances_df : algominds_daily_balances.load_daily_balances() output.
     spx_df      : algominds_benchmark_daily.load_daily_benchmark() output.
     fee_accrual : optional pre-computed accrual; computed when omitted.
+    cash_transaction_payments : forwarded to agm_fees.compute_daily_fee_accrual
+                  when *fee_accrual* is omitted (ignored otherwise, since a
+                  supplied fee_accrual already reflects whatever evidence it
+                  was built with). Defaults to that function's own default
+                  (the committed algominds_fee_payment_evidence list) when None.
     """
     empty = pd.DataFrame(
         columns=[
@@ -158,6 +164,7 @@ def compute_agm_daily_accounting(
             spx_df,
             inception=inception,
             monthly_reference=monthly_reference,
+            cash_transaction_payments=cash_transaction_payments,
         )
 
     fee_by_date = (

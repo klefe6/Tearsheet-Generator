@@ -56,6 +56,7 @@ from tearsheet_header import (
     build_header_date_label_children_from_date,
     build_tearsheet_header_row,
 )
+from tearsheet_date_defaults import default_add_row_date_str
 from flask import session, redirect, jsonify
 from collections import OrderedDict
 
@@ -628,11 +629,11 @@ def _secret_table_columns(col_names):
     return _build_table_columns(col_names)
 
 def _default_add_row_date_str():
-    """Return previous business day (Mon -> Fri) as YYYY-MM-DD."""
-    d = datetime.today().date() - timedelta(days=1)
-    while d.weekday() >= 5:  # Saturday=5, Sunday=6
-        d -= timedelta(days=1)
-    return d.strftime("%Y-%m-%d")
+    """Return previous business day (Mon -> Fri) as YYYY-MM-DD.
+
+    Delegates to the shared tearsheet_date_defaults helper so TCP/AGM Add Row
+    modals can mirror this exact method (see tearsheet_date_defaults.py)."""
+    return default_add_row_date_str()
 
 # Compute latest date from Daily Returns for status label
 def _get_latest_daily_date():
@@ -2936,8 +2937,12 @@ dbc.Row(
                             dbc.Input(id="secret-add-plus500", type="number", value=0),
                             dbc.Label("StoneX Balance", className="mt-2"),
                             dbc.Input(id="secret-add-balance", type="number", value=0),
-                            dbc.Label("StoneX Deposit", className="mt-2"),
+                            dbc.Label("Deposit / Withdrawal", className="mt-2"),
                             dbc.Input(id="secret-add-deposit", type="number", value=0),
+                            html.P(
+                                "(negative number = withdrawal)",
+                                className="small text-muted fst-italic mt-1 mb-0",
+                            ),
                         ]),
                         dbc.ModalFooter([
                             dbc.Button("Save", id="secret-add-save", color="primary", size="sm"),
