@@ -23,6 +23,7 @@ from tearsheet_gate_ui import (
     normalized_gate_title_text,
 )
 from tcp_drawdown import DRAWDOWN_FOOTNOTE
+from tearsheet_header import build_tearsheet_header_row
 
 HNC_LEGAL_NAME = "Hughes & Company LLC"
 TCP_PRODUCT_NAME = "The Crypto Program"
@@ -298,55 +299,16 @@ def build_tcp_header(
     desktop_label_children: List[Any],
     mobile_label_children: List[Any],
 ) -> List[Any]:
-    return [
-        dbc.Row(
-            [
-                dbc.Col(
-                    html.Img(
-                        src=logo_src,
-                        className="img-fluid",
-                        style={"maxHeight": "100px", "height": "auto", "width": "auto"},
-                        alt=f"{HNC_LEGAL_NAME} Logo",
-                    ),
-                    width=2,
-                ),
-                dbc.Col(
-                    html.Div(
-                        [
-                            html.H2(HNC_LEGAL_NAME, className="text-center"),
-                            html.H5(TCP_PRODUCT_NAME, className="text-center text-muted"),
-                        ],
-                        style={"lineHeight": "1.2", "paddingTop": "20px"},
-                    ),
-                    width=8,
-                ),
-                dbc.Col(
-                    html.Div(
-                        desktop_label_children,
-                        id="data-current-label-desktop",
-                        className="d-none d-md-block tearsheet-header-date-block",
-                    ),
-                    width=2,
-                ),
-            ],
-            align="center",
-            style={"backgroundColor": GREY_BG, "padding": "10px 0", "pageBreakInside": "avoid"},
-            className="header-row",
-            id="tcp-public-header-row",
-        ),
-        html.Hr(),
-        dbc.Row(
-            dbc.Col(
-                html.Div(
-                    mobile_label_children,
-                    id="data-current-label-mobile",
-                    className="d-block d-md-none tearsheet-header-date-block",
-                ),
-                width=12,
-            ),
-            className="mb-3",
-        ),
-    ]
+    return build_tearsheet_header_row(
+        logo_src=logo_src,
+        logo_alt=f"{HNC_LEGAL_NAME} Logo",
+        firm_name=HNC_LEGAL_NAME,
+        product_name=TCP_PRODUCT_NAME,
+        desktop_label_children=desktop_label_children,
+        mobile_label_children=mobile_label_children,
+        grey_bg=GREY_BG,
+        header_row_id="tcp-public-header-row",
+    )
 
 
 def build_firm_intro() -> html.Div:

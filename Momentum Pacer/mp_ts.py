@@ -47,6 +47,10 @@ from tearsheet_gate_auth import (
 )
 from tcp_admin import AdminAuthManager, configure_flask_session_secret
 from tearsheet_portal import render_portal_page
+from tearsheet_header import (
+    build_header_date_label_children_from_date,
+    build_tearsheet_header_row,
+)
 import algominds_portal_registry as agm_registry
 import algominds_daily_balances as agm_daily
 import algominds_benchmark_daily as agm_bench
@@ -1093,6 +1097,28 @@ CLIENT_DAILY_TABLE_COLUMNS: list[tuple[str, str, str]] = [
     ("Fee payment", "fee_payment", "money_signed"),
 ]
 
+# Two-row DataTable headers — keeps each column narrow so the Daily Returns
+# table needs less horizontal scrolling (Dash ``name`` as [top, bottom]).
+_DAILY_TABLE_HEADER_ROWS: dict[str, tuple[str, str]] = {
+    "Date": ("Date", "\u00a0"),
+    "Client Net Economic Value": ("Client Net", "Economic Value"),
+    "TradeStation NLV / Statement Value": ("TradeStation NLV", "Statement Value"),
+    "Accrued Unpaid Incentive Fee": ("Accrued Unpaid", "Incentive Fee"),
+    "Daily $": ("Daily", "$"),
+    "Daily %": ("Daily", "%"),
+    "Since inception %": ("Since", "inception %"),
+    "SPX Close": ("SPX", "Close"),
+    "SPX daily %": ("SPX", "daily %"),
+    "Momentum daily %": ("Momentum", "daily %"),
+    "Momentum vs SPX daily spread %": ("Momentum vs SPX", "daily spread %"),
+    "Fee payment": ("Fee", "payment"),
+}
+
+
+def _daily_table_header_name(label: str) -> list[str]:
+    top, bottom = _DAILY_TABLE_HEADER_ROWS.get(label, (label, "\u00a0"))
+    return [top, bottom]
+
 
 def _daily_table_column_defs(column_spec: list[tuple[str, str, str]]) -> list[dict]:
     """DataTable column defs from a (label, key, kind) spec — shared by the
@@ -1100,18 +1126,19 @@ def _daily_table_column_defs(column_spec: list[tuple[str, str, str]]) -> list[di
     identically."""
     cols = []
     for label, key, kind in column_spec:
+        header_name = _daily_table_header_name(label)
         if kind == "date":
-            cols.append({"name": label, "id": key})
+            cols.append({"name": header_name, "id": key})
         elif kind == "money":
-            cols.append({"name": label, "id": key, "type": "numeric", "format": _MONEY_FMT})
+            cols.append({"name": header_name, "id": key, "type": "numeric", "format": _MONEY_FMT})
         elif kind == "money_signed":
-            cols.append({"name": label, "id": key, "type": "numeric", "format": _MONEY_SIGNED_FMT})
+            cols.append({"name": header_name, "id": key, "type": "numeric", "format": _MONEY_SIGNED_FMT})
         elif kind == "pct_signed":
-            cols.append({"name": label, "id": key, "type": "numeric", "format": _PCT_SIGNED_FMT})
+            cols.append({"name": header_name, "id": key, "type": "numeric", "format": _PCT_SIGNED_FMT})
         elif kind == "index":
-            cols.append({"name": label, "id": key, "type": "numeric", "format": _INDEX_FMT})
+            cols.append({"name": header_name, "id": key, "type": "numeric", "format": _INDEX_FMT})
         else:  # pragma: no cover - defensive, every kind above is handled
-            cols.append({"name": label, "id": key})
+            cols.append({"name": header_name, "id": key})
     return cols
 
 
@@ -1219,20 +1246,29 @@ def build_client_daily_table_section():
                         style_table={"overflowX": "auto"},
                         style_cell={
                             "textAlign": "right",
-                            "padding": "4px 8px",
+                            "padding": "4px 6px",
                             "fontSize": "12px",
                             "fontFamily": "monospace",
                             "whiteSpace": "nowrap",
+                            "minWidth": "68px",
+                            "maxWidth": "96px",
                         },
                         style_cell_conditional=[
-                            {"if": {"column_id": "Date"}, "textAlign": "left"},
+                            {"if": {"column_id": "Date"}, "textAlign": "left", "minWidth": "78px", "maxWidth": "86px"},
+                            {"if": {"column_id": "spx_close"}, "minWidth": "72px", "maxWidth": "80px"},
+                            {"if": {"column_id": "momentum_vs_spx_daily_spread_pct"},
+                             "minWidth": "78px", "maxWidth": "92px"},
                         ],
                         style_header={
                             "backgroundColor": PRIMARY_COLOR,
                             "color": "white",
                             "fontWeight": "bold",
-                            "fontSize": "11px",
+                            "fontSize": "10px",
                             "textAlign": "center",
+                            "whiteSpace": "normal",
+                            "lineHeight": "1.15",
+                            "padding": "4px 4px",
+                            "height": "auto",
                         },
                         style_data_conditional=[
                             {"if": {"filter_query": "{daily_pct} > 0", "column_id": "daily_pct"},
@@ -1562,15 +1598,14 @@ configure_flask_session_secret(app.server, agm_admin_auth_manager.settings)
 
 
 def serve_layout():
-    today      = datetime.now()
-    first_day  = today.replace(day=1)
-    days_ahead = -first_day.weekday()
-    if days_ahead <= 0:
-        days_ahead += 7
-    first_monday = first_day + timedelta(days=days_ahead)
-    if first_monday.day <= 2:
-        first_monday += timedelta(days=7)
-    last_updated = first_monday.strftime("%B %d, %Y")
+    agm_latest_date = (
+        daily_balances_df["Date"].max()
+        if daily_balances_df is not None and not daily_balances_df.empty
+        else None
+    )
+    desktop_date_label, mobile_date_label = build_header_date_label_children_from_date(
+        agm_latest_date
+    )
 
     inception_str = PROGRAM_INCEPTION.strftime("%B %d, %Y")
     latest_str = (
@@ -1607,67 +1642,16 @@ def serve_layout():
                 style={"display": "none"},
                 children=[
 
-                    # ── Header  (identical structure to Y&Q) ──────────────────
-                    dbc.Row(
-                        [
-                            dbc.Col(
-                                html.Img(
-                                    src=logo_src,
-                                    className="img-fluid",
-                                    style={"maxHeight": "100px",
-                                           "height": "auto", "width": "auto"},
-                                    alt="Algominds Financial LLC Logo",
-                                ) if logo_src else html.Div(style={"height": "80px"}),
-                                width=2,
-                            ),
-                            dbc.Col(
-                                html.Div(
-                                    [
-                                        html.H2("Algominds Financial LLC",
-                                                className="text-center"),
-                                        html.H5("Momentum Pacer Program",
-                                                className="text-center text-muted"),
-                                    ],
-                                    style={"lineHeight": "1.2", "paddingTop": "20px"},
-                                ),
-                                width=8,
-                            ),
-                            dbc.Col(
-                                html.Div(
-                                    [
-                                        html.Div(
-                                            [
-                                                html.H6("Last Updated",
-                                                        className="text-end text-secondary mb-1"),
-                                                html.H5(last_updated,
-                                                        className="text-end",
-                                                        style={"color": PRIMARY_COLOR}),
-                                            ],
-                                            className="d-none d-md-block",
-                                            style={"paddingTop": "30px"},
-                                        ),
-                                        html.Div(
-                                            [
-                                                html.Small("Last Updated",
-                                                           className="d-block text-end text-secondary mb-1"),
-                                                html.Small(last_updated,
-                                                           className="d-block text-end",
-                                                           style={"color": PRIMARY_COLOR}),
-                                            ],
-                                            className="d-block d-md-none",
-                                            style={"paddingTop": "20px"},
-                                        ),
-                                    ]
-                                ),
-                                width=2,
-                            ),
-                        ],
-                        align="center",
-                        style={"backgroundColor": GREY_BG, "padding": "10px 0",
-                               "pageBreakInside": "avoid"},
-                        className="header-row",
+                    # ── Header (TCP-style “Data current to” block) ─────────────
+                    *build_tearsheet_header_row(
+                        logo_src=logo_src,
+                        logo_alt="Algominds Financial LLC Logo",
+                        firm_name="Algominds Financial LLC",
+                        product_name="Momentum Pacer Program",
+                        desktop_label_children=desktop_date_label,
+                        mobile_label_children=mobile_date_label,
+                        grey_bg=GREY_BG,
                     ),
-                    html.Hr(),
 
                     # ── Description ───────────────────────────────────────────
                     html.Div(

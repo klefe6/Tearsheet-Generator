@@ -775,15 +775,22 @@ def test_client_daily_table_has_required_columns(agm_app):
 
     layout_str = str(mp_ts.serve_layout())
     for label in CLIENT_TABLE_REQUIRED_COLUMNS:
-        assert label in layout_str, f"missing client daily table column: {label}"
+        top, bottom = mp_ts._DAILY_TABLE_HEADER_ROWS[label]
+        assert top in layout_str, f"missing client daily table header line: {top}"
+        if bottom.strip():
+            assert bottom in layout_str, f"missing client daily table header line: {bottom}"
 
-    col_ids = {c["id"] for c in mp_ts._build_client_daily_table_columns()}
+    col_defs = mp_ts._build_client_daily_table_columns()
+    col_ids = {c["id"] for c in col_defs}
     assert col_ids == {
         "Date", "client_net_value", "actual_nlv", "accrued_unpaid_fees",
         "daily_dollar", "daily_pct", "since_inception_pct", "spx_close",
         "spx_daily_pct", "momentum_daily_pct", "momentum_vs_spx_daily_spread_pct",
         "fee_payment",
     }
+    for col in col_defs:
+        assert isinstance(col["name"], list), col["id"]
+        assert len(col["name"]) == 2, col["id"]
 
 
 def test_client_daily_table_rows_from_accepted_accounting_model(agm_app):

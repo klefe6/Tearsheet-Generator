@@ -73,11 +73,10 @@ def test_tcp_gate_refresh_behavior_not_regressed():
 # ── Header: TKP-style date/status block ──────────────────────────────────────
 
 def test_tcp_header_status_block_matches_tkp_pattern():
-    from tcp_ts_v2 import _desktop_label_children, _mobile_label_children
+    from tearsheet_header import build_header_date_label_children
 
-    desktop = str(_desktop_label_children("Data current to:", "June 24, 2026 close"))
-    mobile = str(_mobile_label_children("Data current to:", "June 24, 2026 close"))
-    for rendered in (desktop, mobile):
+    desktop, mobile = build_header_date_label_children("Data current to:", "June 24, 2026 close")
+    for rendered in (str(desktop), str(mobile)):
         assert "tearsheet-header-date-label" in rendered
         assert "tearsheet-header-date-value" in rendered
 
@@ -86,6 +85,46 @@ def test_tcp_header_status_block_matches_tkp_pattern():
     header_str = str(build_tcp_header("", [], []))
     assert "tearsheet-header-date-block" in header_str
     assert "header-row" in header_str
+    assert "data-current-label-mobile" in header_str
+
+
+def test_tkp_header_uses_shared_tcp_layout():
+    import tkp_ts
+
+    layout_str = str(tkp_ts.serve_layout())
+    assert "Data current to" in layout_str
+    assert "tearsheet-header-date-block" in layout_str
+    assert "data-current-label-desktop" in layout_str
+    assert "data-current-label-mobile" in layout_str
+    assert "Last Updated" not in layout_str
+
+
+def test_agm_header_uses_shared_tcp_layout():
+    import importlib.util
+    from pathlib import Path
+
+    mp_path = REPO_ROOT / "Momentum Pacer" / "mp_ts.py"
+    spec = importlib.util.spec_from_file_location("mp_ts", mp_path)
+    mp_ts = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mp_ts)
+
+    layout_str = str(mp_ts.serve_layout())
+    assert "Data current to" in layout_str
+    assert "tearsheet-header-date-block" in layout_str
+    assert "data-current-label-desktop" in layout_str
+    assert "data-current-label-mobile" in layout_str
+    assert "Last Updated" not in layout_str
+    if mp_ts.daily_balances_df is not None and not mp_ts.daily_balances_df.empty:
+        latest = mp_ts.daily_balances_df["Date"].max().strftime("%B %d, %Y")
+        assert f"{latest} close" in layout_str
+
+
+def test_format_data_current_date_line():
+    from tearsheet_header import format_data_current_date_line
+
+    assert format_data_current_date_line(date(2026, 6, 24)) == "June 24, 2026 close"
+    assert format_data_current_date_line("July 06, 2026") == "July 06, 2026 close"
+    assert format_data_current_date_line("July 06, 2026 close") == "July 06, 2026 close"
 
 
 def test_shared_header_date_css_serves_tkp_and_tcp():

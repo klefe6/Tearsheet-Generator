@@ -280,20 +280,18 @@ def _drawdown_table_component(drawdown_df: pd.DataFrame) -> html.Div:
     )
 
 
-# TKP-style header status block (shared .tearsheet-header-date-* classes in
-# assets/styles.css) so the TCP header's date/status typography matches TKP.
+# TKP-style header status block (shared tearsheet_header module + styles.css).
+from tearsheet_header import build_header_date_label_children as _shared_header_date_label_children
+
+
 def _desktop_label_children(header: str, date_line: str) -> List[Any]:
-    return [
-        html.Div(header, className="tearsheet-header-date-label", id="data-current-label-desktop-header"),
-        html.Div(date_line, className="tearsheet-header-date-value", id="data-current-label-desktop-date"),
-    ]
+    desktop, _ = _shared_header_date_label_children(header, date_line)
+    return desktop
 
 
 def _mobile_label_children(header: str, date_line: str) -> List[Any]:
-    return [
-        html.Div(header, className="tearsheet-header-date-label", id="data-current-label-mobile-header"),
-        html.Div(date_line, className="tearsheet-header-date-value", id="data-current-label-mobile-date"),
-    ]
+    _, mobile = _shared_header_date_label_children(header, date_line)
+    return mobile
 
 
 def build_error_layout(cfg: TCPConfig, state: PreviewState) -> html.Div:

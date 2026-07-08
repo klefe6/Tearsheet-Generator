@@ -52,6 +52,10 @@ from tearsheet_gate_auth import (
 )
 from tcp_admin import AdminAuthManager, configure_flask_session_secret
 from tearsheet_portal import render_legacy_diagnostics_table, render_portal_page
+from tearsheet_header import (
+    build_header_date_label_children_from_date,
+    build_tearsheet_header_row,
+)
 from flask import session, redirect, jsonify
 from collections import OrderedDict
 
@@ -1851,15 +1855,7 @@ def _tkp_admin_board_stats():
 
 def _build_tkp_date_status_label_children(latest_date: str) -> tuple[list, list]:
     """Desktop/mobile children for the top-right 'Data current to' status block."""
-    desktop = [
-        html.Div("Data current to", className="tkp-header-date-label"),
-        html.Div(f"{latest_date} close", className="tkp-header-date-value"),
-    ]
-    mobile = [
-        html.Div("Data current to", className="tkp-header-date-label"),
-        html.Div(f"{latest_date} close", className="tkp-header-date-value"),
-    ]
-    return desktop, mobile
+    return build_header_date_label_children_from_date(latest_date)
 
 
 def serve_layout(records=None):
@@ -1872,54 +1868,15 @@ def serve_layout(records=None):
         className="py-4",
         children=[
             # ── Header ─────────────────────────────────────────────────────────
-            dbc.Row(
-                [
-                    dbc.Col(
-                        html.Img(
-                            src=logo_src,
-                            className="img-fluid",               # makes it scale down on small screens
-                            style={
-                                "maxHeight": "100px",            # never exceed 100px tall
-                                "height": "auto",
-                                "width": "auto",
-                            },
-                            alt=f"{tsd.HNC_LEGAL_NAME} Logo"
-                        ),
-                        width=2,
-                    ),
-                    dbc.Col(
-                        html.Div(
-                            [
-                                html.H2(tsd.HNC_LEGAL_NAME, className="text-center"),
-                                html.H5("The Keymaker Program", className="text-center text-muted"),
-                            ],
-                            style={"lineHeight": "1.2", "paddingTop": "20px"},
-                        ),
-                        width=8,
-                    ),
-                    dbc.Col(
-                    html.Div(
-                        [
-                            html.Div(
-                                id="data-current-label-desktop",
-                                className="d-none d-md-block tkp-header-date-block",
-                                children=desktop_date_label,
-                            ),
-                            html.Div(
-                                id="data-current-label-mobile",
-                                className="d-block d-md-none tkp-header-date-block",
-                                children=mobile_date_label,
-                            ),
-                        ]
-                    ),
-                    width=2,
-                ),
-                ],
-                align="center",
-                style={"backgroundColor": GREY_BG, "padding": "10px 0", "pageBreakInside": "avoid"},  # Prevent header split
-                className="header-row",
+            *build_tearsheet_header_row(
+                logo_src=logo_src,
+                logo_alt=f"{tsd.HNC_LEGAL_NAME} Logo",
+                firm_name=tsd.HNC_LEGAL_NAME,
+                product_name="The Keymaker Program",
+                desktop_label_children=desktop_date_label,
+                mobile_label_children=mobile_date_label,
+                grey_bg=GREY_BG,
             ),
-            html.Hr(),
 
             # ── Description ────────────────────────────────────────────────────
             html.Div(
