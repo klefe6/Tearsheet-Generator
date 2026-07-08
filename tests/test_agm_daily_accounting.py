@@ -220,3 +220,12 @@ def test_real_data_build_helper_uses_cache_only(monkeypatch):
     res = ada.build_agm_daily_accounting(balances_path=CSV_PATH)
     assert not res.table.empty
     assert ada.verify_accounting_invariant(res.table)
+
+
+def test_real_data_fee_payment_column_has_both_evidenced_amounts(real_accounting):
+    """The accounting table's fee_payment column must carry the two
+    confirmed TradeStation cash-transaction incentive-fee withdrawals."""
+    t = real_accounting.table.set_index("Date")
+    assert t.loc["2026-05-14", "fee_payment"] == pytest.approx(2967.85, abs=0.01)
+    assert t.loc["2026-06-23", "fee_payment"] == pytest.approx(1330.25, abs=0.01)
+    assert ada.verify_accounting_invariant(real_accounting.table)
