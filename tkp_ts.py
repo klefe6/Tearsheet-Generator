@@ -50,7 +50,12 @@ from tearsheet_gate_auth import (
     TKP_SESSION_KEY,
     load_tkp_admin_auth_settings,
 )
-from tcp_admin import AdminAuthManager, configure_flask_session_secret
+from tcp_admin import AdminAuthManager
+from tearsheet_runtime_mode import (
+    apply_runtime_session_config,
+    register_monthly_backup_404,
+    resolve_tkp_bind_port,
+)
 from tearsheet_portal import render_legacy_diagnostics_table, render_portal_page
 from tearsheet_header import (
     build_header_date_label_children_from_date,
@@ -1835,7 +1840,8 @@ app = dash.Dash(
 )
 
 tkp_admin_auth_manager = AdminAuthManager(load_tkp_admin_auth_settings(), session_key=TKP_SESSION_KEY)
-configure_flask_session_secret(app.server, tkp_admin_auth_manager.settings)
+apply_runtime_session_config(app.server, tkp_admin_auth_manager.settings, "tkp")
+register_monthly_backup_404(app.server)
 
 
 def _tkp_admin_board_stats():
@@ -4112,4 +4118,4 @@ def propagate_dashboard(canonical_nav_rows, secret_store_rows):
 
 
 if __name__ == "__main__":
-    app.run(debug=True, port=8301)
+    app.run(debug=True, port=resolve_tkp_bind_port())

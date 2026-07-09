@@ -39,7 +39,6 @@ from tcp_admin import (
     LOGIN_FORM_HTML,
     AdminAuthManager,
     build_admin_editor_layout,
-    configure_flask_session_secret,
     datatable_column_defs,
     default_add_row_values,
     delete_preview_content,
@@ -49,6 +48,7 @@ from tcp_admin import (
     simulate_add_row,
     simulate_delete_last_row,
 )
+from tearsheet_runtime_mode import apply_runtime_session_config, register_monthly_backup_404
 from tearsheet_portal import render_legacy_diagnostics_table, render_portal_page
 from tcp_config import (
     AdminAuthSettings,
@@ -1171,11 +1171,13 @@ def create_app(
         suppress_callback_exceptions=True,
         title=resolve_page_title(cfg),
     )
-    configure_flask_session_secret(
+    apply_runtime_session_config(
         app.server,
         auth_settings,
+        "tcp",
         secure_cookies=is_production_runtime(cfg),
     )
+    register_monthly_backup_404(app.server)
     _register_auth_routes(app, auth_manager, runtime_holder)
 
     if state.snapshot is not None:
