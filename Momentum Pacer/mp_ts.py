@@ -46,7 +46,8 @@ from tearsheet_gate_auth import (
     GATE_PASSWORD_VISIBLE_STORE_ID,
     INVALID_PASSWORD_MESSAGE,
 )
-from tcp_admin import AdminAuthManager, configure_flask_session_secret
+from tcp_admin import AdminAuthManager
+from tearsheet_runtime_mode import apply_runtime_session_config, resolve_agm_bind_port
 from tearsheet_portal import render_portal_page
 from tearsheet_date_defaults import default_add_row_date_str
 from tearsheet_header import (
@@ -1971,7 +1972,7 @@ app = dash.Dash(
 )
 
 agm_admin_auth_manager = AdminAuthManager(load_agm_admin_auth_settings(), session_key=AGM_SESSION_KEY)
-configure_flask_session_secret(app.server, agm_admin_auth_manager.settings)
+apply_runtime_session_config(app.server, agm_admin_auth_manager.settings, "agm")
 
 
 def serve_layout():
@@ -2985,6 +2986,6 @@ if __name__ == "__main__":
     app.run(
         debug=_debug,
         use_reloader=_debug,
-        port=8304,
+        port=resolve_agm_bind_port(),
         host="127.0.0.1",
     )
