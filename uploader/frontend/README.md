@@ -52,13 +52,26 @@ Vite loads `.env.<mode>` automatically. Two committed templates ship with the re
 | Var | Sandbox | Production |
 |---|---|---|
 | `VITE_APP_ENV` | `sandbox` | `production` |
-| `VITE_API_BASE_URL` | `http://localhost:8090/api` | *(placeholder — set the real URL later)* |
+| `VITE_API_BASE_URL` | `https://uploader-sandbox.hcresearch.ltd/api` | `https://uploader.hcresearch.ltd/api` |
+
+**Future public URLs**
+
+| Environment | Frontend | Backend API |
+|---|---|---|
+| Sandbox | `https://uploader-sandbox.hcresearch.ltd` | `https://uploader-sandbox.hcresearch.ltd/api` |
+| Production | `https://uploader.hcresearch.ltd` | `https://uploader.hcresearch.ltd/api` |
+
+**Local dev** (override via `.env.local`, git-ignored):
+
+| Service | URL |
+|---|---|
+| Frontend (Vite) | `http://localhost:5173` |
+| Backend API | `http://localhost:8090/api` |
 
 - `VITE_APP_ENV` drives only the on-screen environment badge for now.
 - `VITE_API_BASE_URL` is reserved for the future export wiring; it is **not called** yet.
 
-To override locally without editing the committed files, create `.env.local`
-(git-ignored). See `.env.example` for the contract.
+See `.env.example` for the full contract.
 
 ## What's on the page
 
