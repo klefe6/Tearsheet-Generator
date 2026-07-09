@@ -1,5 +1,8 @@
 import type { ProductConfig } from '../types'
 
+/** Max entry fields across products — used to align action buttons across cards. */
+export const MAX_PRODUCT_FIELD_COUNT = 4
+
 // The four products, each config-driven so one <ProductCard> renders all of them.
 // Field rules are the source of truth for the entry forms AND the tables:
 //   TKP  — the only product with BOTH StoneX NLV and Plus500 NLV.

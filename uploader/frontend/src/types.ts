@@ -46,3 +46,14 @@ export interface ProductRow {
   id: string
   [key: string]: string | number
 }
+
+/** Mock export / undo UI state (frontend-only until backend wiring). */
+export type ExportProcessStatus = 'idle' | 'pending' | 'processed'
+
+export interface ExportUiState {
+  lastExportAt: Date | null
+  status: ExportProcessStatus
+  canUndo: boolean
+  /** Rows included in the last mock export (0 when none). */
+  rowCount: number
+}

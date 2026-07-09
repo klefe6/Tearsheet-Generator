@@ -1,4 +1,5 @@
 import { useState, type CSSProperties, type FormEvent } from 'react'
+import { MAX_PRODUCT_FIELD_COUNT } from '../config/products'
 import type { ProductConfig, ProductId, ProductRow } from '../types'
 import { makeRowId } from '../data/rows'
 import { formatCurrency, formatShortDate } from '../lib/format'
@@ -94,33 +95,38 @@ export function ProductCard({ config, rows, onAddRow, onDeleteLast }: Props) {
       </header>
 
       <form className={styles.form} onSubmit={handleSubmit}>
-        {config.fields.map((field) => (
-          <label key={field.key} className={styles.field}>
-            <span className={styles.fieldLabel}>{field.label}</span>
-            {field.type === 'date' ? (
-              <input
-                type="date"
-                required
-                className={styles.input}
-                value={form[field.key]}
-                onChange={(e) => update(field.key, e.target.value)}
-              />
-            ) : (
-              <span className={styles.currencyWrap}>
-                <span className={styles.currencyPrefix}>$</span>
+        <div
+          className={styles.fieldsRegion}
+          style={{ '--field-slots': MAX_PRODUCT_FIELD_COUNT } as CSSProperties}
+        >
+          {config.fields.map((field) => (
+            <label key={field.key} className={styles.field}>
+              <span className={styles.fieldLabel}>{field.label}</span>
+              {field.type === 'date' ? (
                 <input
-                  type="number"
-                  inputMode="decimal"
-                  step="0.01"
-                  className={`${styles.input} ${styles.currencyInput}`}
-                  placeholder={field.placeholder}
+                  type="date"
+                  required
+                  className={styles.input}
                   value={form[field.key]}
                   onChange={(e) => update(field.key, e.target.value)}
                 />
-              </span>
-            )}
-          </label>
-        ))}
+              ) : (
+                <span className={styles.currencyWrap}>
+                  <span className={styles.currencyPrefix}>$</span>
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    step="0.01"
+                    className={`${styles.input} ${styles.currencyInput}`}
+                    placeholder={field.placeholder}
+                    value={form[field.key]}
+                    onChange={(e) => update(field.key, e.target.value)}
+                  />
+                </span>
+              )}
+            </label>
+          ))}
+        </div>
 
         <div className={styles.actions}>
           <button type="submit" className={styles.enterBtn}>

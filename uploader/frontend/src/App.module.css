@@ -11,28 +11,7 @@
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 20px;
-}
-
-.exportBtn {
-  width: 100%;
-  height: 56px;
-  border: none;
-  border-radius: var(--radius);
-  background: linear-gradient(180deg, #1c2740 0%, #0f1729 100%);
-  color: #ffffff;
-  font-size: 15px;
-  font-weight: 600;
-  letter-spacing: 0.2px;
-  box-shadow: var(--shadow);
-  transition: transform 0.06s ease, filter 0.15s ease;
-}
-
-.exportBtn:hover {
-  filter: brightness(1.12);
-}
-
-.exportBtn:active {
-  transform: translateY(1px);
+  align-items: stretch;
 }
 
 @media (max-width: 1200px) {

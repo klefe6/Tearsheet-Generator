@@ -1,20 +1,30 @@
 import { useCallback, useRef, useState } from 'react'
+import { ExportActionBar } from './components/ExportActionBar'
 import { PageHeader } from './components/PageHeader'
 import { PerformanceChart } from './components/PerformanceChart'
 import { ProductCard } from './components/ProductCard'
 import { Toast } from './components/Toast'
 import { PRODUCTS } from './config/products'
 import { INITIAL_ROWS } from './data/rows'
-import type { ProductId, ProductRow } from './types'
+import type { ExportUiState, ProductId, ProductRow } from './types'
 import styles from './App.module.css'
 
 const APP_ENV = import.meta.env.VITE_APP_ENV || import.meta.env.MODE || 'sandbox'
 
+const INITIAL_EXPORT_STATE: ExportUiState = {
+  lastExportAt: null,
+  status: 'idle',
+  canUndo: false,
+  rowCount: 0,
+}
+
 export default function App() {
   const [rowsByProduct, setRowsByProduct] =
     useState<Record<ProductId, ProductRow[]>>(INITIAL_ROWS)
+  const [exportState, setExportState] = useState<ExportUiState>(INITIAL_EXPORT_STATE)
   const [toast, setToast] = useState<string | null>(null)
   const toastTimer = useRef<number | undefined>(undefined)
+  const exportTimer = useRef<number | undefined>(undefined)
 
   const showToast = useCallback((message: string) => {
     setToast(message)
@@ -37,11 +47,37 @@ export default function App() {
 
   const handleExport = useCallback(() => {
     const total = Object.values(rowsByProduct).reduce((sum, rows) => sum + rows.length, 0)
+    const exportedAt = new Date()
+
+    window.clearTimeout(exportTimer.current)
+    setExportState({
+      lastExportAt: exportedAt,
+      status: 'pending',
+      canUndo: false,
+      rowCount: total,
+    })
+
     showToast(
       `Prepared ${total} rows across TKP, TCP, AGM and Y&Q for export — mock action ` +
         `(${APP_ENV}). Nothing was sent to the backend.`,
     )
+
+    // Simulate a short processing window, then show a reassuring processed state.
+    exportTimer.current = window.setTimeout(() => {
+      setExportState({
+        lastExportAt: exportedAt,
+        status: 'processed',
+        canUndo: true,
+        rowCount: total,
+      })
+    }, 1100)
   }, [rowsByProduct, showToast])
+
+  const handleUndo = useCallback(() => {
+    window.clearTimeout(exportTimer.current)
+    setExportState(INITIAL_EXPORT_STATE)
+    showToast('Last merge undone — mock action. No backend call was made.')
+  }, [showToast])
 
   return (
     <div className={styles.page}>
@@ -61,9 +97,11 @@ export default function App() {
         ))}
       </section>
 
-      <button type="button" className={styles.exportBtn} onClick={handleExport}>
-        Export All Changes
-      </button>
+      <ExportActionBar
+        exportState={exportState}
+        onExport={handleExport}
+        onUndo={handleUndo}
+      />
 
       <Toast message={toast} onDismiss={() => setToast(null)} />
     </div>
