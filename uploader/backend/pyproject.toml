@@ -1,0 +1,19 @@
+[project]
+name = "glenn-daily-uploader-backend"
+version = "0.1.0"
+description = "Backend-only API for daily TKP/TCP/AGM/Y&Q value entry (sandbox-first, dry-run export)."
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.110,<1.0",
+    "uvicorn[standard]>=0.29,<1.0",
+    "pydantic>=2.6,<3.0",
+    "pydantic-settings>=2.2,<3.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0,<9.0", "httpx>=0.27,<1.0"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# -p no:cacheprovider avoids a WinError 5 when writing .pytest_cache on this box.
+addopts = "-q -p no:cacheprovider"
