@@ -48,6 +48,7 @@ inside each launcher.
 | Launcher | Interpreter | Env | Runs | Port | Role |
 |---|---|---|---|---|---|
 | `reboot_tkp_ts.bat` | `.venv310` activate + `python` | none | `tkp_ts.py` | 8301 | Production TKP |
+| `reboot_tkp_ts.ps1` | `.venv310\Scripts\python.exe` | parses `.tkp_production.env` (sets `TKP_*` secrets), `PYTHONIOENCODING=utf-8` | `tkp_ts.py` | 8301 | TKP launcher variant that loads the production env file (tracked since the git-hygiene PR) |
 | `reboot_tcp_ts.bat` | shim → PowerShell | — | `reboot_tcp_ts.ps1` | — | Production TCP entry (name is load-bearing, see below) |
 | `reboot_tcp_ts.ps1` | `.venv310\Scripts\python.exe` | parses `.tcp_production.env` (sets `TCP_V2_*`), `PYTHONIOENCODING=utf-8` | `tcp_ts_v2.py` | 8302 | Production TCP v2 |
 | `reboot_tcp_ts_v2.bat` | `.venv310` activate + `python` | `PYTHONIOENCODING=utf-8` only | `tcp_ts_v2.py` | 8312 | TCP v2 **preview** (explicitly does not affect 8302) |
@@ -164,14 +165,25 @@ state — apps start "fresh" rather than erroring.
 | `tcp_alex.xlsx` (external), TKP VADI workbook, logo PNGs, `yq.png` | Source workbooks / images | **Absolute `C:\...` paths** in source (`TCP_V2_WORKBOOK_PATH` is the only env-overridable one) | Tied to this machine/user profile |
 | `yq.csv` / `yq.xlsx`, `Trade_Results*.csv`, `trades.xlsx`, `blue_whale_data*.csv` | Y&Q / tsgen / utility inputs | Repo root, some read at import time | Gitignored (blanket `*.csv`/`*.xlsx`) — present locally only |
 
-Known untracked-but-load-bearing local files (observed 2026-07-09; candidates for the
-"git hygiene" PR): `reboot_tkp_ts.ps1`, `reboot_tcp_ts.bat.bak-20260704-cutover`,
-`tcp_ts_runtime_launch.py` (a divergent local fork of `tcp_ts.py` pointing at a
-`_runtime` workbook snapshot; not used by any launcher),
-`docs/tcp_production_cutover_runbook.md`, `docs/tcp_production_rollback_runbook.md`,
+Git hygiene status (2026-07-09): the previously untracked load-bearing files are now
+tracked — `reboot_tkp_ts.ps1`, the TCP cutover/rollback runbooks and
 `docs/tcp_release_checklist.md`, `TCP v2 Implementation Plan.md`,
-`scripts/tcp_cutover_preflight.py`, `scripts/preflight_tcp_cutover.py`,
-`scripts/agm_merge_audit_smoke.py`, and three `tests/test_tcp_*.py` files.
+`scripts/tcp_cutover_preflight.py`, `scripts/preflight_tcp_cutover.py`, and the three
+previously local `tests/test_tcp_*.py` files. Deliberately still untracked on the
+ops machine:
+
+- `tcp_ts_runtime_launch.py` — **QUARANTINED**: a divergent local fork of `tcp_ts.py`
+  whose only differences are a `_runtime\tcp_alex_runtime.xlsx` workbook path and one
+  omitted gate parameter. Not used by any launcher. Do not wire it in; prefer
+  deleting it once operators confirm the local-snapshot workbook fallback is never
+  needed.
+- `scripts/agm_merge_audit_smoke.py` — point-in-time AGM merge audit with hardcoded
+  expectations (row count / latest date / NLV); goes stale with every trading day.
+  Scratch only — do not commit as-is.
+- `reboot_tcp_ts.bat.bak-20260704-cutover` — operator backup of the pre-cutover v1
+  launcher. Redundant with git history (the rollback runbook restores the committed
+  version); kept locally as a convenience copy.
+- All runtime state/data/env files listed in the table above (gitignored).
 
 ## 6. Tests and smoke scripts
 
@@ -198,10 +210,10 @@ Known untracked-but-load-bearing local files (observed 2026-07-09; candidates fo
   clones). AGM tests require the force-tracked CSVs (present in a clean checkout) and
   degrade if the gitignored fee workbook is missing.
 - `scripts/` (tracked): `seed_tcp_state.py`, `tcp_acceptance.py`,
-  `audit_tcp_acceptance.py`, `audit_tcp_public_ui.py`, `_v1_baseline_worker.py`.
-  Untracked ops-machine scripts: `tcp_cutover_preflight.py`,
-  `preflight_tcp_cutover.py`, `agm_merge_audit_smoke.py` (hardcodes expected row
-  counts/dates — goes stale daily).
+  `audit_tcp_acceptance.py`, `audit_tcp_public_ui.py`, `_v1_baseline_worker.py`, and
+  (since the git-hygiene PR) `tcp_cutover_preflight.py` + `preflight_tcp_cutover.py`.
+  Untracked ops-machine script: `agm_merge_audit_smoke.py` (hardcodes expected row
+  counts/dates — goes stale daily; scratch only).
 - Known broken/stale: `run_all_services.bat` (missing target), the old
   `Momentum Pacer/README.md` content (corrected in this PR), root-level ad-hoc
   scripts (`spx_data_test.py`, `test_read_excel.py`) that sit outside `tests/`.
@@ -240,7 +252,7 @@ layout-enforcing tests in the same PR as the move; a green pre/post smoke run.
 | Stage | Content | Behavior change |
 |---|---|---|
 | **PR 1 (this)** | `docs/REPO_MAP.md`, README refresh, Momentum Pacer README correction | None (docs only) |
-| PR 2 | Git hygiene: commit untracked load-bearing files (launcher `.ps1`, cutover/rollback runbooks, preflight scripts + tests); document/quarantine `tcp_ts_runtime_launch.py` and `run_all_services.bat` | None |
+| **PR 2 (done)** | Git hygiene: commit untracked load-bearing files (launcher `.ps1`, cutover/rollback runbooks, preflight scripts + tests); document/quarantine `tcp_ts_runtime_launch.py` and `run_all_services.bat` | None |
 | PR 3 | Safety net: `pytest.ini`, a smoke script (import-boot checks for TKP/TCP/AGM/Y&Q), first minimal tests for `yq_ts`/`tsgen` | None |
 | PR 4+ | Compatibility anchors before any moves: explicit `assets_folder` everywhere, `__file__`-anchored `_runtime` default, root import shims when a shared module first moves | None (verified by tests) |
 | Later | Program moves only if a concrete need forces them — one program per PR, launcher + state-path + test updates in the same PR | Zero intended |
