@@ -65,6 +65,17 @@ Then open:
 > Note: this backend does **not** bind any of the protected tearsheet ports
 > (8301/8302/8303/8304 etc.). Pick a free port such as **8090**.
 
+### Future public URLs
+
+| Environment | Frontend | Backend API |
+| ----------- | -------- | ----------- |
+| Sandbox     | `https://uploader-sandbox.hcresearch.ltd` | `https://uploader-sandbox.hcresearch.ltd/api` |
+| Production  | `https://uploader.hcresearch.ltd` | `https://uploader.hcresearch.ltd/api` |
+
+Local dev keeps `http://localhost:5173` (frontend) and `http://localhost:8090` (backend).
+Configure `CORS_ALLOW_ORIGINS` in `.env` to include both local and public frontend
+origins when deploying (see `.env.example`).
+
 ---
 
 ## Configuration
@@ -78,7 +89,7 @@ All config is environment-driven (loaded from `.env` if present). See
 | `EXPORT_ENABLED`     | `false`                         | Master switch for real exports (still never called in v1)      |
 | `DATABASE_PATH`      | `data/uploader_sandbox.db`      | Local SQLite file                                              |
 | `ADMIN_API_TOKEN`    | *(empty)*                       | Bearer token required for mutations in production              |
-| `CORS_ALLOW_ORIGINS` | `localhost:3000,5173,127.:5173` | Comma-separated allowed frontend origins                       |
+| `CORS_ALLOW_ORIGINS` | local dev + `uploader-*.hcresearch.ltd` | Comma-separated allowed frontend origins (see `.env.example`) |
 | `EXPORT_URL_{TKP,TCP,AGM,YQ}` | *(empty)*              | **Future** export targets — surfaced in preview, never called  |
 
 ---
