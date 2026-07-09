@@ -187,11 +187,25 @@ ops machine:
 
 ## 6. Tests and smoke scripts
 
-- `tests/` holds ~56 test files (~1,080 tests). Coverage by program: TCP (largest by
-  far), AGM, Algominds v2, shared gate/date modules, TKP (small). **Zero coverage:**
-  `yq_ts.py`, `Gold_Maker_ts.py`, `tsgen.py`.
-- **No `pytest.ini`/`pyproject.toml` exists.** The suite must be run from the repo
-  root as `.venv310\Scripts\python.exe -m pytest tests/<files> -q` (the `-m` form puts
+- `tests/` holds ~58 test files (~1,090 tests). Coverage by program: TCP (largest by
+  far), AGM, Algominds v2, shared gate/date modules, TKP (small). Since the
+  smoke-harness PR, `yq_ts.py` and `tsgen.py` have first minimal smoke coverage
+  (`test_yq_smoke.py`, `test_tsgen_smoke.py` — import/app/layout/data checks that
+  skip explicitly when machine-local data is absent). `Gold_Maker_ts.py` is still
+  covered only by the subprocess smoke harness below, and no test exercises its
+  behavior.
+- **Smoke harness:** `scripts/smoke_all.py` imports every app (TKP, TCP v2, AGM,
+  Y&Q, tsgen, Gold Maker) in its own subprocess — no servers started, purity
+  constraints respected, missing machine-local data reported as SKIP, transient
+  yfinance failures retried. Run from the repo root:
+  `.venv310\Scripts\python.exe scripts\smoke_all.py` (exit 0 = no failures).
+  Use it before/after any refactor stage as the fleet-wide boot check.
+- **`pytest.ini` exists** (since the smoke-harness PR): `testpaths = tests` keeps a
+  bare `pytest` invocation from collecting root-level ad-hoc scripts (e.g.
+  `test_read_excel.py`, which reads a machine-local workbook at import), and it
+  registers the `local_workbook`/`smoke` markers. Invocation guidance is
+  unchanged: run from the repo root as
+  `.venv310\Scripts\python.exe -m pytest tests/<files> -q` (the `-m` form puts
   the repo root on `sys.path`; `tests/conftest.py` adds `Momentum Pacer/`).
 - **Do not run the whole `tests/` directory in one process.** Purity tests assert
   `tkp_ts`/`tcp_ts` are absent from `sys.modules`, and any earlier test file that
@@ -214,9 +228,16 @@ ops machine:
   (since the git-hygiene PR) `tcp_cutover_preflight.py` + `preflight_tcp_cutover.py`.
   Untracked ops-machine script: `agm_merge_audit_smoke.py` (hardcodes expected row
   counts/dates — goes stale daily; scratch only).
-- Known broken/stale: `run_all_services.bat` (missing target), the old
-  `Momentum Pacer/README.md` content (corrected in this PR), root-level ad-hoc
+- Known broken/stale: `run_all_services.bat` (missing target), root-level ad-hoc
   scripts (`spx_data_test.py`, `test_read_excel.py`) that sit outside `tests/`.
+- **Known-red on `main` (pre-existing, NOT regressions — verified 2026-07-09):**
+  `test_tcp_foundation.py::test_no_production_module_imports` fails for 8 files
+  that import `tkp_ts`/`tcp_ts` inside test bodies (7 legacy files plus
+  `test_tearsheet_runtime_mode.py:163`, which arrived already-red in PR #19), and
+  `test_tcp_foundation.py::test_optional_local_workbook_matches_fixture` fails on
+  local workbook drift vs the golden fixture. Expect "9 failed" when running
+  `test_tcp_foundation.py` on the ops machine; only NEW failures beyond these
+  indicate a real problem.
 - Windows quirk: pytest `tmp_path` can hit `PermissionError` on the default
   `%TEMP%\pytest-of-...` dir — point `TMP`/`TEMP` at a writable directory first.
 
@@ -253,7 +274,7 @@ layout-enforcing tests in the same PR as the move; a green pre/post smoke run.
 |---|---|---|
 | **PR 1 (this)** | `docs/REPO_MAP.md`, README refresh, Momentum Pacer README correction | None (docs only) |
 | **PR 2 (done)** | Git hygiene: commit untracked load-bearing files (launcher `.ps1`, cutover/rollback runbooks, preflight scripts + tests); document/quarantine `tcp_ts_runtime_launch.py` and `run_all_services.bat` | None |
-| PR 3 | Safety net: `pytest.ini`, a smoke script (import-boot checks for TKP/TCP/AGM/Y&Q), first minimal tests for `yq_ts`/`tsgen` | None |
+| **PR 3 (done)** | Safety net: `pytest.ini`, `scripts/smoke_all.py` (subprocess import-boot checks for all six apps), first minimal tests for `yq_ts`/`tsgen` | None |
 | PR 4+ | Compatibility anchors before any moves: explicit `assets_folder` everywhere, `__file__`-anchored `_runtime` default, root import shims when a shared module first moves | None (verified by tests) |
 | Later | Program moves only if a concrete need forces them — one program per PR, launcher + state-path + test updates in the same PR | Zero intended |
 | Future | **Glenn Daily Entry Hub** — additive package (per-program daily-entry contracts: Date, NLV, Cash Transfer; Fee for AGM only). Explicitly **not** part of these PRs | New feature, additive only |
