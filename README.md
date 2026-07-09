@@ -47,6 +47,13 @@ Run from the repo root, per-file (not the whole directory in one process — see
 .venv310\Scripts\python.exe -m pytest tests/test_tcp_foundation.py -q
 ```
 
+Fleet-wide boot check (imports every app in an isolated subprocess; no servers
+started, missing machine-local data reported as SKIP):
+
+```
+.venv310\Scripts\python.exe scripts\smoke_all.py
+```
+
 ## Other contents
 
 - `assets/` — shared stylesheet served by every app
