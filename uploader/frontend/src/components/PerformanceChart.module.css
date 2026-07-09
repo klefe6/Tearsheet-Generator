@@ -1,0 +1,167 @@
+.card {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 22px 22px 12px;
+}
+
+.head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.heading {
+  min-width: 0;
+}
+
+.title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.2px;
+  color: var(--ink);
+}
+
+.subtitle {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--ink-secondary);
+}
+
+/* Date-range pill (top-right of the chart card). */
+.rangePill {
+  display: inline-flex;
+  padding: 3px;
+  background: #f1f3f6;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  flex: none;
+}
+
+.rangeBtn {
+  border: none;
+  background: transparent;
+  color: var(--ink-secondary);
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 5px 13px;
+  border-radius: var(--radius-pill);
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.rangeBtn:hover {
+  color: var(--ink);
+}
+
+.rangeBtnActive {
+  background: var(--card-bg);
+  color: var(--ink);
+  box-shadow: var(--shadow-sm);
+}
+
+/* Legend */
+.legend {
+  list-style: none;
+  margin: 16px 0 6px;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+}
+
+.legendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: none;
+  background: transparent;
+  padding: 3px 4px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink-secondary);
+  border-radius: 6px;
+  transition: opacity 0.12s ease, color 0.12s ease;
+}
+
+.legendItem:hover {
+  color: var(--ink);
+}
+
+.legendOff {
+  opacity: 0.4;
+}
+
+.swatch {
+  width: 16px;
+  height: 4px;
+  border-radius: 2px;
+  flex: none;
+}
+
+.chartWrap {
+  width: 100%;
+  height: 360px;
+  margin-top: 6px;
+}
+
+/* Tooltip */
+.tooltip {
+  background: rgba(255, 255, 255, 0.98);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+  padding: 10px 12px;
+  min-width: 168px;
+}
+
+.tooltipDate {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink);
+  margin-bottom: 7px;
+}
+
+.tooltipList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tooltipRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.tooltipDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.tooltipName {
+  color: var(--ink-secondary);
+  min-width: 34px;
+}
+
+.tooltipVal {
+  margin-left: auto;
+  color: var(--ink);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 720px) {
+  .chartWrap {
+    height: 300px;
+  }
+}

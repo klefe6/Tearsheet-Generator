@@ -1,0 +1,47 @@
+.header {
+  padding: 4px 2px 0;
+}
+
+.titleRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.title {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.4px;
+  color: var(--ink);
+}
+
+.subtitle {
+  margin: 6px 0 0;
+  font-size: 14.5px;
+  color: var(--ink-secondary);
+}
+
+.envBadge {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 10px;
+  border-radius: var(--radius-pill);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+}
+
+.sandbox {
+  background: #eef1f5;
+  color: #5b6470;
+  border: 1px solid var(--border);
+}
+
+.prod {
+  background: #e7f6ee;
+  color: #0b7a43;
+  border: 1px solid #bfe6d0;
+}
