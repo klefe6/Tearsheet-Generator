@@ -1,9 +1,9 @@
 # Momentum Pacer (AGM) — Tearsheet
 
-**CTA:** Algominds Financial LLC
-**Program:** Momentum Pacer
-**App file:** `mp_ts.py`
-**Port:** 8304 (host `127.0.0.1`; override with `AGM_BIND_PORT`)
+- **CTA:** Algominds Financial LLC
+- **Program:** Momentum Pacer
+- **App file:** `mp_ts.py`
+- **Port:** 8304 (host `127.0.0.1`; override with `AGM_BIND_PORT`)
 
 > This README was rewritten 2026-07-09 to match the actual app. The previous version
 > described an older `calc_engine.py`/CSV template design (port 8079) that is no
@@ -55,4 +55,4 @@ requires an elevated session.
   monthly display comes from `../algominds_monthly_summary.py` and
   `../algominds_monthly_stats.py`. `/monthly` deliberately returns 404.
 - Tests: `../tests/test_agm_*.py`, run from the repo root, e.g.
-  `..\.venv310\Scripts\python.exe -m pytest tests/test_agm_password_gate.py -q`.
+  `.venv310\Scripts\python.exe -m pytest tests/test_agm_password_gate.py -q`.

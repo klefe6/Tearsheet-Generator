@@ -23,8 +23,9 @@ them) — do not rename or repurpose them casually.
 
 ## Setup
 
-1. Python 3.10 virtualenv at `.venv310` (most launchers activate it; AGM and Y&Q
-   launchers use the `python` on PATH):
+1. Python 3.10 virtualenv at `.venv310` (the TKP/TCP/Gold Maker launchers use it;
+   the AGM and Y&Q launchers use the `python` on PATH, and `run_tsgen*.bat`
+   hardcodes the system Python — see the repo map's launcher table):
    ```
    pip install -r requirements.txt
    ```

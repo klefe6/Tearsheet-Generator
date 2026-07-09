@@ -136,7 +136,9 @@ imports any of it; active development happens in `.worktrees/` branches (draft P
   `tearsheet_portal.py`).
 - Root-level apps rely on **Dash's default assets convention**: Dash serves the
   `assets/` directory **relative to the app file's own directory** (not the cwd).
-  They also list `"/assets/styles.css"` in `external_stylesheets`.
+  `tkp_ts`, `tcp_ts`, `tcp_ts_v2`, and `yq_ts` additionally list
+  `"/assets/styles.css"` in `external_stylesheets`; `Gold_Maker_ts` and `tsgen` use
+  Bootstrap only.
 - `mp_ts.py` must pass an **explicit** `assets_folder=<repo root>/assets` because
   `Momentum Pacer/` has no assets dir of its own — without it the gate CSS 404s.
   Any app moved out of the root in the future needs the same treatment.
