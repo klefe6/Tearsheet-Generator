@@ -23,6 +23,40 @@ from typing import Any, Iterator, Optional
 
 from .programs import DATA_COLUMNS
 
+# Tables and columns the running app requires. Used by verify_schema() so a
+# stale/partial SQLite file (e.g. from an older build) fails fast with a
+# clear message instead of opaque 500s on row/performance routes.
+_REQUIRED_SCHEMA: dict[str, set[str]] = {
+    "daily_rows": {
+        "id",
+        "program",
+        "date",
+        "stonex_nlv",
+        "plus500_nlv",
+        "tradestation_nlv",
+        "cash_transfer",
+        "fee",
+        "exported",
+        "created_at",
+        "updated_at",
+    },
+    "audit_events": {"id", "ts", "action", "program", "date", "detail", "actor"},
+    "export_batches": {
+        "id",
+        "ts",
+        "app_env",
+        "export_enabled",
+        "dry_run",
+        "row_count",
+        "payload",
+    },
+}
+
+
+class SchemaError(RuntimeError):
+    """Raised when the SQLite file exists but does not match the expected schema."""
+
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS daily_rows (
     id                INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -90,6 +124,43 @@ class Database:
     def init_schema(self) -> None:
         with self.connect() as conn:
             conn.executescript(_SCHEMA)
+
+    def verify_schema(self) -> None:
+        """Ensure every required table exists with the expected columns.
+
+        Raises SchemaError with an actionable message when the on-disk file is
+        from an older build or is corrupt — the usual cause of /api/rows/*
+        returning 500 while /health still returns 200.
+        """
+        if self.path == ":memory:":
+            return
+
+        db_file = Path(self.path).expanduser()
+        if not db_file.exists():
+            return  # init_schema() will create a fresh file on first write
+
+        with self.connect() as conn:
+            for table, required_cols in _REQUIRED_SCHEMA.items():
+                row = conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+                    (table,),
+                ).fetchone()
+                if row is None:
+                    raise SchemaError(
+                        f"SQLite database at {db_file} is missing table '{table}'. "
+                        "Run: python scripts/reset_local_db.py --confirm"
+                    )
+                actual = {
+                    r["name"]
+                    for r in conn.execute(f"PRAGMA table_info({table})").fetchall()
+                }
+                missing = required_cols - actual
+                if missing:
+                    raise SchemaError(
+                        f"SQLite database at {db_file} has outdated schema on "
+                        f"'{table}' (missing columns: {sorted(missing)}). "
+                        "Run: python scripts/reset_local_db.py --confirm"
+                    )
 
     # --- daily_rows -------------------------------------------------------
     def upsert_row(self, program: str, data: dict, actor: str) -> tuple[dict, bool]:

@@ -45,7 +45,8 @@ class Settings(BaseSettings):
 
     # CORS_ALLOW_ORIGINS: comma-separated list of allowed frontend origins.
     cors_allow_origins: str = (
-        "http://localhost:3000,http://localhost:5173,http://127.0.0.1:5173"
+        "http://localhost:3000,http://localhost:5173,http://127.0.0.1:5173,"
+        "https://uploader-sandbox.hcresearch.ltd,https://uploader.hcresearch.ltd"
     )
 
     # --- Future export targets (NOT called yet) ---------------------------
@@ -81,6 +82,13 @@ class Settings(BaseSettings):
     # Bearer token this backend sends WHEN calling a real production
     # downstream endpoint (does not exist yet). Never defaulted on.
     downstream_api_token: Optional[str] = None
+
+    # --- Benchmark market cache (SPX / NDX / BTC) -------------------------
+    benchmark_cache_dir: str = "data/benchmark_cache"
+    # When true, never call yfinance — cache files only (tests / air-gapped).
+    benchmark_cache_only: bool = False
+    # Test-only: allow deterministic_fixture (never enable in production).
+    benchmark_allow_fixture: bool = False
 
     # --- Derived helpers --------------------------------------------------
     @property
