@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   deleteLastRow,
+  fetchDisplayRows,
   fetchProgramMetadata,
   fetchProgramRows,
   postExportAll,
   postRow,
+  type ApiDisplayRowsResponse,
 } from './api/client'
 import { ExportActionBar } from './components/ExportActionBar'
 import { PageHeader } from './components/PageHeader'
@@ -37,6 +39,12 @@ export default function App() {
   const [products, setProducts] = useState<ProductConfig[]>(PRODUCTS)
   const [rowsByProduct, setRowsByProduct] =
     useState<Record<ProductId, ProductRow[]>>(INITIAL_ROWS)
+  // Bottom-table data: latest merged manual + labeled backfilled rows from
+  // GET /api/display-rows. null = backend unreachable — the card falls back
+  // to rendering the local manual rows exactly as before this feature.
+  const [displayByProduct, setDisplayByProduct] = useState<
+    Record<ProductId, ApiDisplayRowsResponse | null>
+  >({ TKP: null, TCP: null, AGM: null, YQ: null })
   const [exportState, setExportState] = useState<ExportUiState>(INITIAL_EXPORT_STATE)
   const [toast, setToast] = useState<string | null>(null)
   // Bumped after a backend-confirmed Enter/Delete/Export so the chart
@@ -69,6 +77,23 @@ export default function App() {
       cancelled = true
     }
   }, [])
+
+  // Refresh the display tables (all programs, or just one after a mutation).
+  const refreshDisplayRows = useCallback(async (productId?: ProductId) => {
+    const targets = productId ? [productId] : PRODUCTS.map((p) => p.id)
+    const results = await Promise.all(
+      targets.map(async (id) => ({ id, data: await fetchDisplayRows(id, 7) })),
+    )
+    setDisplayByProduct((prev) => {
+      const next = { ...prev }
+      for (const r of results) if (r.data) next[r.id] = r.data
+      return next
+    })
+  }, [])
+
+  useEffect(() => {
+    refreshDisplayRows()
+  }, [refreshDisplayRows])
 
   // Best-effort initial rows load, per program, in parallel. Same
   // graceful-fallback shape as the metadata fetch above: a program whose
@@ -112,6 +137,7 @@ export default function App() {
             ? fresh.rows.map((r) => fromApiRow(config, r))
             : [...prev[productId], row],
         }))
+        refreshDisplayRows(productId)
         setPerfRefreshToken((t) => t + 1)
         return
       }
@@ -127,7 +153,7 @@ export default function App() {
           : `HTTP ${result.status}`
       showToast(`Could not save this ${config.code} row — ${detail}`)
     },
-    [showToast],
+    [showToast, refreshDisplayRows],
   )
 
   // Delete Last Row: try the real backend first (DELETE .../last); fall back
@@ -146,6 +172,7 @@ export default function App() {
           ? fresh.rows.map((r) => fromApiRow(config, r))
           : prev[productId].slice(0, -1),
       }))
+      refreshDisplayRows(productId)
       setPerfRefreshToken((t) => t + 1)
       return
     }
@@ -153,7 +180,7 @@ export default function App() {
     setRowsByProduct((prev) =>
       prev[productId].length === 0 ? prev : { ...prev, [productId]: prev[productId].slice(0, -1) },
     )
-  }, [])
+  }, [refreshDisplayRows])
 
   // Export All Changes: try the real backend's own dry-run-safe preview
   // (POST /api/export/all — that endpoint guarantees it never calls the four
@@ -228,6 +255,7 @@ export default function App() {
               key={config.id}
               config={config}
               rows={rowsByProduct[config.id]}
+              displayData={displayByProduct[config.id]}
               onAddRow={handleAddRow}
               onDeleteLast={handleDeleteLast}
               dateStepSignal={dateStepSignal}
@@ -245,6 +273,11 @@ export default function App() {
           +
         </button>
       </div>
+
+      <p className={styles.tablesNote} role="note">
+        Latest values include historical backfill where available. Export All
+        only includes rows manually entered in the uploader.
+      </p>
 
       <ExportActionBar
         exportState={exportState}

@@ -34,10 +34,36 @@ scripts/extract_tearsheet_history.py  ──JSON──▶ POST /api/backfill/imp
 
 | Program | Store | Maps to | Coverage |
 | ------- | ----- | ------- | -------- |
-| TKP | `<repo>/daily_returns_secret_state.json` (`Date`/`StoneX`/`Plus500`/`Deposit`, $-strings) | stonex_nlv, plus500_nlv, cash_transfer | 837 rows, 2023-04-10 → 2026-07-09 |
+| TKP | `<repo>/daily_returns_secret_state.json` — the **`NAV`** column (equity curve), NOT raw StoneX/Plus500 balances (see TKP decision below) | stonex_nlv = `NAV`, plus500_nlv = 0, cash_transfer = 0 | 837 rows, 2023-04-10 → 2026-07-09 |
 | TCP | LIVE state file from `TCP_V2_STATE_PATH` in `<repo>/.tcp_production.env` — the repo-root file of the same name is a **stale seed**, never used by default. **Gated**: skipped unless `BACKFILL_TCP_NLV_FIELD=nav-x1` | stonex_nlv = `nav-x1`, cash_transfer = 0 (see TCP decision below) | 121 rows, 2026-01-20 → 2026-07-07 |
 | AGM | newest `<repo>/Momentum Pacer/data/daily_balances/balances_210TGG51_*.csv` (`Net Worth` = raw actual_nlv, **not** the client-net value the tearsheet shows) | tradestation_nlv, cash_transfer (evidenced fee withdrawals only) | 184 rows, 2025-10-20 → 2026-07-06 |
 | Y&Q | `yq.csv` is **monthly** (2011-04 →), at real-fund ~$89M scale, while the tearsheet renders a $100k-normalized ROR curve | **no daily source — always skipped** | — |
+
+### TKP decision: the `NAV` equity curve, never raw balances (traced 2026-07-10)
+
+The TKP tearsheet graphs the workbook's NAV column (renamed `nav-x1` in
+`tkp_ts.py`), and the app explicitly neutralizes transfers on it —
+`_apply_cash_transfer_adjustment` adds withdrawals back / removes deposits
+from the transfer date onward (`AUTO_DETECT_CASH_TRANSFERS = True`). The
+state JSON's own `NAV` column embodies exactly that concept:
+
+```
+NAV(t) = 150,000 × (1 + "Cumm Perc. Net"(t))     # verified to the cent, all 837 rows
+```
+
+— cumulative NET performance, seeded $150k, smooth through every
+deposit/withdrawal date (e.g. 2025-10-29's −$100k day: NAV +0.009%).
+
+Raw `StoneX + Plus500` balances are **rejected** because the state's
+`Deposit` ledger is provably incomplete: on **2026-03-05 both accounts
+dropped ~$25k each (−$49,915.58 combined) while `Deposit` recorded only
+−$25,000**, and the 2025-03-11 Plus500 $100k funding had a blank `Deposit`
+cell entirely. No neutralization built on that ledger can be trusted, so the
+first backfill (raw balances + recorded/synthesized transfers) showed fake
+drops on withdrawal days. Backfilled TKP rows carry `stonex_nlv = NAV`,
+`plus500_nlv = 0`, `cash_transfer = 0` (NAV is already neutral); the
+uploader's $100k line telescopes to `100000 × NAV(t)/NAV(first)` — a
+faithful rescaling of TKP's own equity curve.
 
 ### TCP decision: `nav-x1`, never raw `NLV` (traced 2026-07-10)
 
@@ -64,11 +90,6 @@ explicitly (no other value is accepted).
 
 ### Data-correctness rules baked into the extractor
 
-* **TKP unrecorded Plus500 funding**: on 2025-03-11 Plus500 went blank → $100,000
-  with a blank `Deposit` cell. Without correction that day would chart as a fake
-  +82.6% return. On a 0→V (or V→0) Plus500 transition with no recorded deposit,
-  the extractor synthesizes the cash transfer and **warns loudly**. Recorded
-  deposits are never altered.
 * **AGM evidenced fee withdrawals**: the two hand-confirmed TradeStation
   incentive-fee withdrawals (2026-05-14 $2,967.85, 2026-06-23 $1,330.25) are
   applied as negative cash transfers, parsed **textually** from

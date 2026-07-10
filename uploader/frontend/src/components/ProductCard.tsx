@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from 'react'
+import type { ApiDisplayRowsResponse } from '../api/client'
 import { MAX_PRODUCT_FIELD_COUNT } from '../config/products'
 import type { ProductConfig, ProductId, ProductRow } from '../types'
 import { makeRowId } from '../data/rows'
@@ -14,6 +15,9 @@ export interface DateStepSignal {
 interface Props {
   config: ProductConfig
   rows: ProductRow[]
+  /** Latest merged manual + backfilled rows (GET /api/display-rows). null =
+   *  backend unreachable — the table falls back to the local manual rows. */
+  displayData?: ApiDisplayRowsResponse | null
   onAddRow: (productId: ProductId, row: ProductRow) => void
   onDeleteLast: (productId: ProductId) => void
   /** Shifts this card's current date input by ±1 day; local form state only. */
@@ -262,7 +266,14 @@ function CardGlyph() {
   )
 }
 
-export function ProductCard({ config, rows, onAddRow, onDeleteLast, dateStepSignal }: Props) {
+export function ProductCard({
+  config,
+  rows,
+  displayData = null,
+  onAddRow,
+  onDeleteLast,
+  dateStepSignal,
+}: Props) {
   const [form, setForm] = useState<FormState>(() => initialForm(config))
 
   const update = (key: string, value: string) =>
@@ -386,45 +397,107 @@ export function ProductCard({ config, rows, onAddRow, onDeleteLast, dateStepSign
       </form>
 
       <div className={styles.tableWrap}>
-        <table className={styles.table}>
-          <thead>
-            <tr>
-              {config.columns.map((col) => (
-                <th
-                  key={col.key}
-                  className={col.format === 'currency' ? styles.num : undefined}
-                >
-                  {col.label}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {visibleRows.length === 0 ? (
+        {displayData ? (
+          <DisplayRowsTable config={config} data={displayData} />
+        ) : (
+          <table className={styles.table}>
+            <thead>
               <tr>
-                <td className={styles.empty} colSpan={config.columns.length}>
-                  No rows yet
-                </td>
+                {config.columns.map((col) => (
+                  <th
+                    key={col.key}
+                    className={col.format === 'currency' ? styles.num : undefined}
+                  >
+                    {col.label}
+                  </th>
+                ))}
               </tr>
-            ) : (
-              visibleRows.map((row) => (
-                <tr key={row.id}>
-                  {config.columns.map((col) => (
-                    <td
-                      key={col.key}
-                      className={col.format === 'currency' ? styles.num : undefined}
-                    >
-                      {col.format === 'date'
-                        ? formatShortDate(String(row[col.key]))
-                        : formatCurrency(row[col.key])}
-                    </td>
-                  ))}
+            </thead>
+            <tbody>
+              {visibleRows.length === 0 ? (
+                <tr>
+                  <td className={styles.empty} colSpan={config.columns.length}>
+                    No rows yet
+                  </td>
                 </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+              ) : (
+                visibleRows.map((row) => (
+                  <tr key={row.id}>
+                    {config.columns.map((col) => (
+                      <td
+                        key={col.key}
+                        className={col.format === 'currency' ? styles.num : undefined}
+                      >
+                        {col.format === 'date'
+                          ? formatShortDate(String(row[col.key]))
+                          : formatCurrency(row[col.key])}
+                      </td>
+                    ))}
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        )}
       </div>
     </section>
+  )
+}
+
+/** Bottom table fed by GET /api/display-rows: latest merged values with a
+ *  per-row source badge. Display-only — Export All never reads these rows. */
+function DisplayRowsTable({
+  config,
+  data,
+}: {
+  config: ProductConfig
+  data: ApiDisplayRowsResponse
+}) {
+  const hasFee = config.fields.some((f) => f.key === 'fee')
+  const columnCount = hasFee ? 4 : 3
+  return (
+    <table className={styles.table}>
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th className={styles.num}>Value</th>
+          {hasFee && <th className={styles.num}>Fee</th>}
+          <th>Source</th>
+        </tr>
+      </thead>
+      <tbody>
+        {data.rows.length === 0 ? (
+          <tr>
+            <td className={styles.empty} colSpan={columnCount}>
+              {data.empty_reason ?? 'No rows yet'}
+            </td>
+          </tr>
+        ) : (
+          data.rows.map((row) => (
+            <tr key={row.date}>
+              <td>{formatShortDate(row.date)}</td>
+              <td className={styles.num}>
+                {row.value == null ? '—' : formatCurrency(row.value)}
+              </td>
+              {hasFee && (
+                <td className={styles.num}>
+                  {row.fee == null ? '—' : formatCurrency(row.fee)}
+                </td>
+              )}
+              <td>
+                <span
+                  className={`${styles.srcBadge} ${
+                    row.source_label === 'Manual' ? styles.srcManual : styles.srcBackfilled
+                  }`}
+                  title={row.source_detail ?? row.source_label}
+                >
+                  {row.source_label}
+                </span>
+              </td>
+            </tr>
+          ))
+        )}
+      </tbody>
+    </table>
   )
 }

@@ -33,10 +33,12 @@ from .downstream_export import run_downstream_export
 from .frontend_static import mount_frontend
 from .performance import build_combined, build_program
 from .programs import (
+    PROGRAM_FIELDS,
     PROGRAM_LABELS,
     PROGRAMS,
     normalize_program,
     program_metadata,
+    program_nlv,
     public_row,
 )
 from .security import require_actor
@@ -165,6 +167,9 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     # -- rows -------------------------------------------------------------
     @app.get("/api/rows/{program}", tags=["rows"])
     def get_rows(program: str, limit: int = Query(default=7, ge=1, le=365)) -> dict:
+        """Glenn's MANUAL entries only (daily_rows) — export/audit semantics.
+        Backfilled history is never returned here; the bottom tables use
+        GET /api/display-rows/{program} instead."""
         code = _resolve_program_or_404(program)
         rows = db.get_last_rows(code, limit)
         return {
@@ -173,6 +178,61 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
             "count": len(rows),
             "rows": [public_row(code, r) for r in rows],
         }
+
+    @app.get("/api/display-rows/{program}", tags=["rows"])
+    def get_display_rows(
+        program: str, limit: int = Query(default=7, ge=1, le=60)
+    ) -> dict:
+        """Latest merged values for the bottom tables — DISPLAY ONLY.
+
+        Includes backfilled historical rows, labeled per row via
+        ``row_source`` / ``source_label``, so Glenn sees the latest known
+        values. A manual entry always supersedes a historical row on the same
+        date. Export semantics are untouched: /api/export/all reads only
+        daily_rows, and GET /api/rows/{program} stays manual-only.
+
+        Each row carries ``value`` — the same program value the performance
+        graph uses (``program_nlv``): TKP equity-curve NAV for backfilled
+        rows (StoneX+Plus500 for manual ones), TCP nav-x1, AGM TradeStation
+        NLV. AGM ``fee`` is reported only on manual rows — the historical
+        source never provided one, so none is invented.
+        """
+        code = _resolve_program_or_404(program)
+        out = []
+        for r in db.get_display_rows(code, limit):
+            manual = r.get("row_source") == "manual"
+            item: dict[str, Any] = {
+                "date": r["date"],
+                "value": program_nlv(code, r),
+                "row_source": r.get("row_source"),
+                "source_label": "Manual" if manual else "Backfilled",
+            }
+            for f in PROGRAM_FIELDS[code]:
+                if f.name == "date":
+                    continue
+                value = r.get(f.name)
+                if f.name == "fee" and not manual:
+                    value = None  # never invent a historical fee
+                item[f.name] = value
+            if not manual and r.get("source_detail"):
+                item["source_detail"] = r["source_detail"]
+            out.append(item)
+
+        resp: dict[str, Any] = {
+            "program": code,
+            "label": PROGRAM_LABELS[code],
+            "count": len(out),
+            "rows": out,
+            "display_note": (
+                "Latest values include historical backfill where available."
+            ),
+            "export_note": (
+                "Export All only includes rows manually entered in the uploader."
+            ),
+        }
+        if code == "YQ" and not out:
+            resp["empty_reason"] = "No daily Y&Q source available."
+        return resp
 
     @app.post("/api/rows/{program}", tags=["rows"])
     def upsert_row(
