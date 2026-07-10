@@ -54,12 +54,14 @@ from tcp_config import (
     AdminAuthSettings,
     TCPConfig,
     is_production_runtime,
+    is_staff_runtime,
     load_admin_auth_settings,
     load_config,
     resolve_benchmark_cache_path,
     resolve_bind_port,
     resolve_page_title,
     resolve_state_paths,
+    show_preview_branding,
     validate_bind_port,
     validate_config,
 )
@@ -152,7 +154,7 @@ from tcp_daily_values import (
     sort_rows_for_display,
 )
 from tcp_state import StatePaths
-from tearsheet_local_admin import is_local_direct_admin_request
+from tearsheet_local_admin import is_direct_admin_request
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("tcp_ts_v2")
@@ -297,7 +299,8 @@ def _mobile_label_children(header: str, date_line: str) -> List[Any]:
 
 def build_error_layout(cfg: TCPConfig, state: PreviewState) -> html.Div:
     message = state.error or "Unknown runtime error"
-    production_runtime = is_production_runtime(cfg)
+    # Staff/admin runtime shows production-style branding (it serves real data).
+    production_runtime = not show_preview_branding(cfg)
     banner = (
         []
         if production_runtime
@@ -462,7 +465,8 @@ def build_preview_layout(cfg: TCPConfig, state: PreviewState, benchmark_result: 
         id="tcp-performance-metrics-card",
     )
 
-    production_runtime = is_production_runtime(cfg)
+    # Staff/admin runtime shows production-style branding (no preview banner).
+    production_runtime = not show_preview_branding(cfg)
     preview_banner = (
         []
         if production_runtime
@@ -719,10 +723,14 @@ def _register_access_callbacks(
         prevent_initial_call=False,
     )
     def _bootstrap_gate_on_page_load(pathname):
-        # Local-dev only: /admin/tearsheet skips the gate when the request is
-        # loopback AND TEARSHEET_LOCAL_DIRECT_ADMIN=1; production traffic
-        # (public Host header via the tunnel) always falls through to re-gate.
-        if is_local_direct_admin_request(pathname):
+        # Direct admin, two triggers (tearsheet_local_admin):
+        # 1. staff mode (TEARSHEET_MODE=staff, dedicated admin port): every
+        #    route serves the admin tearsheet; Host must be loopback or in
+        #    TEARSHEET_STAFF_ALLOWED_HOSTS (admin tunnel hostname).
+        # 2. local-dev /admin/tearsheet with TEARSHEET_LOCAL_DIRECT_ADMIN=1 on
+        #    a fully-loopback request. Client-hostname traffic via the tunnel
+        #    always falls through to re-gate.
+        if is_direct_admin_request(pathname):
             auth_manager.grant_session(session)
             gate_style, main_style, daily_style = resolve_access_visibility(ui_mode=UI_MODE_ADMIN)
             return gate_style, main_style, daily_style, UI_MODE_ADMIN
@@ -1222,7 +1230,12 @@ def main() -> None:
     if not ok_bind:
         logger.error("Bind port validation failed: %s", bind_msg)
         sys.exit(1)
-    label = "TCP v2 Production" if is_production_runtime(cfg) else cfg.preview_label
+    if is_production_runtime(cfg):
+        label = "TCP v2 Production"
+    elif is_staff_runtime():
+        label = "TCP v2 Staff (admin port)"
+    else:
+        label = cfg.preview_label
     logger.info("Starting %s on port %s (debug=%s)", label, bind_port, cfg.debug)
     app.run(debug=cfg.debug, port=bind_port)
 

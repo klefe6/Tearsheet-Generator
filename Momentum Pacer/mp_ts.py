@@ -50,7 +50,7 @@ from tcp_admin import AdminAuthManager
 from tearsheet_runtime_mode import apply_runtime_session_config, resolve_agm_bind_port
 from tearsheet_portal import render_portal_page
 from tearsheet_date_defaults import default_add_row_date_str
-from tearsheet_local_admin import is_local_direct_admin_request
+from tearsheet_local_admin import is_direct_admin_request
 from tearsheet_header import (
     build_header_date_label_children_from_date,
     build_tearsheet_header_row,
@@ -1730,29 +1730,13 @@ def _strategy_unit_drawdown_stats() -> "agm_drawdown.StrategyUnitDrawdown":
 
 
 def build_client_drawdown_note():
-    """Client-facing note beneath the Strategy Unit Drawdown chart.
-
-    Neutral / clarifying only (never alarmist): the strategy is one trading
-    unit; account/tranche drawdown since entry differs and is not computed yet,
-    so it is shown as N/A rather than derived (misleadingly) from strategy NAV.
-    """
+    """Client-facing note beneath the Strategy Unit Drawdown chart."""
     return html.Div(
         [
             html.P(
                 agm_drawdown.CLIENT_STRATEGY_VS_ACCOUNT_NOTE,
-                className="small text-muted mb-1",
-                title=agm_drawdown.CLIENT_STRATEGY_VS_ACCOUNT_TOOLTIP,
-            ),
-            html.P(
-                [
-                    html.Span(
-                        f"{agm_drawdown.ACCOUNT_TRANCHE_DRAWDOWN_LABEL}: ",
-                        className="fw-semibold",
-                    ),
-                    html.Span(agm_drawdown.NA_DISPLAY),
-                ],
                 className="small text-muted mb-0",
-                title=agm_drawdown.ACCOUNT_TRANCHE_DRAWDOWN_UNAVAILABLE_NOTE,
+                title=agm_drawdown.CLIENT_STRATEGY_VS_ACCOUNT_TOOLTIP,
             ),
         ],
         id="agm-client-drawdown-note",
@@ -2917,9 +2901,11 @@ def _gate_admin_portal_login(_portal_clicks, password):
     return "", False, "", ADMIN_PORTAL_PATH, True
 
 
-# ── Local-dev only: /admin/tearsheet renders the admin tearsheet directly.
-# Guarded by TEARSHEET_LOCAL_DIRECT_ADMIN=1 AND a loopback request; anywhere
-# else the callback no-ops and the URL shows the normal disclaimer gate. ──
+# ── Direct admin, two triggers (tearsheet_local_admin): staff mode
+# (TEARSHEET_MODE=staff on the dedicated 8324 admin port — every route) and
+# the local-dev /admin/tearsheet bypass (TEARSHEET_LOCAL_DIRECT_ADMIN=1 on a
+# fully-loopback request). Anywhere else the callback no-ops and the URL
+# shows the normal disclaimer gate. ──
 @app.callback(
     Output("disclaimer-screen", "style", allow_duplicate=True),
     Output("main-app", "style", allow_duplicate=True),
@@ -2928,7 +2914,7 @@ def _gate_admin_portal_login(_portal_clicks, password):
     prevent_initial_call="initial_duplicate",
 )
 def _local_direct_admin_entry(pathname):
-    if not is_local_direct_admin_request(pathname):
+    if not is_direct_admin_request(pathname):
         return dash.no_update, dash.no_update, dash.no_update
     agm_admin_auth_manager.grant_session(session)
     return {"display": "none"}, {"display": "block"}, "secret"

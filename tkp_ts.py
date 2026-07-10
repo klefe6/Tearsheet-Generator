@@ -53,6 +53,7 @@ from tearsheet_gate_auth import (
 from tcp_admin import AdminAuthManager
 from tearsheet_runtime_mode import (
     apply_runtime_session_config,
+    is_legacy,
     register_monthly_backup_404,
     resolve_tkp_bind_port,
 )
@@ -62,7 +63,7 @@ from tearsheet_header import (
     build_tearsheet_header_row,
 )
 from tearsheet_date_defaults import default_add_row_date_str
-from tearsheet_local_admin import is_local_direct_admin_request
+from tearsheet_local_admin import is_direct_admin_request
 from flask import session, redirect, jsonify
 from collections import OrderedDict
 
@@ -3323,9 +3324,11 @@ def _gate_admin_portal_login(_portal_clicks, password):
     return "", False, "", ADMIN_PORTAL_PATH, True
 
 
-# ── Local-dev only: /admin/tearsheet renders the admin tearsheet directly.
-# Guarded by TEARSHEET_LOCAL_DIRECT_ADMIN=1 AND a loopback request; anywhere
-# else the callback no-ops and the URL shows the normal disclaimer gate. ──
+# ── Direct admin, two triggers (tearsheet_local_admin): staff mode
+# (TEARSHEET_MODE=staff on the dedicated 8321 admin port — every route) and
+# the local-dev /admin/tearsheet bypass (TEARSHEET_LOCAL_DIRECT_ADMIN=1 on a
+# fully-loopback request). Anywhere else the callback no-ops and the URL
+# shows the normal disclaimer gate. ──
 @app.callback(
     Output("disclaimer-screen", "style", allow_duplicate=True),
     Output("main-app", "style", allow_duplicate=True),
@@ -3334,7 +3337,7 @@ def _gate_admin_portal_login(_portal_clicks, password):
     prevent_initial_call="initial_duplicate",
 )
 def _local_direct_admin_entry(pathname):
-    if not is_local_direct_admin_request(pathname):
+    if not is_direct_admin_request(pathname):
         return dash.no_update, dash.no_update, dash.no_update
     tkp_admin_auth_manager.grant_session(session)
     return {"display": "none"}, {"display": "block"}, "secret"
@@ -4138,4 +4141,6 @@ def propagate_dashboard(canonical_nav_rows, secret_store_rows):
 
 
 if __name__ == "__main__":
-    app.run(debug=True, port=resolve_tkp_bind_port())
+    # Legacy keeps today's debug behavior; any explicit runtime mode (staff/
+    # public/portal) runs with the Werkzeug debugger off.
+    app.run(debug=is_legacy(), port=resolve_tkp_bind_port())

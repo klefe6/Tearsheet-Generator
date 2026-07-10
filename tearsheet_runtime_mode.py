@@ -100,11 +100,15 @@ def _parse_port_env(env_name: str, default: int) -> int:
 
 
 def resolve_tkp_bind_port() -> int:
-    return _parse_port_env(TKP_BIND_PORT_ENV, DEFAULT_TKP_BIND_PORT)
+    """Explicit ``TKP_BIND_PORT`` wins; otherwise 8321 in staff mode, else 8301."""
+    default = STAFF_BIND_PORTS["tkp"] if is_staff() else DEFAULT_TKP_BIND_PORT
+    return _parse_port_env(TKP_BIND_PORT_ENV, default)
 
 
 def resolve_agm_bind_port() -> int:
-    return _parse_port_env(AGM_BIND_PORT_ENV, DEFAULT_AGM_BIND_PORT)
+    """Explicit ``AGM_BIND_PORT`` wins; otherwise 8324 in staff mode, else 8304."""
+    default = STAFF_BIND_PORTS["agm"] if is_staff() else DEFAULT_AGM_BIND_PORT
+    return _parse_port_env(AGM_BIND_PORT_ENV, default)
 
 
 def resolve_tcp_bind_port(cfg: Any) -> int:

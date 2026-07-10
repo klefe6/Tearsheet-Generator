@@ -26,6 +26,7 @@ DEFAULT_STATE_MODE = "workbook"
 
 PRODUCTION_PAGE_TITLE = "H&C – TCP"
 PREVIEW_PAGE_TITLE = "H&C – TCP v2 Preview"
+STAFF_PAGE_TITLE = "H&C – TCP (Staff)"
 
 # Temporary shared sibling admin password for local TKP/TCP/AGM gates (env override supported).
 DEFAULT_SIBLING_ADMIN_TOKEN = "gc11"
@@ -121,15 +122,35 @@ def load_config() -> TCPConfig:
     )
 
 
+def is_staff_runtime() -> bool:
+    """True when this process runs in TEARSHEET_MODE=staff (dedicated admin port)."""
+    from tearsheet_runtime_mode import is_staff
+
+    return is_staff()
+
+
+def _staff_bind_port() -> int:
+    from tearsheet_runtime_mode import STAFF_BIND_PORTS
+
+    return STAFF_BIND_PORTS["tcp"]
+
+
+def _default_bind_port(cfg: TCPConfig) -> int:
+    if is_staff_runtime():
+        return _staff_bind_port()
+    return cfg.preview_port
+
+
 def resolve_bind_port(cfg: TCPConfig) -> int:
-    """Port for tcp_ts_v2.py. Defaults to preview_port; override with TCP_V2_BIND_PORT."""
+    """Port for tcp_ts_v2.py. Defaults to preview_port (staff port 8322 in
+    staff mode); override with TCP_V2_BIND_PORT."""
     raw = os.environ.get("TCP_V2_BIND_PORT")
     if raw is None or not raw.strip():
-        return cfg.preview_port
+        return _default_bind_port(cfg)
     try:
         return int(raw.strip())
     except ValueError:
-        return cfg.preview_port
+        return _default_bind_port(cfg)
 
 
 def validate_bind_port(cfg: TCPConfig, bind_port: int) -> Tuple[bool, str]:
@@ -139,12 +160,18 @@ def validate_bind_port(cfg: TCPConfig, bind_port: int) -> Tuple[bool, str]:
         if bind_port != 8302:
             return False, "production_port must be 8302"
         return True, "ok"
+    if is_staff_runtime() and bind_port == _staff_bind_port():
+        # Dedicated staff/admin port (loopback bind, Cloudflare Access in front).
+        if cfg.debug:
+            return False, "debug must be False when binding the staff port"
+        return True, "ok"
     if TCP_PREVIEW_PORT_MIN <= bind_port <= TCP_PREVIEW_PORT_MAX:
         if bind_port == cfg.production_port:
             return False, "preview bind must not use production port 8302"
         return True, "ok"
     return False, (
-        f"bind port {bind_port} must be production port 8302 or preview range "
+        f"bind port {bind_port} must be production port 8302, the staff port "
+        f"in staff mode, or preview range "
         f"{TCP_PREVIEW_PORT_MIN}-{TCP_PREVIEW_PORT_MAX}"
     )
 
@@ -153,10 +180,18 @@ def is_production_runtime(cfg: TCPConfig) -> bool:
     return resolve_bind_port(cfg) == cfg.production_port
 
 
+def show_preview_branding(cfg: TCPConfig) -> bool:
+    """Preview banner/diagnostics belong on true previews only — not on the
+    production port and not on the staff/admin port (which serves real data)."""
+    return not is_production_runtime(cfg) and not is_staff_runtime()
+
+
 def resolve_page_title(cfg: TCPConfig) -> str:
-    """Browser tab title: production branding vs preview canary."""
+    """Browser tab title: production branding vs staff vs preview canary."""
     if is_production_runtime(cfg):
         return PRODUCTION_PAGE_TITLE
+    if is_staff_runtime():
+        return STAFF_PAGE_TITLE
     return PREVIEW_PAGE_TITLE
 
 
