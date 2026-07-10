@@ -1670,18 +1670,17 @@ def build_client_daily_table_section():
 
 
 def build_drawdown_figure() -> go.Figure:
-    """Strategy-UNIT drawdown from peak, DAILY — computed from the strategy
-    (trading-unit) net value curve. This is strategy-level, NOT account-level:
-    an account/tranche that entered later has its own entry balance and high
-    watermark, so its drawdown-since-entry can differ (see agm_drawdown)."""
+    """Strategy-UNIT drawdown from peak, DAILY — peak-to-valley $ decline as % of
+    initial strategy capital (see agm_drawdown)."""
     fig = go.Figure()
     eq_df = _daily_equity_frame()
     if eq_df.empty:
         return fig
 
     eq = eq_df["client_net_value"].astype(float)
+    initial_capital = float(STARTING_CAPITAL)
     pk = eq.cummax()
-    dd = ((eq / pk) - 1.0) * 100.0
+    dd = (eq - pk) / initial_capital * 100.0
     dd_x = [pd.Timestamp(d) for d in eq_df["Date"]]
     dd_vals = [float(v) for v in dd.values]
 
@@ -1702,7 +1701,8 @@ def build_drawdown_figure() -> go.Figure:
                "x": 0.5, "xanchor": "center"},
         template="ggplot2",
         plot_bgcolor=GREY_BG, paper_bgcolor=WHITE_BG,
-        xaxis_title="Date", yaxis_title="Drawdown (%)",
+        xaxis_title="Date",
+        yaxis_title="Drawdown (% of Initial Capital)",
         autosize=True,
         # Extra bottom margin so "Date" + month ticks never collide with page footer
         margin={"l": 50, "r": 20, "t": 50, "b": 88},
@@ -1725,40 +1725,89 @@ def _strategy_unit_drawdown_stats() -> "agm_drawdown.StrategyUnitDrawdown":
     if eq_df.empty:
         return agm_drawdown.compute_strategy_unit_drawdown([])
     return agm_drawdown.compute_strategy_unit_drawdown(
-        [float(v) for v in eq_df["client_net_value"]]
+        [float(v) for v in eq_df["client_net_value"]],
+        initial_capital=float(STARTING_CAPITAL),
     )
 
 
-def build_client_drawdown_note():
-    """Client-facing note beneath the Strategy Unit Drawdown chart."""
-    return html.Div(
+def _strategy_nav_series() -> pd.Series:
+    """Client net value indexed by Date for drawdown profile calculations."""
+    eq_df = _daily_equity_frame()
+    if eq_df.empty:
+        return pd.Series(dtype=float)
+    idx = pd.DatetimeIndex([pd.Timestamp(d) for d in eq_df["Date"]])
+    return pd.Series(
+        eq_df["client_net_value"].astype(float).values,
+        index=idx,
+        name="client_net_value",
+    )
+
+
+def _spx_benchmark_nav_series() -> pd.Series:
+    """S&P 500 (^GSPC) rebased to initial capital on AGM trading days."""
+    eq_df = _daily_equity_frame()
+    if eq_df.empty or spx_daily_df.empty:
+        return pd.Series(dtype=float)
+    bot_x = [pd.Timestamp(d) for d in eq_df["Date"]]
+    base = float(STARTING_CAPITAL)
+    rebased = agm_bench.rebase(agm_bench.align_to_dates(spx_daily_df, bot_x), base)
+    idx = pd.DatetimeIndex(bot_x)
+    return pd.Series(rebased.values, index=idx, name="spx_rebased")
+
+
+def build_agm_max_drawdown_profile_df() -> pd.DataFrame:
+    """Maximum Drawdown Profile — AGM strategy + rebased S&P 500 when available."""
+    strategy_nav = _strategy_nav_series()
+    if strategy_nav.empty:
+        return pd.DataFrame(columns=["Metric", agm_drawdown.AGM_INCEPTION_COLUMN])
+
+    spx_nav = _spx_benchmark_nav_series()
+    benchmark_nav = spx_nav if not spx_nav.empty and spx_nav.notna().any() else None
+    return agm_drawdown.build_drawdown_profile_dataframe(
+        strategy_nav,
+        initial_capital=float(STARTING_CAPITAL),
+        benchmark_nav=benchmark_nav,
+        benchmark_column=agm_drawdown.SPX_INCEPTION_COLUMN,
+    )
+
+
+def build_agm_max_drawdown_profile_card() -> dbc.Card:
+    """Client-facing Maximum Drawdown Profile card (TKP-style layout)."""
+    max_dd_df = build_agm_max_drawdown_profile_df()
+    body = (
+        dbc.Table.from_dataframe(
+            max_dd_df,
+            striped=False,
+            bordered=True,
+            hover=True,
+            size="sm",
+            className="fixed-cols mb-0",
+        )
+        if not max_dd_df.empty
+        else html.P("No data.", className="mb-0")
+    )
+    return dbc.Card(
         [
-            html.P(
-                agm_drawdown.CLIENT_STRATEGY_VS_ACCOUNT_NOTE,
-                className="small text-muted mb-0",
-                title=agm_drawdown.CLIENT_STRATEGY_VS_ACCOUNT_TOOLTIP,
+            dbc.CardHeader(html.H6("Maximum Drawdown Profile", className="mb-0")),
+            dbc.CardBody(body),
+            dbc.CardFooter(
+                html.Small(
+                    agm_drawdown.AGM_DRAWDOWN_FOOTNOTE,
+                    className="text-muted fst-italic",
+                )
             ),
         ],
-        id="agm-client-drawdown-note",
-        className="text-center",
-        style={"display": "block", "marginTop": "-0.75rem",
-               "marginBottom": "1.5rem"},
+        outline=True,
+        className="mb-4",
+        id="agm-drawdown-profile-card",
     )
 
 
 def build_admin_drawdown_note():
-    """Admin-facing drawdown semantics: more explicit than the client note.
-
-    Shows the strategy-unit scalars (computed), the account/tranche placeholder
-    (N/A — not computed), the concrete $5k/$30k/$50k validation example, and the
-    TODO describing what a tranche-level calculation would require. The dollar
-    example is intentionally admin-only — it is not shown on the client page.
-    """
+    """Admin-facing drawdown semantics (% of initial capital convention)."""
     su = _strategy_unit_drawdown_stats()
     current_dd = agm_drawdown.format_drawdown_pct(su.strategy_unit_current_drawdown_pct)
     max_dd = agm_drawdown.format_drawdown_pct(su.strategy_unit_max_drawdown_pct)
-    # TODO(tranche-drawdown): replace this N/A with a real per-tranche figure
-    # once an entry-balance/entry-date/HWM ledger exists (see agm_drawdown).
     return html.Div(
         [
             html.P("Drawdown semantics (admin)", className="small fw-bold mb-1"),
@@ -1775,21 +1824,11 @@ def build_admin_drawdown_note():
                 className="small mb-1",
             ),
             html.P(
-                [
-                    html.Span(
-                        f"{agm_drawdown.ACCOUNT_TRANCHE_DRAWDOWN_LABEL}: ",
-                        className="fw-semibold",
-                    ),
-                    html.Span(agm_drawdown.NA_DISPLAY),
-                ],
-                className="small mb-1",
-            ),
-            html.P(
                 agm_drawdown.ADMIN_DRAWDOWN_EXAMPLE_NOTE,
                 className="small text-muted mb-1",
             ),
             html.P(
-                agm_drawdown.ADMIN_TRANCHE_TODO_PLACEHOLDER,
+                agm_drawdown.ADMIN_PEAK_RELATIVE_NOTE,
                 className="small text-muted fst-italic mb-0",
             ),
         ],
@@ -2760,11 +2799,10 @@ def serve_layout():
                         },
                     ),
 
-                    # ── Drawdown semantics note (strategy-unit vs account/tranche)
-                    # Client (standard) sees the neutral note; admin (secret) sees
-                    # the explicit example + tranche TODO. Toggled by access-mode
-                    # in _toggle_admin_sections.
-                    build_client_drawdown_note(),
+                    # ── Maximum Drawdown Profile (AGM inception + S&P 500 benchmark)
+                    build_agm_max_drawdown_profile_card(),
+
+                    # ── Admin drawdown semantics note (hidden on client pages)
                     build_admin_drawdown_note(),
 
                     # ── Client-facing daily table (collapsed by default) ────────
@@ -2928,7 +2966,6 @@ def _local_direct_admin_entry(pathname):
     Output("agm-admin-account-stats", "style"),
     Output("agm-client-account-stats", "style"),
     Output("agm-admin-drawdown-note", "style"),
-    Output("agm-client-drawdown-note", "style"),
     Input("access-mode", "data"),
 )
 def _toggle_admin_sections(access_mode):
@@ -2945,14 +2982,8 @@ def _toggle_admin_sections(access_mode):
         "overflowX": "auto",
         "pageBreakInside": "avoid",
     }
-    # Drawdown notes keep their own top/bottom spacing when visible.
     admin_note_style = {
         "display": "block" if is_admin else "none",
-        "marginTop": "-0.75rem",
-        "marginBottom": "1.5rem",
-    }
-    client_note_style = {
-        "display": "none" if is_admin else "block",
         "marginTop": "-0.75rem",
         "marginBottom": "1.5rem",
     }
@@ -2964,7 +2995,6 @@ def _toggle_admin_sections(access_mode):
         admin_style,
         client_style,
         admin_note_style,
-        client_note_style,
     )
 
 

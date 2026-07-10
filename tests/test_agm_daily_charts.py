@@ -64,6 +64,7 @@ def test_client_drawdown_chart_is_daily(mp, daily_expected):
     dd = fig.data[0]
     assert len(dd.x) == len(daily_expected)
     assert all(float(v) <= 0 for v in dd.y)
+    assert "% of Initial Capital" in fig.layout.title.text
 
 
 def test_client_layout_does_not_expose_raw_admin_table(mp):
