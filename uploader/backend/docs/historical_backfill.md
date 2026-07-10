@@ -35,9 +35,32 @@ scripts/extract_tearsheet_history.py  ──JSON──▶ POST /api/backfill/imp
 | Program | Store | Maps to | Coverage |
 | ------- | ----- | ------- | -------- |
 | TKP | `<repo>/daily_returns_secret_state.json` (`Date`/`StoneX`/`Plus500`/`Deposit`, $-strings) | stonex_nlv, plus500_nlv, cash_transfer | 837 rows, 2023-04-10 → 2026-07-09 |
-| TCP | LIVE state file from `TCP_V2_STATE_PATH` in `<repo>/.tcp_production.env` (`records[].NLV` / `Cash Transfers`) — the repo-root file of the same name is a **stale seed**, never used by default | stonex_nlv, cash_transfer | 121 rows, 2026-01-20 → 2026-07-07 |
+| TCP | LIVE state file from `TCP_V2_STATE_PATH` in `<repo>/.tcp_production.env` — the repo-root file of the same name is a **stale seed**, never used by default. **Gated**: skipped unless `BACKFILL_TCP_NLV_FIELD=nav-x1` | stonex_nlv = `nav-x1`, cash_transfer = 0 (see TCP decision below) | 121 rows, 2026-01-20 → 2026-07-07 |
 | AGM | newest `<repo>/Momentum Pacer/data/daily_balances/balances_210TGG51_*.csv` (`Net Worth` = raw actual_nlv, **not** the client-net value the tearsheet shows) | tradestation_nlv, cash_transfer (evidenced fee withdrawals only) | 184 rows, 2025-10-20 → 2026-07-06 |
 | Y&Q | `yq.csv` is **monthly** (2011-04 →), at real-fund ~$89M scale, while the tearsheet renders a $100k-normalized ROR curve | **no daily source — always skipped** | — |
+
+### TCP decision: `nav-x1`, never raw `NLV` (traced 2026-07-10)
+
+The TCP tearsheet's public chart ("Non-Compounded NAV Since Inception") plots
+exactly the state records' **`nav-x1`** field
+(`tcp_dashboard.py::canonical_nav_records_from_ledger` line 149 →
+`build_tcp_nav_figure`; `tcp_config.py` names it `nav_column`). Its formula
+(`tcp_calculations.py::compute_tcp_row`):
+
+```
+pl      = cash_balance − prior_cash − cash_transfers   # transfer subtracted OUT
+nav_x1  = prior_nav + (pl − fee) / tranche_count       # cash-transfer-neutral, fee-net, seeded $50,000
+nlv     = prior_nlv + pl + cash_transfers              # raw NLV adds transfers BACK IN
+```
+
+So raw `NLV` charts deposits/withdrawals as performance and is **rejected** by
+the extractor; `nav-x1` is the graph-equivalent calculated value. Backfilled
+TCP rows carry `cash_transfer = 0` because `nav-x1` is already neutral — also
+emitting the recorded transfers would double-adjust. Since the uploader
+compounds returns with zero transfers, its $100k line telescopes to exactly
+`100000 × nav-x1(t) / nav-x1(first)` — a faithful rescaling of TCP's own NAV
+curve. TCP is included only when `BACKFILL_TCP_NLV_FIELD=nav-x1` is set
+explicitly (no other value is accepted).
 
 ### Data-correctness rules baked into the extractor
 
@@ -63,8 +86,10 @@ scripts/extract_tearsheet_history.py  ──JSON──▶ POST /api/backfill/imp
    module; it never touches TCP's `.lock`/`.backup`. TKP's non-atomic writer is
    handled by retrying on `JSONDecodeError`; TCP's atomic `os.replace` writes
    make lock-free reads safe.
-2. **Sandbox-only** — `POST /api/backfill/import` and `DELETE /api/backfill`
-   return 403 in production **by construction**; no flag can enable them.
+2. **Sandbox-only AND opt-in** — every `/api/backfill/*` endpoint returns 403
+   unless `APP_ENV=sandbox` **and** `BACKFILL_ENABLED=true`. Production
+   refuses regardless of the flag, by construction. The deployed sandbox has
+   no live backfill surface until an operator sets the flag.
 3. **Idempotent** — re-importing the same payload reports every row
    `unchanged` and rewrites nothing. Dry-run classifies through the *same*
    code path as the real import, so previews always match.
@@ -89,9 +114,16 @@ scripts/extract_tearsheet_history.py  ──JSON──▶ POST /api/backfill/imp
 
 ## Runbook (sandbox)
 
+Backfill endpoints require `BACKFILL_ENABLED=true` on the target backend
+(sandbox only — e.g. `fly secrets set BACKFILL_ENABLED=true -a
+glenn-uploader-sandbox`, and unset it again after importing). To include TCP,
+also set `BACKFILL_TCP_NLV_FIELD=nav-x1` where the extractor/preview runs.
+
 ```bash
 # On the ops machine, from uploader/backend — audit only, writes nothing:
 python scripts/extract_tearsheet_history.py --dry-run
+# include TCP via its approved calculated field:
+python scripts/extract_tearsheet_history.py --dry-run --tcp-nlv-field nav-x1
 
 # Produce the payload file:
 python scripts/extract_tearsheet_history.py --out backfill_payload.json

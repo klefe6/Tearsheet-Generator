@@ -19,7 +19,12 @@ from fastapi.responses import JSONResponse
 from pathlib import Path
 
 from . import __version__
-from .backfill import run_backfill_import, sandbox_only_detail
+from .backfill import (
+    backfill_disabled_detail,
+    run_backfill_import,
+    run_source_preview,
+    sandbox_only_detail,
+)
 from .benchmark_store import BenchmarkStore, _default_yfinance_fetch
 from .benchmarks import configure_store
 from .config import Settings
@@ -285,12 +290,34 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         }
         return response
 
-    # -- historical backfill (sandbox-only) ---------------------------------
-    def _require_sandbox() -> None:
+    # -- historical backfill (sandbox-only, BACKFILL_ENABLED-gated) ---------
+    def _require_backfill_enabled() -> None:
+        """All /api/backfill/* endpoints: sandbox-only AND BACKFILL_ENABLED.
+
+        Production refuses regardless of the flag (no override exists);
+        sandbox additionally requires the explicit opt-in so a deployed
+        sandbox has no live backfill surface until an operator turns it on.
+        """
         if not settings.is_sandbox:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN, detail=sandbox_only_detail()
             )
+        if not settings.backfill_enabled:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, detail=backfill_disabled_detail()
+            )
+
+    @app.get("/api/backfill/preview", tags=["backfill"])
+    def backfill_preview(actor: str = Depends(require_actor)) -> dict:
+        """READ-ONLY dry-run preview straight from the tearsheet source files.
+
+        Only useful on a host that has the tearsheet files and the extractor
+        (the ops machine, with BACKFILL_SOURCE_REPO_ROOT set); the deployed
+        sandbox reports sources unavailable and points at the offline
+        extractor + POST /api/backfill/import flow. Writes nothing anywhere.
+        """
+        _require_backfill_enabled()
+        return run_source_preview(db, settings, actor)
 
     @app.post("/api/backfill/import", tags=["backfill"])
     def backfill_import(
@@ -299,14 +326,14 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     ) -> dict:
         """Import extracted tearsheet history into `historical_rows`.
 
-        SANDBOX ONLY — refuses with 403 in production; no flag overrides this.
-        Body: {"dry_run": bool (default true), "rows": [{program, date,
-        <program fields>, source, source_detail?}, ...]}. Dry-run classifies
-        every row through the same code path as a real import but writes
-        nothing. Never touches daily_rows, never calls or writes any
-        tearsheet app — see docs/historical_backfill.md.
+        SANDBOX ONLY and gated on BACKFILL_ENABLED — 403 otherwise; there is
+        no production override. Body: {"dry_run": bool (default true),
+        "rows": [{program, date, <program fields>, source, source_detail?},
+        ...]}. Dry-run classifies every row through the same code path as a
+        real import but writes nothing. Never touches daily_rows, never calls
+        or writes any tearsheet app — see docs/historical_backfill.md.
         """
-        _require_sandbox()
+        _require_backfill_enabled()
         rows = payload.get("rows")
         if not isinstance(rows, list):
             raise HTTPException(status_code=422, detail="'rows' must be a JSON array")
@@ -318,6 +345,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     @app.get("/api/backfill/status", tags=["backfill"])
     def backfill_status() -> dict:
         """Per-program audit view of backfilled history currently stored."""
+        _require_backfill_enabled()
         return {
             "app_env": settings.app_env,
             "programs": db.historical_summary(),
@@ -335,7 +363,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         """Remove backfilled rows (all, or ?program=TKP). Reversibility hatch:
         only `historical_rows` is cleared; Glenn's daily_rows are untouched.
         """
-        _require_sandbox()
+        _require_backfill_enabled()
         code: Optional[str] = None
         if program is not None:
             code = _resolve_program_or_404(program)

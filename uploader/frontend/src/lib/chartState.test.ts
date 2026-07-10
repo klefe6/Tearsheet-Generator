@@ -76,6 +76,12 @@ describe('empty state copy', () => {
     expect(programEmptyMessage('TKP')).toMatch(/No TKP entries yet/)
   })
 
+  it('explains benchmarks appear once the strategy has entries', () => {
+    expect(programEmptyMessage('TKP')).toMatch(
+      /Benchmarks appear after this strategy has entries\./,
+    )
+  })
+
   it('needs-more message does not mention normalization', () => {
     expect(programNeedsMoreMessage('TKP', 'July 10, 2026')).toMatch(
       /at least two TKP entries/,

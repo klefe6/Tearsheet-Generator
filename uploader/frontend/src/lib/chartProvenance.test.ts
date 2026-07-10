@@ -98,11 +98,11 @@ describe('provenanceNotice', () => {
 
   it('keeps uploader-only wording when no backfill is present', () => {
     expect(provenanceNotice('backend', 'combined', null, 'uploader_daily_rows')).toBe(
-      'Strategy lines reflect uploader entries only (no historical tearsheet data).',
+      'Strategy lines reflect uploader entries only.',
     )
   })
 
-  it('states historical tearsheet data in combined mode when backfilled', () => {
+  it('states historical tearsheet backfill in combined mode when backfilled', () => {
     expect(
       provenanceNotice(
         'backend',
@@ -110,17 +110,17 @@ describe('provenanceNotice', () => {
         null,
         'uploader_daily_rows+tearsheet_backfill',
       ),
-    ).toMatch(/include historical tearsheet data plus uploader entries/)
+    ).toBe('Strategy lines include historical tearsheet backfill plus uploader entries.')
   })
 
-  it('states historical tearsheet data in program mode when backfilled', () => {
+  it('states historical tearsheet backfill in program mode when backfilled', () => {
     const notice = provenanceNotice(
       'backend',
       'TKP',
       'market_cache_cached',
       'uploader_daily_rows+tearsheet_backfill',
     )
-    expect(notice).toMatch(/includes historical tearsheet data plus uploader entries/)
+    expect(notice).toMatch(/includes historical tearsheet backfill plus uploader entries/)
     expect(notice).toMatch(/cached market closes/)
   })
 })

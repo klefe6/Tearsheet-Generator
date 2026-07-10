@@ -27,6 +27,7 @@ reported at import time via the ``overridden_by_manual`` count.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Optional
 
 from .programs import PROGRAMS, normalize_program
@@ -59,6 +60,7 @@ def run_backfill_import(
     actor: str,
     rows: list[dict],
     dry_run: bool,
+    record: bool = True,
 ) -> dict:
     """Validate and (unless ``dry_run``) land extracted historical rows.
 
@@ -66,7 +68,12 @@ def run_backfill_import(
     date ranges, manual-override collisions, and any per-row validation
     errors. The same classification code path runs in both modes, so the
     dry-run preview always matches the import that follows it.
+
+    ``record=False`` (allowed only with ``dry_run=True``) skips the batch and
+    audit-event writes so GET previews stay fully read-only.
     """
+    if not record and not dry_run:
+        raise ValueError("record=False is only valid for dry_run classification")
     programs_report: dict[str, dict] = {code: _empty_program_report() for code in PROGRAMS}
     row_errors: list[dict] = []
     accepted: list[tuple[str, dict, str, Optional[str]]] = []
@@ -119,13 +126,15 @@ def run_backfill_import(
     # the manual row is ever deleted) but reported so the operator sees them.
     manual_dates = {code: {r["date"] for r in db.get_all_rows(code)} for code in PROGRAMS}
 
-    batch_id = db.add_backfill_batch(
-        app_env=settings.app_env,
-        dry_run=dry_run,
-        actor=actor,
-        row_count=len(accepted),
-        summary={"received": len(rows), "row_errors": len(row_errors)},
-    )
+    batch_id: Optional[int] = None
+    if record:
+        batch_id = db.add_backfill_batch(
+            app_env=settings.app_env,
+            dry_run=dry_run,
+            actor=actor,
+            row_count=len(accepted),
+            summary={"received": len(rows), "row_errors": len(row_errors)},
+        )
 
     for code, normalized, source, source_detail in accepted:
         action = db.upsert_historical_row(
@@ -145,24 +154,31 @@ def run_backfill_import(
         if report["last_date"] is None or normalized["date"] > report["last_date"]:
             report["last_date"] = normalized["date"]
 
-    db.add_audit(
-        action="backfill_dry_run" if dry_run else "backfill_import",
-        actor=actor,
-        detail={
-            "batch_id": batch_id,
-            "rows_received": len(rows),
-            "rows_accepted": len(accepted),
-            "row_errors": len(row_errors),
-            "programs": {
-                code: {
-                    k: rep[k]
-                    for k in ("received", "created", "updated", "unchanged", "overridden_by_manual")
-                }
-                for code, rep in programs_report.items()
-                if rep["received"]
+    if record:
+        db.add_audit(
+            action="backfill_dry_run" if dry_run else "backfill_import",
+            actor=actor,
+            detail={
+                "batch_id": batch_id,
+                "rows_received": len(rows),
+                "rows_accepted": len(accepted),
+                "row_errors": len(row_errors),
+                "programs": {
+                    code: {
+                        k: rep[k]
+                        for k in (
+                            "received",
+                            "created",
+                            "updated",
+                            "unchanged",
+                            "overridden_by_manual",
+                        )
+                    }
+                    for code, rep in programs_report.items()
+                    if rep["received"]
+                },
             },
-        },
-    )
+        )
 
     if dry_run:
         message = (
@@ -196,3 +212,96 @@ def sandbox_only_detail() -> str:
         "that enables it in production; a production backfill would be a "
         "separate, reviewed change."
     )
+
+
+def backfill_disabled_detail() -> str:
+    return (
+        "Historical backfill endpoints are disabled. Set BACKFILL_ENABLED=true "
+        "(sandbox only) to enable them; they stay refused in production "
+        "regardless of this flag."
+    )
+
+
+_SAMPLE_ROWS_PER_PROGRAM = 3
+
+
+def run_source_preview(db, settings, actor: str) -> dict:
+    """GET /api/backfill/preview — read-only preview straight from the
+    tearsheet source files, on hosts that have them (the ops machine).
+
+    Writes NOTHING anywhere: sources are opened read-only by the extractor,
+    and the import classification runs with dry_run=True, record=False (no
+    batch row, no audit event). On hosts without the sources/extractor (the
+    deployed sandbox image ships only app/), each program reports
+    "source_unavailable" and points at the offline extractor + POST import
+    flow instead.
+    """
+    repo_root = settings.backfill_source_repo_root
+
+    def unavailable(note: str) -> dict:
+        return {
+            "dry_run": True,
+            "read_only": True,
+            "app_env": settings.app_env,
+            "programs": {
+                code: {"status": "source_unavailable", "note": note} for code in PROGRAMS
+            },
+            "note": (
+                "Run scripts/extract_tearsheet_history.py on the machine that "
+                "hosts the tearsheet files, then POST the payload to "
+                "/api/backfill/import (dry_run=true first)."
+            ),
+        }
+
+    if not repo_root:
+        return unavailable("BACKFILL_SOURCE_REPO_ROOT is not configured on this host.")
+
+    try:
+        from scripts.extract_tearsheet_history import build_payload, extract_all
+    except ImportError:
+        return unavailable("The extractor is not shipped on this host.")
+
+    results = extract_all(
+        Path(repo_root),
+        list(PROGRAMS),
+        tcp_nlv_field=settings.backfill_tcp_nlv_field,
+    )
+    payload = build_payload(results, dry_run=True)
+    classification = run_backfill_import(
+        db, settings, actor, payload["rows"], dry_run=True, record=False
+    )
+
+    programs: dict[str, dict] = {}
+    rows_by_program: dict[str, list] = {}
+    for row in payload["rows"]:
+        rows_by_program.setdefault(row["program"], []).append(row)
+    for res_program, source_info in payload["sources"].items():
+        report = classification["programs"].get(res_program, {})
+        rows = rows_by_program.get(res_program, [])
+        programs[res_program] = {
+            "status": "skipped" if source_info["skipped_reason"] else "previewed",
+            "skipped_reason": source_info["skipped_reason"],
+            "source_path": source_info["path"],
+            "rows_found": source_info["row_count"],
+            "rows_valid": report.get("received", 0),
+            "rows_skipped": source_info["row_count"] - report.get("received", 0),
+            "first_date": report.get("first_date"),
+            "last_date": report.get("last_date"),
+            "would_create": report.get("created", 0),
+            "would_update": report.get("updated", 0),
+            "unchanged": report.get("unchanged", 0),
+            "conflicts_with_manual_rows": report.get("overridden_by_manual", 0),
+            "sample_rows": rows[:_SAMPLE_ROWS_PER_PROGRAM],
+            "warnings": source_info["warnings"],
+        }
+
+    return {
+        "dry_run": True,
+        "read_only": True,
+        "app_env": settings.app_env,
+        "extracted_at": payload["extracted_at"],
+        "total_rows": len(payload["rows"]),
+        "row_errors": classification["row_errors"],
+        "programs": programs,
+        "note": "Preview only — nothing was written. Use POST /api/backfill/import to land rows.",
+    }

@@ -104,11 +104,11 @@ export function provenanceNotice(
   const backfilled = hasBackfilledHistory(programDataSource)
   if (mode === 'combined') {
     return backfilled
-      ? 'Strategy lines include historical tearsheet data plus uploader entries. Imported history never overrides a manual entry.'
-      : 'Strategy lines reflect uploader entries only (no historical tearsheet data).'
+      ? 'Strategy lines include historical tearsheet backfill plus uploader entries.'
+      : 'Strategy lines reflect uploader entries only.'
   }
   const strategyLead = backfilled
-    ? 'Strategy line includes historical tearsheet data plus uploader entries.'
+    ? 'Strategy line includes historical tearsheet backfill plus uploader entries.'
     : 'Strategy line from uploader entries.'
   if (benchmarksAreUnavailable(benchmarkSource)) {
     return `${strategyLead} Market benchmarks are unavailable — cache not populated yet.`

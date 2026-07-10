@@ -83,6 +83,22 @@ class Settings(BaseSettings):
     # downstream endpoint (does not exist yet). Never defaulted on.
     downstream_api_token: Optional[str] = None
 
+    # --- Historical backfill (sandbox-only) — see docs/historical_backfill.md
+    # Master gate for ALL /api/backfill/* endpoints. Off by default everywhere;
+    # even when true, the endpoints additionally refuse outside sandbox.
+    backfill_enabled: bool = False
+    # Tearsheet repo root for GET /api/backfill/preview to read sources from.
+    # Only meaningful on the ops machine that has the tearsheet files; unset
+    # (the default, and on the deployed sandbox) the preview reports sources
+    # unavailable and points at the offline extractor instead.
+    backfill_source_repo_root: Optional[str] = None
+    # TCP is SKIPPED unless this is explicitly "nav-x1" — the TCP tearsheet's
+    # own cash-transfer-neutral, fee-net, per-tranche NAV track (the exact
+    # series its public chart plots). Raw "NLV" is rejected by the extractor:
+    # tcp_calculations.compute_tcp_row adds cash transfers back into NLV, so
+    # backfilling it would chart deposits/withdrawals as performance.
+    backfill_tcp_nlv_field: Optional[str] = None
+
     # --- Benchmark market cache (SPX / NDX / BTC) -------------------------
     benchmark_cache_dir: str = "data/benchmark_cache"
     # When true, never call yfinance — cache files only (tests / air-gapped).

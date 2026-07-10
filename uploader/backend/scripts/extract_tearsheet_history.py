@@ -21,9 +21,20 @@ Sources (per the 2026-07-10 field-level audit):
   * TKP  — <repo>/daily_returns_secret_state.json (list of row dicts;
            $-string money; columns Date / StoneX / Plus500 / Deposit).
   * TCP  — the LIVE state file resolved from TCP_V2_STATE_PATH in
-           <repo>/.tcp_production.env (dict envelope with ``records``;
-           NLV / Cash Transfers / Date). The repo-root file of the same name
-           is a stale bootstrap seed and is deliberately NOT a default.
+           <repo>/.tcp_production.env (dict envelope with ``records``). The
+           repo-root file of the same name is a stale bootstrap seed and is
+           deliberately NOT a default. TCP is SKIPPED unless
+           --tcp-nlv-field/BACKFILL_TCP_NLV_FIELD is explicitly ``nav-x1``:
+           that is the tearsheet's own cash-transfer-neutral, fee-net,
+           per-tranche NAV track — the exact series its public chart plots
+           (tcp_dashboard.canonical_nav_records_from_ledger reads "nav-x1";
+           tcp_calculations.compute_tcp_row: nav_x1 = prior_nav +
+           (pl - fee)/tranches where pl already subtracts the day's cash
+           transfer). Raw ``NLV`` is REJECTED: the same formula adds cash
+           transfers back into NLV, so backfilling it would chart
+           deposits/withdrawals as performance. Because nav-x1 is already
+           transfer-neutral, backfilled TCP rows carry cash_transfer=0
+           (also emitting the recorded transfers would double-adjust).
   * AGM  — newest <repo>/Momentum Pacer/data/daily_balances/
            balances_210TGG51_*.csv (TradeStation Historical Balances Report;
            ``Net Worth`` = raw account NLV / actual_nlv — NOT the client-net
@@ -46,6 +57,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import os
 import re
 import sys
 import time
@@ -66,6 +78,17 @@ YQ_SKIP_REASON = (
     "Y&Q has no daily historical source: yq.csv is monthly (2011-04 onward) at "
     "real-fund scale, and the tearsheet renders a $100k-normalized ROR curve. "
     "Skipped — Y&Q stays uploader-entries-only."
+)
+
+# The only approved TCP value: the tearsheet's own calculated performance
+# track. See the module docstring for the full trace/justification.
+TCP_APPROVED_NLV_FIELD = "nav-x1"
+
+TCP_SKIP_REASON = (
+    "TCP skipped — set BACKFILL_TCP_NLV_FIELD=nav-x1 (or --tcp-nlv-field "
+    "nav-x1) to include it. nav-x1 is the TCP tearsheet's cash-transfer-"
+    "neutral calculated NAV (the series its chart plots); raw NLV is not "
+    "allowed because it includes deposits/withdrawals."
 )
 
 
@@ -226,7 +249,21 @@ def resolve_tcp_state_path(repo_root: Path) -> Path:
     )
 
 
-def extract_tcp(state_path: Path) -> SourceResult:
+def extract_tcp(state_path: Path, nlv_field: str) -> SourceResult:
+    """Extract TCP using its tearsheet-calculated performance value.
+
+    Only ``nav-x1`` is accepted for ``nlv_field`` — the cash-transfer-neutral,
+    fee-net, per-tranche NAV the TCP chart itself plots. Raw ``NLV`` is
+    rejected by design (it includes deposits/withdrawals). Backfilled rows
+    always carry cash_transfer=0: nav-x1 is already transfer-neutral, so also
+    emitting the recorded Cash Transfers would double-adjust returns.
+    """
+    if nlv_field != TCP_APPROVED_NLV_FIELD:
+        raise ValueError(
+            f"unsupported TCP field {nlv_field!r}: only '{TCP_APPROVED_NLV_FIELD}' "
+            "is approved (the tearsheet's cash-transfer-neutral calculated NAV). "
+            "Raw 'NLV' includes deposits/withdrawals and must not be backfilled."
+        )
     res = SourceResult("TCP", state_path)
     with open(state_path, "r", encoding="utf-8") as fh:
         envelope = json.load(fh)
@@ -234,7 +271,10 @@ def extract_tcp(state_path: Path) -> SourceResult:
         raise ValueError(f"{state_path}: expected the TCP state envelope with 'records'")
 
     revision = envelope.get("revision")
-    detail = f"{state_path.name} (revision {revision})"
+    detail = (
+        f"{state_path.name} (revision {revision}, field {TCP_APPROVED_NLV_FIELD}, "
+        "cash-transfer-neutral)"
+    )
     by_date: dict[str, dict] = {}
     for i, rec in enumerate(envelope["records"]):
         try:
@@ -242,21 +282,25 @@ def extract_tcp(state_path: Path) -> SourceResult:
         except (KeyError, ValueError) as exc:
             res.warnings.append(f"record {i}: skipped ({exc})")
             continue
-        nlv = rec.get("NLV")
-        if nlv is None:
-            res.warnings.append(f"record {i} ({date}): null NLV — skipped")
+        nav = rec.get(TCP_APPROVED_NLV_FIELD)
+        if nav is None:
+            res.warnings.append(f"record {i} ({date}): null {TCP_APPROVED_NLV_FIELD} — skipped")
             continue
-        cash = rec.get("Cash Transfers")
         if date in by_date:
             res.warnings.append(f"duplicate date {date}: later record wins")
         by_date[date] = {
             "program": "TCP",
             "date": date,
-            "stonex_nlv": float(nlv),
-            "cash_transfer": float(cash) if cash is not None else 0.0,
+            "stonex_nlv": float(nav),
+            "cash_transfer": 0.0,
             "source": SOURCE_LABELS["TCP"],
             "source_detail": detail,
         }
+    res.warnings.append(
+        "TCP rows use the tearsheet-calculated nav-x1 (cash-transfer-neutral, "
+        "fee-net); cash_transfer=0 by design. The uploader's $100k line is an "
+        "exact rescaling of the TCP chart's own NAV curve."
+    )
     res.rows = [by_date[d] for d in sorted(by_date)]
     return res
 
@@ -349,7 +393,7 @@ def extract_agm(balances_path: Path, fee_payments: Optional[dict[str, float]] = 
             # Raw TradeStation Net Worth == actual_nlv. Deliberately NOT the
             # client_net_value (net of accrued fees) the tearsheet displays.
             "tradestation_nlv": rec["net_worth"],
-            "cash_transfer": -paid,
+            "cash_transfer": -paid if paid else 0.0,
             # `fee` is deliberately omitted: AGM fee-vs-NLV treatment is a
             # documented open question and performance excludes fee anyway.
             "source": SOURCE_LABELS["AGM"],
@@ -386,6 +430,7 @@ def extract_all(
     tkp_state: Optional[Path] = None,
     tcp_state: Optional[Path] = None,
     agm_balances: Optional[Path] = None,
+    tcp_nlv_field: Optional[str] = None,
 ) -> list[SourceResult]:
     results: list[SourceResult] = []
     for program in programs:
@@ -393,8 +438,13 @@ def extract_all(
             path = tkp_state or (repo_root / "daily_returns_secret_state.json")
             results.append(extract_tkp(path))
         elif program == "TCP":
+            if not tcp_nlv_field:
+                res = SourceResult("TCP", None)
+                res.skipped_reason = TCP_SKIP_REASON
+                results.append(res)
+                continue
             path = tcp_state or resolve_tcp_state_path(repo_root)
-            results.append(extract_tcp(path))
+            results.append(extract_tcp(path, tcp_nlv_field))
         elif program == "AGM":
             path = agm_balances or resolve_agm_balances_path(repo_root)
             results.append(extract_agm(path, parse_agm_fee_payment_evidence(repo_root)))
@@ -474,6 +524,13 @@ def main(argv: Optional[list[str]] = None) -> int:
         ".tcp_production.env; the repo-root copy is a stale seed — do not use it)",
     )
     parser.add_argument("--agm-balances", type=Path, default=None)
+    parser.add_argument(
+        "--tcp-nlv-field",
+        default=os.environ.get("BACKFILL_TCP_NLV_FIELD"),
+        help="must be 'nav-x1' to include TCP (the tearsheet's cash-transfer-"
+        "neutral calculated NAV); TCP is skipped when unset. Raw 'NLV' is "
+        "rejected. Defaults to env BACKFILL_TCP_NLV_FIELD.",
+    )
     parser.add_argument("--out", type=Path, default=None, help="write payload JSON here")
     parser.add_argument(
         "--dry-run", action="store_true", help="print the audit only; write nothing"
@@ -496,6 +553,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         tkp_state=args.tkp_state,
         tcp_state=args.tcp_state,
         agm_balances=args.agm_balances,
+        tcp_nlv_field=args.tcp_nlv_field,
     )
     print_audit(results)
     payload = build_payload(results, dry_run=args.dry_run)

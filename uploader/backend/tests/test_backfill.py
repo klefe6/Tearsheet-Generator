@@ -43,9 +43,10 @@ _TCP_STATE = {
     "source": "website_edit",
     "records": [
         {"#": 1.0, "Date": "2026-01-20", "NLV": 24996.76, "Cash Balance": 24996.76,
-         "Cash Transfers": None, "Inc. Fee": 0.0},
+         "Cash Transfers": None, "Inc. Fee": 0.0, "nav-x1": 50000.0},
+        # Raw NLV moves by transfer+P&L; nav-x1 moves by P&L-per-tranche only.
         {"#": 2.0, "Date": "2026-01-21", "NLV": 25400.00, "Cash Balance": 25400.00,
-         "Cash Transfers": 500.0, "Inc. Fee": 0.0},
+         "Cash Transfers": 500.0, "Inc. Fee": 0.0, "nav-x1": 49903.24},
     ],
 }
 
@@ -160,52 +161,52 @@ def _table_count(client, table) -> int:
 
 # --- dry-run and import basics ------------------------------------------------
 
-def test_dry_run_previews_without_writing(sandbox_client):
-    body = _import(sandbox_client, _backfill_rows(), dry_run=True)
+def test_dry_run_previews_without_writing(backfill_client):
+    body = _import(backfill_client, _backfill_rows(), dry_run=True)
     assert body["dry_run"] is True
     assert body["programs"]["TKP"]["created"] == 2
     assert body["programs"]["AGM"]["created"] == 1
     assert body["programs"]["TKP"]["first_date"] == "2026-06-29"
     assert body["programs"]["TKP"]["last_date"] == "2026-06-30"
-    assert _table_count(sandbox_client, "historical_rows") == 0
-    assert _table_count(sandbox_client, "daily_rows") == 0
+    assert _table_count(backfill_client, "historical_rows") == 0
+    assert _table_count(backfill_client, "daily_rows") == 0
 
 
-def test_dry_run_matches_real_import(sandbox_client):
-    preview = _import(sandbox_client, _backfill_rows(), dry_run=True)
-    real = _import(sandbox_client, _backfill_rows(), dry_run=False)
+def test_dry_run_matches_real_import(backfill_client):
+    preview = _import(backfill_client, _backfill_rows(), dry_run=True)
+    real = _import(backfill_client, _backfill_rows(), dry_run=False)
     for code in ("TKP", "AGM"):
         for key in ("received", "created", "updated", "unchanged"):
             assert preview["programs"][code][key] == real["programs"][code][key]
-    assert _table_count(sandbox_client, "historical_rows") == 3
+    assert _table_count(backfill_client, "historical_rows") == 3
 
 
-def test_import_is_idempotent(sandbox_client):
-    first = _import(sandbox_client, _backfill_rows(), dry_run=False)
+def test_import_is_idempotent(backfill_client):
+    first = _import(backfill_client, _backfill_rows(), dry_run=False)
     assert first["programs"]["TKP"]["created"] == 2
-    second = _import(sandbox_client, _backfill_rows(), dry_run=False)
+    second = _import(backfill_client, _backfill_rows(), dry_run=False)
     assert second["programs"]["TKP"]["created"] == 0
     assert second["programs"]["TKP"]["updated"] == 0
     assert second["programs"]["TKP"]["unchanged"] == 2
     assert second["programs"]["AGM"]["unchanged"] == 1
-    assert _table_count(sandbox_client, "historical_rows") == 3
+    assert _table_count(backfill_client, "historical_rows") == 3
 
 
-def test_reimport_with_changed_value_updates_in_place(sandbox_client):
-    _import(sandbox_client, _backfill_rows(), dry_run=False)
+def test_reimport_with_changed_value_updates_in_place(backfill_client):
+    _import(backfill_client, _backfill_rows(), dry_run=False)
     rows = _backfill_rows()
     rows[0]["stonex_nlv"] = 81234.0
-    body = _import(sandbox_client, rows, dry_run=False)
+    body = _import(backfill_client, rows, dry_run=False)
     assert body["programs"]["TKP"]["updated"] == 1
     assert body["programs"]["TKP"]["unchanged"] == 1
-    assert _table_count(sandbox_client, "historical_rows") == 3  # upsert, no dupes
+    assert _table_count(backfill_client, "historical_rows") == 3  # upsert, no dupes
 
 
 # --- labeling -------------------------------------------------------------------
 
-def test_imported_rows_carry_source_labels(sandbox_client):
-    _import(sandbox_client, _backfill_rows(), dry_run=False)
-    with sqlite3.connect(sandbox_client._uploader_db_path) as conn:
+def test_imported_rows_carry_source_labels(backfill_client):
+    _import(backfill_client, _backfill_rows(), dry_run=False)
+    with sqlite3.connect(backfill_client._uploader_db_path) as conn:
         conn.row_factory = sqlite3.Row
         stored = conn.execute(
             "SELECT source, source_detail FROM historical_rows WHERE program='TKP'"
@@ -213,38 +214,38 @@ def test_imported_rows_carry_source_labels(sandbox_client):
     assert {r["source"] for r in stored} == {"tkp_state_json"}
     assert all(r["source_detail"] == "daily_returns_secret_state.json" for r in stored)
 
-    status = sandbox_client.get("/api/backfill/status").json()
+    status = backfill_client.get("/api/backfill/status").json()
     assert status["programs"]["TKP"]["sources"] == {"tkp_state_json": 2}
     assert status["programs"]["AGM"]["sources"] == {"agm_daily_balances_csv": 1}
 
 
-def test_manual_source_label_is_rejected(sandbox_client):
+def test_manual_source_label_is_rejected(backfill_client):
     rows = _backfill_rows()[:1]
     rows[0]["source"] = "manual"
-    body = _import(sandbox_client, rows, dry_run=False)
+    body = _import(backfill_client, rows, dry_run=False)
     assert body["total_rows_accepted"] == 0
     assert body["row_error_count"] == 1
     assert "reserved" in body["row_errors"][0]["errors"]["source"]
 
 
-def test_missing_source_label_is_rejected(sandbox_client):
+def test_missing_source_label_is_rejected(backfill_client):
     rows = _backfill_rows()[:1]
     del rows[0]["source"]
-    body = _import(sandbox_client, rows, dry_run=False)
+    body = _import(backfill_client, rows, dry_run=False)
     assert body["total_rows_accepted"] == 0
     assert body["row_error_count"] == 1
 
 
 # --- precedence: manual entries supersede imported history ----------------------
 
-def test_manual_row_supersedes_imported_row_in_performance(sandbox_client):
+def test_manual_row_supersedes_imported_row_in_performance(backfill_client):
     # Manual entry and historical row on the SAME date with different values.
     manual = dict(VALID_ROWS["TKP"], date="2026-06-30")
-    assert sandbox_client.post("/api/rows/TKP", json=manual).status_code == 200
-    body = _import(sandbox_client, _backfill_rows(), dry_run=False)
+    assert backfill_client.post("/api/rows/TKP", json=manual).status_code == 200
+    body = _import(backfill_client, _backfill_rows(), dry_run=False)
     assert body["programs"]["TKP"]["overridden_by_manual"] == 1
 
-    perf = sandbox_client.get("/api/performance?mode=program&program=TKP").json()
+    perf = backfill_client.get("/api/performance?mode=program&program=TKP").json()
     points = perf["points"]["TKP"]
     # 2026-06-29 from backfill + 2026-06-30 from the manual entry (not both).
     assert [p["x"] for p in points] == ["2026-06-29", "2026-06-30"]
@@ -258,59 +259,113 @@ def test_manual_row_supersedes_imported_row_in_performance(sandbox_client):
     assert points[1]["y"] < points[0]["y"]
 
 
-def test_glenn_rows_endpoint_shows_manual_entries_only(sandbox_client):
-    _import(sandbox_client, _backfill_rows(), dry_run=False)
-    rows = sandbox_client.get("/api/rows/TKP").json()
+def test_glenn_rows_endpoint_shows_manual_entries_only(backfill_client):
+    _import(backfill_client, _backfill_rows(), dry_run=False)
+    rows = backfill_client.get("/api/rows/TKP").json()
     assert rows["count"] == 0  # backfilled history never appears in the entry table
 
 
 # --- performance provenance ------------------------------------------------------
 
-def test_program_data_source_flips_only_with_backfill(sandbox_client):
+def test_program_data_source_flips_only_with_backfill(backfill_client):
     manual = dict(VALID_ROWS["TKP"], date="2026-07-01")
-    sandbox_client.post("/api/rows/TKP", json=manual)
-    perf = sandbox_client.get("/api/performance").json()
+    backfill_client.post("/api/rows/TKP", json=manual)
+    perf = backfill_client.get("/api/performance").json()
     assert perf["program_data_source"] == "uploader_daily_rows"
 
-    _import(sandbox_client, _backfill_rows(), dry_run=False)
-    perf = sandbox_client.get("/api/performance").json()
+    _import(backfill_client, _backfill_rows(), dry_run=False)
+    perf = backfill_client.get("/api/performance").json()
     assert perf["program_data_source"] == "uploader_daily_rows+tearsheet_backfill"
 
     # Clearing the backfill reverts the label (reversibility).
-    resp = sandbox_client.delete("/api/backfill")
+    resp = backfill_client.delete("/api/backfill")
     assert resp.status_code == 200
     assert resp.json()["deleted"] == 3
-    perf = sandbox_client.get("/api/performance").json()
+    perf = backfill_client.get("/api/performance").json()
     assert perf["program_data_source"] == "uploader_daily_rows"
 
 
-def test_clear_backfill_never_touches_manual_rows(sandbox_client):
+def test_clear_backfill_never_touches_manual_rows(backfill_client):
     manual = dict(VALID_ROWS["TKP"], date="2026-07-01")
-    sandbox_client.post("/api/rows/TKP", json=manual)
-    _import(sandbox_client, _backfill_rows(), dry_run=False)
-    sandbox_client.delete("/api/backfill")
-    assert _table_count(sandbox_client, "historical_rows") == 0
-    assert _table_count(sandbox_client, "daily_rows") == 1
+    backfill_client.post("/api/rows/TKP", json=manual)
+    _import(backfill_client, _backfill_rows(), dry_run=False)
+    backfill_client.delete("/api/backfill")
+    assert _table_count(backfill_client, "historical_rows") == 0
+    assert _table_count(backfill_client, "daily_rows") == 1
 
 
 # --- export isolation -------------------------------------------------------------
 
-def test_backfilled_rows_are_never_exported(sandbox_client):
-    _import(sandbox_client, _backfill_rows(), dry_run=False)
-    export = sandbox_client.post("/api/export/all").json()
+def test_backfilled_rows_are_never_exported(backfill_client):
+    _import(backfill_client, _backfill_rows(), dry_run=False)
+    export = backfill_client.post("/api/export/all").json()
     assert export["total_rows"] == 0  # historical rows are invisible to export
     assert export["external_calls_made"] == 0
     assert "downstream" not in export  # downstream flag untouched/off by default
 
 
-def test_import_does_not_mark_or_reset_export_state(sandbox_client):
+def test_import_does_not_mark_or_reset_export_state(backfill_client):
     manual = dict(VALID_ROWS["TKP"], date="2026-07-01")
-    sandbox_client.post("/api/rows/TKP", json=manual)
-    sandbox_client.post("/api/export/all")  # dry-run preview of the manual row
-    before = sandbox_client.get("/api/rows/TKP").json()["rows"][0]["exported"]
-    _import(sandbox_client, _backfill_rows(), dry_run=False)
-    after = sandbox_client.get("/api/rows/TKP").json()["rows"][0]["exported"]
+    backfill_client.post("/api/rows/TKP", json=manual)
+    backfill_client.post("/api/export/all")  # dry-run preview of the manual row
+    before = backfill_client.get("/api/rows/TKP").json()["rows"][0]["exported"]
+    _import(backfill_client, _backfill_rows(), dry_run=False)
+    after = backfill_client.get("/api/rows/TKP").json()["rows"][0]["exported"]
     assert before == after  # backfill neither exports nor re-flags manual rows
+
+
+# --- BACKFILL_ENABLED gate ----------------------------------------------------------
+
+def test_backfill_endpoints_disabled_by_default(backfill_client):
+    """A sandbox WITHOUT BACKFILL_ENABLED refuses every backfill endpoint."""
+    from tests.conftest import _cleanup, _make_client
+
+    plain = _make_client(app_env="sandbox", export_enabled=False)
+    try:
+        for method, url in [
+            ("get", "/api/backfill/preview"),
+            ("get", "/api/backfill/status"),
+            ("delete", "/api/backfill"),
+        ]:
+            resp = getattr(plain, method)(url)
+            assert resp.status_code == 403, url
+            assert "disabled" in resp.json()["detail"]
+        resp = plain.post(
+            "/api/backfill/import", json={"dry_run": True, "rows": _backfill_rows()}
+        )
+        assert resp.status_code == 403
+        assert "BACKFILL_ENABLED" in resp.json()["detail"]
+        assert _table_count(plain, "historical_rows") == 0
+        assert _table_count(plain, "backfill_batches") == 0
+    finally:
+        plain.close()
+        _cleanup(plain)
+
+
+def test_production_refuses_backfill_even_with_flag_set():
+    """APP_ENV=production + BACKFILL_ENABLED=true must still refuse (no override)."""
+    from tests.conftest import _cleanup, _make_client
+
+    client = _make_client(
+        app_env="production",
+        export_enabled=False,
+        admin_api_token="test-secret-token",
+        backfill_enabled=True,
+    )
+    try:
+        headers = {"Authorization": "Bearer test-secret-token"}
+        resp = client.post(
+            "/api/backfill/import",
+            json={"dry_run": True, "rows": _backfill_rows()},
+            headers=headers,
+        )
+        assert resp.status_code == 403
+        assert "sandbox-only" in resp.json()["detail"]
+        assert client.get("/api/backfill/preview", headers=headers).status_code == 403
+        assert _table_count(client, "historical_rows") == 0
+    finally:
+        client.close()
+        _cleanup(client)
 
 
 # --- production refusal ------------------------------------------------------------
@@ -336,36 +391,36 @@ def test_production_refuses_backfill_clear(prod_client):
 
 # --- validation ----------------------------------------------------------------------
 
-def test_invalid_rows_are_reported_not_imported(sandbox_client):
+def test_invalid_rows_are_reported_not_imported(backfill_client):
     rows = _backfill_rows()
     rows.append({"program": "TKP", "date": "not-a-date", "stonex_nlv": 1,
                  "plus500_nlv": 1, "source": "tkp_state_json"})
     rows.append({"program": "NOPE", "date": "2026-06-30", "source": "x"})
     rows.append({"program": "TCP", "date": "2026-06-30", "stonex_nlv": 47000.0,
                  "fee": 12.0, "source": "tcp_state_json"})  # fee is AGM-only
-    body = _import(sandbox_client, rows, dry_run=False)
+    body = _import(backfill_client, rows, dry_run=False)
     assert body["total_rows_accepted"] == 3
     assert body["row_error_count"] == 3
-    assert _table_count(sandbox_client, "historical_rows") == 3
+    assert _table_count(backfill_client, "historical_rows") == 3
 
 
-def test_rows_must_be_a_list(sandbox_client):
-    resp = sandbox_client.post("/api/backfill/import", json={"rows": {"a": 1}})
+def test_rows_must_be_a_list(backfill_client):
+    resp = backfill_client.post("/api/backfill/import", json={"rows": {"a": 1}})
     assert resp.status_code == 422
 
 
 # --- audit trail -----------------------------------------------------------------------
 
-def test_import_and_dry_run_are_audited_with_batches(sandbox_client):
-    _import(sandbox_client, _backfill_rows(), dry_run=True)
-    _import(sandbox_client, _backfill_rows(), dry_run=False)
-    events = sandbox_client.get("/api/audit").json()["events"]
+def test_import_and_dry_run_are_audited_with_batches(backfill_client):
+    _import(backfill_client, _backfill_rows(), dry_run=True)
+    _import(backfill_client, _backfill_rows(), dry_run=False)
+    events = backfill_client.get("/api/audit").json()["events"]
     actions = [e["action"] for e in events]
     assert "backfill_dry_run" in actions
     assert "backfill_import" in actions
     imported = next(e for e in events if e["action"] == "backfill_import")
     assert imported["detail"]["programs"]["TKP"]["created"] == 2
-    assert _table_count(sandbox_client, "backfill_batches") == 2
+    assert _table_count(backfill_client, "backfill_batches") == 2
 
 
 # --- extractor: parsing + read-only guarantee ---------------------------------------
@@ -380,7 +435,7 @@ def test_extractor_parses_fixture_stores_read_only(tmp_repo_root):
     repo_root, files = tmp_repo_root
     before = _file_hashes(files)
 
-    results = extract_all(repo_root, ["TKP", "TCP", "AGM", "YQ"])
+    results = extract_all(repo_root, ["TKP", "TCP", "AGM", "YQ"], tcp_nlv_field="nav-x1")
     payload = build_payload(results, dry_run=True)
 
     by_program = {r.program: r for r in results}
@@ -393,12 +448,16 @@ def test_extractor_parses_fixture_stores_read_only(tmp_repo_root):
     assert tkp[1]["cash_transfer"] == 20000.0  # Deposit column
     assert all(r["source"] == "tkp_state_json" for r in tkp)
 
-    # TCP: live envelope records, null Cash Transfers -> 0.0.
+    # TCP: the tearsheet-calculated nav-x1 (NOT raw NLV), cash_transfer=0
+    # by design — nav-x1 is already cash-transfer-neutral, so the recorded
+    # 500.0 transfer must NOT be emitted (it would double-adjust returns).
     tcp = by_program["TCP"].rows
     assert [r["date"] for r in tcp] == ["2026-01-20", "2026-01-21"]
-    assert tcp[0]["stonex_nlv"] == 24996.76
+    assert tcp[0]["stonex_nlv"] == 50000.0
+    assert tcp[1]["stonex_nlv"] == 49903.24  # not 25400.00 (raw NLV)
     assert tcp[0]["cash_transfer"] == 0.0
-    assert tcp[1]["cash_transfer"] == 500.0
+    assert tcp[1]["cash_transfer"] == 0.0
+    assert "nav-x1" in tcp[0]["source_detail"]
     assert "revision" in tcp[0]["source_detail"]
 
     # AGM: Net Worth -> tradestation_nlv, no fee key emitted, and the
@@ -422,18 +481,21 @@ def test_extractor_parses_fixture_stores_read_only(tmp_repo_root):
     assert _file_hashes(files) == before
 
 
-def test_extractor_output_imports_cleanly(sandbox_client, tmp_repo_root):
+def test_extractor_output_imports_cleanly(backfill_client, tmp_repo_root):
     from scripts.extract_tearsheet_history import build_payload, extract_all
 
     repo_root, _files = tmp_repo_root
-    payload = build_payload(extract_all(repo_root, ["TKP", "TCP", "AGM"]), dry_run=False)
-    body = _import(sandbox_client, payload["rows"], dry_run=False)
+    payload = build_payload(
+        extract_all(repo_root, ["TKP", "TCP", "AGM"], tcp_nlv_field="nav-x1"),
+        dry_run=False,
+    )
+    body = _import(backfill_client, payload["rows"], dry_run=False)
     assert body["row_error_count"] == 0
     assert body["programs"]["TKP"]["created"] == 2
     assert body["programs"]["TCP"]["created"] == 2
     assert body["programs"]["AGM"]["created"] == 2
     # And it is idempotent end-to-end.
-    again = _import(sandbox_client, payload["rows"], dry_run=False)
+    again = _import(backfill_client, payload["rows"], dry_run=False)
     assert again["programs"]["TKP"]["unchanged"] == 2
 
 
@@ -471,4 +533,116 @@ def test_extractor_refuses_stale_tcp_repo_seed(tmp_repo_root):
     repo_root, _files = tmp_repo_root
     (repo_root / ".tcp_production.env").unlink()
     with pytest.raises(FileNotFoundError):
-        extract_all(repo_root, ["TCP"])
+        extract_all(repo_root, ["TCP"], tcp_nlv_field="nav-x1")
+
+
+# --- TCP field gating -----------------------------------------------------------------
+
+def test_tcp_skipped_without_explicit_field(tmp_repo_root):
+    """TCP (and raw NLV) must not be used by default — no field, no TCP rows."""
+    from scripts.extract_tearsheet_history import extract_all
+
+    repo_root, _files = tmp_repo_root
+    results = extract_all(repo_root, ["TCP"])
+    assert results[0].skipped_reason is not None
+    assert "BACKFILL_TCP_NLV_FIELD" in results[0].skipped_reason
+    assert "nav-x1" in results[0].skipped_reason
+    assert results[0].rows == []
+
+
+def test_tcp_raw_nlv_is_rejected(tmp_repo_root):
+    """Raw NLV includes deposits/withdrawals — it must never be accepted."""
+    from scripts.extract_tearsheet_history import extract_all
+
+    repo_root, _files = tmp_repo_root
+    with pytest.raises(ValueError, match="NLV"):
+        extract_all(repo_root, ["TCP"], tcp_nlv_field="NLV")
+
+
+# --- GET /api/backfill/preview ----------------------------------------------------------
+
+def test_preview_reports_sources_unavailable_when_unconfigured(backfill_client):
+    resp = backfill_client.get("/api/backfill/preview")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["read_only"] is True
+    assert all(
+        p["status"] == "source_unavailable" for p in body["programs"].values()
+    )
+    assert "extract_tearsheet_history" in body["note"]
+
+
+def test_preview_reads_real_sources_and_stays_read_only(tmp_repo_root):
+    from tests.conftest import _cleanup, _make_client
+
+    repo_root, files = tmp_repo_root
+    client = _make_client(
+        app_env="sandbox",
+        export_enabled=False,
+        backfill_enabled=True,
+        backfill_source_repo_root=str(repo_root),
+        backfill_tcp_nlv_field="nav-x1",
+    )
+    try:
+        # A manual Glenn entry colliding with TKP history on 2023-04-11.
+        client.post(
+            "/api/rows/TKP",
+            json={"date": "2023-04-11", "stonex_nlv": 1, "plus500_nlv": 1,
+                  "cash_transfer": 0},
+        )
+        audits_before = client.get("/api/audit").json()["count"]
+        hashes_before = _file_hashes(files)
+
+        resp = client.get("/api/backfill/preview")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["read_only"] is True
+
+        tkp = body["programs"]["TKP"]
+        assert tkp["status"] == "previewed"
+        assert tkp["rows_found"] == 2
+        assert tkp["rows_valid"] == 2
+        assert tkp["would_create"] == 2
+        assert tkp["first_date"] == "2023-04-10"
+        assert tkp["last_date"] == "2023-04-11"
+        assert tkp["conflicts_with_manual_rows"] == 1
+        assert len(tkp["sample_rows"]) == 2
+
+        tcp = body["programs"]["TCP"]
+        assert tcp["status"] == "previewed"
+        assert tcp["sample_rows"][0]["stonex_nlv"] == 50000.0
+
+        assert body["programs"]["AGM"]["status"] == "previewed"
+        yq = body["programs"]["YQ"]
+        assert yq["status"] == "skipped"
+        assert "monthly" in yq["skipped_reason"]
+
+        # READ-ONLY proof: sources untouched, nothing landed, no audit rows.
+        assert _file_hashes(files) == hashes_before
+        assert _table_count(client, "historical_rows") == 0
+        assert _table_count(client, "backfill_batches") == 0
+        assert client.get("/api/audit").json()["count"] == audits_before
+    finally:
+        client.close()
+        _cleanup(client)
+
+
+def test_preview_skips_tcp_without_field_config(tmp_repo_root):
+    from tests.conftest import _cleanup, _make_client
+
+    repo_root, _files = tmp_repo_root
+    client = _make_client(
+        app_env="sandbox",
+        export_enabled=False,
+        backfill_enabled=True,
+        backfill_source_repo_root=str(repo_root),
+    )
+    try:
+        body = client.get("/api/backfill/preview").json()
+        tcp = body["programs"]["TCP"]
+        assert tcp["status"] == "skipped"
+        assert "BACKFILL_TCP_NLV_FIELD" in tcp["skipped_reason"]
+        assert body["programs"]["TKP"]["status"] == "previewed"
+    finally:
+        client.close()
+        _cleanup(client)
