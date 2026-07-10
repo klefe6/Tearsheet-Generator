@@ -4,16 +4,27 @@ Algominds / Momentum Pacer — Account Stats for the public tearsheet (AGM-only)
 Derives the Investor Information → Account Stats table from the same monthly
 summary frame and footer totals used elsewhere on the page (derived daily
 accounting pipeline when available; workbook slice only as mp_ts fallback).
+
+Also builds the TKP/TCP-style Proprietary | Client program account-stats
+rows from AGM_PROGRAM_BUCKET_CONFIG (program-level counts including closed
+tranches; not derivable from the open-account registry alone).
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Dict, Optional
+from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 import pandas as pd
 
 from algominds_daily_fees import NOMINAL_CAPITAL
+from program_account_stats import (
+    NA_DISPLAY,
+    PROGRAM_ACCOUNT_STAT_LABELS,
+    ProgramAccountStats,
+    ProgramBucketStats,
+    format_program_account_stats_rows,
+)
 
 # Public NAV chart title — must not claim compounded / annualized / audited.
 NAV_SINCE_INCEPTION_CHART_TITLE = "<u>NAV Since Inception</u>"
@@ -30,6 +41,50 @@ class AgmAccountStats:
     inception_date: datetime
     latest_report_date: datetime
     months_trading_approx: float
+
+
+@dataclass(frozen=True)
+class AgmProgramBucketConfig:
+    """Program-level account/tranche stats for one Proprietary or Client column."""
+
+    tranches_opened: int
+    tranches_currently_open: int
+    closed_profitably: int
+    closed_unprofitably: int
+    # None → display N/A (no closed accounts in this bucket).
+    closed_return_range: Optional[str] = None
+
+
+# Program-level facts for the client-facing Account Stats table.
+# INVESTOR_REGISTRY lists only currently participating accounts (portal board);
+# it does not include closed tranches, so opened/current/closed counts live here.
+# TODO: replace with a closed-tranche ledger when that source exists.
+AGM_PROGRAM_BUCKET_CONFIG: Dict[str, AgmProgramBucketConfig] = {
+    "proprietary": AgmProgramBucketConfig(
+        tranches_opened=5,
+        tranches_currently_open=5,
+        closed_profitably=0,
+        closed_unprofitably=0,
+        closed_return_range=None,
+    ),
+    "client": AgmProgramBucketConfig(
+        tranches_opened=7,
+        tranches_currently_open=6,
+        closed_profitably=1,
+        closed_unprofitably=0,
+        closed_return_range="0–1%",
+    ),
+}
+
+
+@dataclass(frozen=True)
+class AgmProgramBucketStats(ProgramBucketStats):
+    """AGM program bucket — alias of shared ProgramBucketStats."""
+
+
+@dataclass(frozen=True)
+class AgmProgramAccountStats(ProgramAccountStats):
+    """AGM program stats with derived Total (see program_account_stats)."""
 
 
 def months_trading_elapsed_approx(
@@ -95,3 +150,48 @@ def format_agm_account_stats(stats: AgmAccountStats) -> Dict[str, str]:
         "inception_date": stats.inception_date.strftime("%B %d, %Y"),
         "months_trading_approx": f"{stats.months_trading_approx:.1f}",
     }
+
+
+def _bucket_from_config(
+    config: AgmProgramBucketConfig,
+    *,
+    nominal_per_unit: float,
+) -> AgmProgramBucketStats:
+    return AgmProgramBucketStats(
+        nominal_assets=float(config.tranches_opened) * float(nominal_per_unit),
+        total_opened=config.tranches_opened,
+        currently_open=config.tranches_currently_open,
+        closed_profitably=config.closed_profitably,
+        closed_unprofitably=config.closed_unprofitably,
+        closed_return_range=config.closed_return_range,
+    )
+
+
+def compute_agm_program_account_stats(
+    registry_entries: Iterable[Mapping] | None = None,
+    *,
+    proprietary_account_number: str = "",
+    nominal_per_unit: float = NOMINAL_CAPITAL,
+) -> AgmProgramAccountStats:
+    """
+    Build TKP-style Proprietary | Client program stats for the tearsheet table.
+
+    Counts come from AGM_PROGRAM_BUCKET_CONFIG (includes closed tranches).
+    registry_entries / proprietary_account_number are accepted for call-site
+    stability but are not used until a closed-tranche ledger is wired.
+    Nominal assets = tranches_opened × nominal_per_unit ($30k per tranche).
+    """
+    del registry_entries, proprietary_account_number
+    prop_cfg = AGM_PROGRAM_BUCKET_CONFIG["proprietary"]
+    client_cfg = AGM_PROGRAM_BUCKET_CONFIG["client"]
+    return AgmProgramAccountStats(
+        proprietary=_bucket_from_config(prop_cfg, nominal_per_unit=nominal_per_unit),
+        client=_bucket_from_config(client_cfg, nominal_per_unit=nominal_per_unit),
+    )
+
+
+def format_agm_program_account_stats(
+    stats: AgmProgramAccountStats,
+) -> List[Tuple[str, str, str, str]]:
+    """Rows of (label, total, client, proprietary) for the HTML table."""
+    return format_program_account_stats_rows(stats, include_total=True)

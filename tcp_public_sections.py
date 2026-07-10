@@ -102,6 +102,9 @@ TRANSACTION_FEE_FOOTNOTE = (
     "* Give up fee is waived if account is traded at StoneX Financial."
 )
 
+# Client-facing Account Stats rows: (label, proprietary, client).
+# Total is derivable via program_account_stats when both buckets are active;
+# TCP keeps Proprietary | Client only (client bucket is zero today).
 ACCOUNT_STATISTICS: Tuple[Tuple[str, str, str], ...] = (
     ("Nominal Assets Being Traded in the Program", "$50,000", "0"),
     ("Total Accounts/Tranches Opened", "2", "0"),

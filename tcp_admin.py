@@ -105,6 +105,17 @@ class AdminAuthManager:
             return True, ""
         return False, "Invalid password"
 
+    def grant_session(self, session: Any) -> None:
+        """Mark this session authenticated WITHOUT a token check.
+
+        Only for the explicitly-guarded local-development bypass
+        (``tearsheet_local_admin.is_local_direct_admin_request``) — never
+        call this on a path reachable by unguarded production traffic.
+        """
+        session[self._session_key] = True
+        if hasattr(session, "permanent"):
+            session.permanent = False
+
     def logout(self, session: Any) -> None:
         session.pop(self._session_key, None)
 

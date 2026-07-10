@@ -21,5 +21,13 @@ function Import-BatchEnvFile {
 Import-BatchEnvFile (Join-Path $PSScriptRoot '.local_dev.env')
 $envFile = Join-Path $PSScriptRoot '.tkp_production.env'
 if (Test-Path $envFile) { Import-BatchEnvFile $envFile }
+Import-BatchEnvFile (Join-Path $PSScriptRoot '.staff.env')
+
+# Staff/admin runtime — forced AFTER env imports so no env file can override.
+# Binds loopback-only on the staff port; expose publicly ONLY via a Cloudflare
+# tunnel hostname protected by Cloudflare Access (see docs/staff_admin_ports.md).
+$env:TEARSHEET_MODE = 'staff'
+$env:TKP_BIND_PORT = '8321'
+
 $python = Join-Path $PSScriptRoot '.venv310\Scripts\python.exe'
 & $python (Join-Path $PSScriptRoot 'tkp_ts.py')

@@ -3,5 +3,4 @@ setlocal
 cd /d "%~dp0"
 echo BAT_DIR=%~dp0
 echo CWD=%CD%
-call .venv310\Scripts\activate.bat
-python tkp_ts.py
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0reboot_tkp_ts.ps1"
