@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest'
 import {
   combinedModeSubtitle,
   defaultEnabledBenchmarks,
+  isRealBenchmarkSource,
   provenanceNotice,
   readBenchmarkDataSource,
   resolveChartProvenance,
   seriesDisplayLabel,
+  showBenchmarkToggles,
 } from './chartProvenance'
 
 describe('resolveChartProvenance', () => {
@@ -29,6 +31,17 @@ describe('benchmark defaults', () => {
     ).toBe(0)
   })
 
+  it('enables SPX+NDX when market cache is confirmed', () => {
+    const enabled = defaultEnabledBenchmarks('backend', 'market_cache_cached')
+    expect(enabled.has('SPX')).toBe(true)
+    expect(enabled.has('NDX')).toBe(true)
+    expect(enabled.has('BTC')).toBe(false)
+  })
+
+  it('hides benchmarks when unavailable', () => {
+    expect(defaultEnabledBenchmarks('backend', 'unavailable').size).toBe(0)
+  })
+
   it('hides benchmarks in mock fallback', () => {
     expect(defaultEnabledBenchmarks('mock', null).size).toBe(0)
   })
@@ -41,12 +54,17 @@ describe('seriesDisplayLabel', () => {
     )
   })
 
+  it('uses plain labels for cached market benchmarks', () => {
+    expect(seriesDisplayLabel('SPX', 'backend', 'market_cache_cached')).toBe('SPX')
+    expect(seriesDisplayLabel('BTC', 'backend', 'market_cache_live_fetch')).toBe('BTC')
+  })
+
   it('marks mock product lines as preview', () => {
     expect(seriesDisplayLabel('TKP', 'mock', null)).toBe('TKP (preview)')
   })
 
   it('keeps backend product labels plain', () => {
-    expect(seriesDisplayLabel('TCP', 'backend', null)).toBe('TCP')
+    expect(seriesDisplayLabel('TCP', 'backend', 'market_cache_cached')).toBe('TCP')
   })
 })
 
@@ -64,6 +82,16 @@ describe('provenanceNotice', () => {
       /sample benchmarks/,
     )
   })
+
+  it('states cached market benchmarks when real', () => {
+    expect(provenanceNotice('backend', 'TKP', 'market_cache_cached')).toMatch(
+      /cached market closes/,
+    )
+  })
+
+  it('states unavailable benchmarks clearly', () => {
+    expect(provenanceNotice('backend', 'TKP', 'unavailable')).toMatch(/unavailable/)
+  })
 })
 
 describe('readBenchmarkDataSource', () => {
@@ -73,6 +101,32 @@ describe('readBenchmarkDataSource', () => {
         benchmark_data_source: 'deterministic_fixture',
       } as never),
     ).toBe('deterministic_fixture')
+  })
+
+  it('reads market cache flags from API', () => {
+    expect(
+      readBenchmarkDataSource({
+        benchmark_data_source: 'market_cache_cached',
+      } as never),
+    ).toBe('market_cache_cached')
+  })
+})
+
+describe('showBenchmarkToggles', () => {
+  it('hides toggles when backend reports unavailable', () => {
+    expect(showBenchmarkToggles('backend', 'unavailable')).toBe(false)
+  })
+
+  it('shows toggles for cached market data', () => {
+    expect(showBenchmarkToggles('backend', 'market_cache_cached')).toBe(true)
+  })
+})
+
+describe('isRealBenchmarkSource', () => {
+  it('accepts live fetch and cached', () => {
+    expect(isRealBenchmarkSource('market_cache_live_fetch')).toBe(true)
+    expect(isRealBenchmarkSource('market_cache_cached')).toBe(true)
+    expect(isRealBenchmarkSource('deterministic_fixture')).toBe(false)
   })
 })
 

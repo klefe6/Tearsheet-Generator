@@ -35,6 +35,7 @@ import {
   readBenchmarkDataSource,
   resolveChartProvenance,
   seriesDisplayLabel,
+  showBenchmarkToggles,
   type BenchmarkDataSource,
   type ChartProvenance,
 } from '../lib/chartProvenance'
@@ -215,7 +216,9 @@ export function PerformanceChart({ refreshToken = 0 }: Props) {
         programData,
         getSeriesStartDate(mode as ProductKey),
         formatLongDate,
+        benchmarkSource,
       )
+  const benchmarksVisible = showBenchmarkToggles(provenance, benchmarkSource)
 
   return (
     <section className={styles.card}>
@@ -271,26 +274,30 @@ export function PerformanceChart({ refreshToken = 0 }: Props) {
                     <span className={styles.swatch} style={{ background: active.color }} />
                     {seriesDisplayLabel(mode as ProductKey, provenance, benchmarkSource)}
                   </span>
-                  <span className={styles.toggleDivider} aria-hidden="true" />
-                  {BENCHMARK_KEYS.map((key) => {
-                    const s = SERIES_BY_KEY.get(key)!
-                    const on = enabledBenchmarks.has(key)
-                    const swatch = s.dashed
-                      ? `repeating-linear-gradient(90deg, ${s.color} 0 6px, transparent 6px 10px)`
-                      : s.color
-                    return (
-                      <button
-                        key={key}
-                        type="button"
-                        className={`${styles.legendItem} ${!on ? styles.legendOff : ''}`}
-                        onClick={() => toggleBenchmark(key)}
-                        aria-pressed={on}
-                      >
-                        <span className={styles.swatch} style={{ background: swatch }} />
-                        {seriesDisplayLabel(key, provenance, benchmarkSource)}
-                      </button>
-                    )
-                  })}
+                  {benchmarksVisible && (
+                    <>
+                      <span className={styles.toggleDivider} aria-hidden="true" />
+                      {BENCHMARK_KEYS.map((key) => {
+                        const s = SERIES_BY_KEY.get(key)!
+                        const on = enabledBenchmarks.has(key)
+                        const swatch = s.dashed
+                          ? `repeating-linear-gradient(90deg, ${s.color} 0 6px, transparent 6px 10px)`
+                          : s.color
+                        return (
+                          <button
+                            key={key}
+                            type="button"
+                            className={`${styles.legendItem} ${!on ? styles.legendOff : ''}`}
+                            onClick={() => toggleBenchmark(key)}
+                            aria-pressed={on}
+                          >
+                            <span className={styles.swatch} style={{ background: swatch }} />
+                            {seriesDisplayLabel(key, provenance, benchmarkSource)}
+                          </button>
+                        )
+                      })}
+                    </>
+                  )}
                 </>
               )
             })()}
