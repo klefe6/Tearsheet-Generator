@@ -1,4 +1,4 @@
-import { useState, type CSSProperties, type FormEvent } from 'react'
+import { useRef, useState, type CSSProperties, type FormEvent } from 'react'
 import { MAX_PRODUCT_FIELD_COUNT } from '../config/products'
 import type { ProductConfig, ProductId, ProductRow } from '../types'
 import { makeRowId } from '../data/rows'
@@ -27,6 +27,99 @@ function initialForm(config: ProductConfig): FormState {
     state[field.key] = field.type === 'date' ? todayISO() : ''
   }
   return state
+}
+
+/** Legacy clipboard fallback for contexts without navigator.clipboard. */
+function legacyCopy(text: string): void {
+  const area = document.createElement('textarea')
+  area.value = text
+  area.setAttribute('readonly', '')
+  area.style.position = 'fixed'
+  area.style.opacity = '0'
+  document.body.appendChild(area)
+  area.select()
+  const ok = document.execCommand('copy')
+  document.body.removeChild(area)
+  if (!ok) throw new Error('copy rejected')
+}
+
+/**
+ * Subtle chip beside a field label showing a broker account number.
+ * Click copies ONLY the account number; brief "Copied" / "Copy failed"
+ * feedback replaces the chip text, then it reverts.
+ */
+function AccountChip({ account }: { account: string }) {
+  const [state, setState] = useState<'idle' | 'copied' | 'error'>('idle')
+  const timer = useRef<number | undefined>(undefined)
+
+  const handleCopy = async (event: React.MouseEvent<HTMLButtonElement>) => {
+    // The chip sits inside the field <label>; don't focus/activate the input.
+    event.preventDefault()
+    event.stopPropagation()
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(account)
+      } else {
+        legacyCopy(account)
+      }
+      setState('copied')
+    } catch {
+      setState('error')
+    }
+    window.clearTimeout(timer.current)
+    timer.current = window.setTimeout(() => setState('idle'), 1600)
+  }
+
+  return (
+    <button
+      type="button"
+      className={`${styles.accountChip} ${
+        state === 'copied' ? styles.accountChipCopied : ''
+      } ${state === 'error' ? styles.accountChipError : ''}`}
+      onClick={handleCopy}
+      title={`Copy account number ${account}`}
+      aria-label={`Copy account number ${account} to clipboard`}
+    >
+      {state === 'copied' ? (
+        <>
+          <svg
+            width="10"
+            height="10"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="3"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M20 6 9 17l-5-5" />
+          </svg>
+          Copied
+        </>
+      ) : state === 'error' ? (
+        'Copy failed'
+      ) : (
+        <>
+          {account}
+          <svg
+            width="10"
+            height="10"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <rect x="9" y="9" width="12" height="12" rx="2" />
+            <path d="M5 15V5a2 2 0 0 1 2-2h10" />
+          </svg>
+        </>
+      )}
+    </button>
+  )
 }
 
 /** Small financial glyph shown in the colored header. */
@@ -101,7 +194,10 @@ export function ProductCard({ config, rows, onAddRow, onDeleteLast }: Props) {
         >
           {config.fields.map((field) => (
             <label key={field.key} className={styles.field}>
-              <span className={styles.fieldLabel}>{field.label}</span>
+              <span className={styles.fieldLabelRow}>
+                <span className={styles.fieldLabel}>{field.label}</span>
+                {field.accountNumber && <AccountChip account={field.accountNumber} />}
+              </span>
               {field.type === 'date' ? (
                 <input
                   type="date"
@@ -111,7 +207,11 @@ export function ProductCard({ config, rows, onAddRow, onDeleteLast }: Props) {
                   onChange={(e) => update(field.key, e.target.value)}
                 />
               ) : (
-                <span className={styles.currencyWrap}>
+                <span
+                  className={`${styles.currencyWrap} ${
+                    field.tint === 'purple' ? styles.wrapPurple : ''
+                  } ${field.tint === 'pink' ? styles.wrapPink : ''}`}
+                >
                   <span className={styles.currencyPrefix}>$</span>
                   <input
                     type="number"

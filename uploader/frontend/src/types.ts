@@ -5,6 +5,13 @@ export type ProductId = 'TKP' | 'TCP' | 'AGM' | 'YQ'
 /** Kind of input rendered in a product's entry form. */
 export type FieldType = 'date' | 'currency'
 
+/**
+ * Background tint for currency inputs (date inputs always stay white):
+ * 'purple' = bright translucent purple (NLV fields on TKP/TCP/AGM),
+ * 'pink'   = light translucent red/pink (all other non-date fields, incl. Y&Q).
+ */
+export type CurrencyInputTint = 'purple' | 'pink'
+
 export interface ProductField {
   /** Row key this input writes to. */
   key: string
@@ -12,6 +19,10 @@ export interface ProductField {
   label: string
   type: FieldType
   placeholder?: string
+  /** Background tint for currency inputs. Omit for date fields (white). */
+  tint?: CurrencyInputTint
+  /** Broker account number shown as a copy-to-clipboard chip next to the label. */
+  accountNumber?: string
 }
 
 /** How a table cell is rendered. */
