@@ -2062,47 +2062,6 @@ def build_client_performance_summary_table():
     )
 
 
-def build_admin_account_stats_table(acct_stats_fmt: dict, inception_str: str) -> dbc.Table:
-    """Admin Account Stats | Current (NAV / fees / inception diagnostics)."""
-    return dbc.Table(
-        [
-            html.Thead(html.Tr([
-                html.Th("Account Stats"),
-                html.Th("Current"),
-            ])),
-            html.Tbody([
-                html.Tr([
-                    html.Td("Starting Capital"),
-                    html.Td(acct_stats_fmt.get("starting_capital", "—")),
-                ]),
-                html.Tr([
-                    html.Td("Current NAV (after fees)"),
-                    html.Td(acct_stats_fmt.get("current_nav_after_fees", "—")),
-                ]),
-                html.Tr([
-                    html.Td("Total Net Gain"),
-                    html.Td(acct_stats_fmt.get("total_net_gain", "—")),
-                ]),
-                html.Tr([
-                    html.Td("Total Fees Paid"),
-                    html.Td(acct_stats_fmt.get("total_fees_paid", "—")),
-                ]),
-                html.Tr([
-                    html.Td("Inception Date"),
-                    html.Td(inception_str),
-                ]),
-                html.Tr([
-                    html.Td("Months trading (approx.)"),
-                    html.Td(acct_stats_fmt.get("months_trading_approx", "—")),
-                ]),
-            ]),
-        ],
-        striped=False, bordered=True,
-        hover=True, size="sm",
-        id="agm-admin-account-stats-table",
-    )
-
-
 def build_program_account_stats_table() -> dbc.Table:
     """Client-facing Account Stats | Total | Client | Proprietary."""
     program_stats = agm_account_stats.compute_agm_program_account_stats(
@@ -2750,20 +2709,7 @@ def serve_layout():
                                                     width=6,
                                                 ),
                                                 dbc.Col(
-                                                    [
-                                                        html.Div(
-                                                            build_admin_account_stats_table(
-                                                                _acct_stats_fmt, inception_str
-                                                            ),
-                                                            id="agm-admin-account-stats",
-                                                            style={"display": "none"},
-                                                        ),
-                                                        html.Div(
-                                                            build_program_account_stats_table(),
-                                                            id="agm-client-account-stats",
-                                                            style={"display": "block"},
-                                                        ),
-                                                    ],
+                                                    build_program_account_stats_table(),
                                                     width=6,
                                                 ),
                                             ])
@@ -2963,8 +2909,6 @@ def _local_direct_admin_entry(pathname):
     Output("agm-admin-daily-container", "style"),
     Output("agm-admin-monthly-performance", "style"),
     Output("agm-client-performance-summary", "style"),
-    Output("agm-admin-account-stats", "style"),
-    Output("agm-client-account-stats", "style"),
     Output("agm-admin-drawdown-note", "style"),
     Input("access-mode", "data"),
 )
@@ -2992,8 +2936,6 @@ def _toggle_admin_sections(access_mode):
         admin_style,
         admin_monthly_style,
         client_monthly_style,
-        admin_style,
-        client_style,
         admin_note_style,
     )
 
