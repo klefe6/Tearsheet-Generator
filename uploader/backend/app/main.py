@@ -19,6 +19,7 @@ from fastapi.responses import JSONResponse
 from pathlib import Path
 
 from . import __version__
+from .backfill import run_backfill_import, sandbox_only_detail
 from .benchmark_store import BenchmarkStore, _default_yfinance_fetch
 from .benchmarks import configure_store
 from .config import Settings
@@ -283,6 +284,63 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
             "results": downstream_results,
         }
         return response
+
+    # -- historical backfill (sandbox-only) ---------------------------------
+    def _require_sandbox() -> None:
+        if not settings.is_sandbox:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, detail=sandbox_only_detail()
+            )
+
+    @app.post("/api/backfill/import", tags=["backfill"])
+    def backfill_import(
+        payload: dict[str, Any] = Body(...),
+        actor: str = Depends(require_actor),
+    ) -> dict:
+        """Import extracted tearsheet history into `historical_rows`.
+
+        SANDBOX ONLY — refuses with 403 in production; no flag overrides this.
+        Body: {"dry_run": bool (default true), "rows": [{program, date,
+        <program fields>, source, source_detail?}, ...]}. Dry-run classifies
+        every row through the same code path as a real import but writes
+        nothing. Never touches daily_rows, never calls or writes any
+        tearsheet app — see docs/historical_backfill.md.
+        """
+        _require_sandbox()
+        rows = payload.get("rows")
+        if not isinstance(rows, list):
+            raise HTTPException(status_code=422, detail="'rows' must be a JSON array")
+        dry_run = payload.get("dry_run", True)
+        if not isinstance(dry_run, bool):
+            raise HTTPException(status_code=422, detail="'dry_run' must be a boolean")
+        return run_backfill_import(db, settings, actor, rows, dry_run)
+
+    @app.get("/api/backfill/status", tags=["backfill"])
+    def backfill_status() -> dict:
+        """Per-program audit view of backfilled history currently stored."""
+        return {
+            "app_env": settings.app_env,
+            "programs": db.historical_summary(),
+            "precedence": (
+                "Manual daily_rows entries always supersede historical rows on "
+                "the same (program, date)."
+            ),
+        }
+
+    @app.delete("/api/backfill", tags=["backfill"])
+    def backfill_clear(
+        program: Optional[str] = Query(default=None),
+        actor: str = Depends(require_actor),
+    ) -> dict:
+        """Remove backfilled rows (all, or ?program=TKP). Reversibility hatch:
+        only `historical_rows` is cleared; Glenn's daily_rows are untouched.
+        """
+        _require_sandbox()
+        code: Optional[str] = None
+        if program is not None:
+            code = _resolve_program_or_404(program)
+        deleted = db.clear_historical_rows(actor=actor, program=code)
+        return {"deleted": deleted, "program": code}
 
     # -- audit ------------------------------------------------------------
     @app.get("/api/audit", tags=["audit"])

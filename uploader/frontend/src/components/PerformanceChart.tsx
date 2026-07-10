@@ -33,11 +33,13 @@ import {
   programModeSubtitle,
   provenanceNotice,
   readBenchmarkDataSource,
+  readProgramDataSource,
   resolveChartProvenance,
   seriesDisplayLabel,
   showBenchmarkToggles,
   type BenchmarkDataSource,
   type ChartProvenance,
+  type ProgramDataSource,
 } from '../lib/chartProvenance'
 import {
   chartHeightPx,
@@ -134,6 +136,7 @@ export function PerformanceChart({ refreshToken = 0 }: Props) {
   const [enabledBenchmarks, setEnabledBenchmarks] = useState<Set<BenchmarkKey>>(() => new Set())
   const [provenance, setProvenance] = useState<ChartProvenance>('loading')
   const [benchmarkSource, setBenchmarkSource] = useState<BenchmarkDataSource>(null)
+  const [programDataSource, setProgramDataSource] = useState<ProgramDataSource>(null)
 
   const isCombined = mode === 'combined'
 
@@ -147,11 +150,13 @@ export function PerformanceChart({ refreshToken = 0 }: Props) {
     setBackendProgram(null)
     setWarnings([])
     setProvenance('loading')
+    setProgramDataSource(null)
 
     const onSettled = (resp: Awaited<ReturnType<typeof fetchPerformance>>) => {
       if (cancelled) return
       setProvenance(resolveChartProvenance(resp, true))
       setBenchmarkSource(readBenchmarkDataSource(resp))
+      setProgramDataSource(readProgramDataSource(resp))
       if (resp) setWarnings(resp.warnings)
     }
 
@@ -262,9 +267,9 @@ export function PerformanceChart({ refreshToken = 0 }: Props) {
   }
 
   const activeLabel = isCombined ? '' : SERIES_BY_KEY.get(mode as ProductKey)?.label ?? mode
-  const notice = provenanceNotice(provenance, mode, benchmarkSource)
+  const notice = provenanceNotice(provenance, mode, benchmarkSource, programDataSource)
   const subtitle = isCombined
-    ? combinedModeSubtitle(provenance)
+    ? combinedModeSubtitle(provenance, programDataSource)
     : programModeSubtitle(
         activeLabel,
         provenance,
@@ -273,6 +278,7 @@ export function PerformanceChart({ refreshToken = 0 }: Props) {
         formatLongDate,
         benchmarkSource,
         programEntryCount,
+        programDataSource,
       )
 
   const emptyMessage = useMemo(() => {
