@@ -19,6 +19,7 @@
 // can be produced by a future `/api/performance` backend call without
 // touching the chart component.
 
+import type { ApiPerformanceResponse } from '../api/client'
 import { formatAxisDate } from '../lib/format'
 
 export type ProductKey = 'TKP' | 'TCP' | 'AGM' | 'YQ'
@@ -246,6 +247,47 @@ export function buildProgramBenchmarkSeries(program: ProductKey): ProgramSeriesP
     points.push(point)
   }
   return points
+}
+
+/**
+ * Transform GET /api/performance?mode=combined into the same shape
+ * buildCombinedTradingDaySeries() produces, so the chart renders identically
+ * whether its data came from the backend or the local mock. The backend
+ * doesn't send a per-point real date (only trading-day index), so the
+ * optional `${key}_date` tooltip enhancement is simply absent for
+ * backend-sourced combined data — the tooltip already handles that gracefully.
+ */
+export function transformCombinedResponse(resp: ApiPerformanceResponse): CombinedTradingDayPoint[] {
+  const byDay = new Map<number, CombinedTradingDayPoint>()
+  for (const key of PRODUCT_KEYS) {
+    const pts = resp.points[key]
+    if (!pts) continue
+    for (const p of pts) {
+      const day = Number(p.x)
+      if (!byDay.has(day)) byDay.set(day, { dayIndex: day })
+      byDay.get(day)![key] = p.y
+    }
+  }
+  return [...byDay.values()].sort((a, b) => a.dayIndex - b.dayIndex)
+}
+
+/**
+ * Transform GET /api/performance?mode=program into the same shape
+ * buildProgramBenchmarkSeries() produces.
+ */
+export function transformProgramResponse(resp: ApiPerformanceResponse): ProgramSeriesPoint[] {
+  const byDate = new Map<string, ProgramSeriesPoint>()
+  const keys = [resp.program, ...resp.benchmarks].filter((k): k is string => Boolean(k))
+  for (const key of keys) {
+    const pts = resp.points[key]
+    if (!pts) continue
+    for (const p of pts) {
+      const d = String(p.x)
+      if (!byDate.has(d)) byDate.set(d, { date: d })
+      ;(byDate.get(d) as unknown as Record<string, number>)[key] = p.y
+    }
+  }
+  return [...byDate.values()].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
 }
 
 /** Chart mode: the lifecycle "combined" view, or one program's benchmark view. */

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   CartesianGrid,
   Line,
@@ -8,6 +8,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
+import { fetchPerformance } from '../api/client'
 import {
   BENCHMARK_KEYS,
   PRODUCT_KEYS,
@@ -17,9 +18,13 @@ import {
   formatChartXAxis,
   getMonthTicks,
   getSeriesStartDate,
+  transformCombinedResponse,
+  transformProgramResponse,
   type BenchmarkKey,
   type ChartMode,
+  type CombinedTradingDayPoint,
   type ProductKey,
+  type ProgramSeriesPoint,
   type SeriesKey,
 } from '../data/performance'
 import {
@@ -93,7 +98,13 @@ function ChartTooltip({ active, payload, label, mode }: ChartTooltipProps) {
   )
 }
 
-export function PerformanceChart() {
+interface Props {
+  /** Bump this (e.g. after Enter/Delete/Export) to force a fresh
+   *  GET /api/performance for whatever mode is currently showing. */
+  refreshToken?: number
+}
+
+export function PerformanceChart({ refreshToken = 0 }: Props) {
   const [mode, setMode] = useState<ChartMode>('combined')
   const [hiddenProducts, setHiddenProducts] = useState<Set<ProductKey>>(() => new Set())
   // Requested default: SPX and NDX on, BTC off (keeps individual-mode charts readable).
@@ -103,14 +114,51 @@ export function PerformanceChart() {
 
   const isCombined = mode === 'combined'
 
-  const combinedData = useMemo(
+  // Backend-sourced data (GET /api/performance), null until a fetch resolves
+  // or when the backend is unreachable — in which case the local mock
+  // builders below are used instead, so the chart never requires a running
+  // backend. Reset to null immediately on mode/refresh change so a mode
+  // switch never briefly shows a stale OTHER mode's backend data.
+  const [backendCombined, setBackendCombined] = useState<CombinedTradingDayPoint[] | null>(null)
+  const [backendProgram, setBackendProgram] = useState<ProgramSeriesPoint[] | null>(null)
+  const [warnings, setWarnings] = useState<string[]>([])
+
+  useEffect(() => {
+    let cancelled = false
+    setBackendCombined(null)
+    setBackendProgram(null)
+    setWarnings([])
+
+    if (isCombined) {
+      fetchPerformance('combined').then((resp) => {
+        if (cancelled || !resp) return
+        setBackendCombined(transformCombinedResponse(resp))
+        setWarnings(resp.warnings)
+      })
+    } else {
+      // Always request all three benchmarks — toggling on/off is purely
+      // client-side (which <Line>s render), so it never needs a refetch.
+      fetchPerformance('program', mode as ProductKey, [...BENCHMARK_KEYS]).then((resp) => {
+        if (cancelled || !resp) return
+        setBackendProgram(transformProgramResponse(resp))
+        setWarnings(resp.warnings)
+      })
+    }
+    return () => {
+      cancelled = true
+    }
+  }, [mode, isCombined, refreshToken])
+
+  const mockCombinedData = useMemo(
     () => (isCombined ? buildCombinedTradingDaySeries() : []),
     [isCombined],
   )
-  const programData = useMemo(
+  const mockProgramData = useMemo(
     () => (isCombined ? [] : buildProgramBenchmarkSeries(mode as ProductKey)),
     [isCombined, mode],
   )
+  const combinedData = backendCombined ?? mockCombinedData
+  const programData = backendProgram ?? mockProgramData
   const data = isCombined ? combinedData : programData
   const monthTicks = useMemo(
     () => (isCombined ? [] : getMonthTicks(programData)),
@@ -221,6 +269,10 @@ export function PerformanceChart() {
               )
             })()}
       </div>
+
+      {warnings.length > 0 && (
+        <p className={styles.warningNote}>{warnings.join(' ')}</p>
+      )}
 
       <div className={styles.chartWrap}>
         {isEmpty ? (

@@ -124,6 +124,14 @@
   flex: none;
 }
 
+/* Backend-reported notices (e.g. "no data yet", benchmark rebase fallback). */
+.warningNote {
+  margin: 4px 0 0;
+  font-size: 11.5px;
+  color: var(--ink-muted);
+  font-style: italic;
+}
+
 .chartWrap {
   width: 100%;
   height: 360px;

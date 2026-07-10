@@ -1,5 +1,5 @@
-import type { ApiProgram } from '../api/client'
-import type { ProductConfig } from '../types'
+import type { ApiProgram, ApiRow } from '../api/client'
+import type { ProductConfig, ProductRow } from '../types'
 
 /** Max entry fields across products — used to align action buttons across cards. */
 export const MAX_PRODUCT_FIELD_COUNT = 4
@@ -108,6 +108,40 @@ export const PRODUCTS: ProductConfig[] = [
  * cards (labels, tints, columns, colors) stays from the local config so the
  * UI renders identically with or without a backend.
  */
+/**
+ * Build the POST /api/rows/{program} payload (snake_case, per-program fields
+ * only) from a locally-keyed row. Only fields with an `apiName` are sent —
+ * exactly the program's own fields, matching what the backend validates.
+ */
+export function toApiRowPayload(
+  config: ProductConfig,
+  row: ProductRow,
+): Record<string, string | number> {
+  const payload: Record<string, string | number> = {}
+  for (const field of config.fields) {
+    if (!field.apiName) continue
+    payload[field.apiName] = row[field.key]
+  }
+  return payload
+}
+
+/**
+ * Map one GET/POST /api/rows/{program} row (snake_case) into the local
+ * `ProductRow` shape the table/form already render. `id` is derived from
+ * `(program, date)` — the same key the backend upserts on — so re-fetching
+ * the same row never produces a duplicate React key.
+ */
+export function fromApiRow(config: ProductConfig, apiRow: ApiRow): ProductRow {
+  const row: ProductRow = { id: `${config.id}-${apiRow.date}` }
+  for (const field of config.fields) {
+    if (!field.apiName) continue
+    const value = apiRow[field.apiName]
+    row[field.key] =
+      field.type === 'date' ? String(value ?? '') : Number(value ?? 0)
+  }
+  return row
+}
+
 export function applyProgramMetadata(
   base: ProductConfig[],
   programs: ApiProgram[],
