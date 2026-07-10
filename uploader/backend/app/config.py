@@ -83,6 +83,13 @@ class Settings(BaseSettings):
     # downstream endpoint (does not exist yet). Never defaulted on.
     downstream_api_token: Optional[str] = None
 
+    # --- Benchmark market cache (SPX / NDX / BTC) -------------------------
+    benchmark_cache_dir: str = "data/benchmark_cache"
+    # When true, never call yfinance — cache files only (tests / air-gapped).
+    benchmark_cache_only: bool = False
+    # Test-only: allow deterministic_fixture (never enable in production).
+    benchmark_allow_fixture: bool = False
+
     # --- Derived helpers --------------------------------------------------
     @property
     def is_sandbox(self) -> bool:

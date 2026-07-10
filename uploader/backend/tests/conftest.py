@@ -8,6 +8,7 @@ and keeps test data well away from any real/production database).
 from __future__ import annotations
 
 import sys
+from datetime import date
 from pathlib import Path
 from uuid import uuid4
 
@@ -20,9 +21,15 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 from app.config import Settings  # noqa: E402
+from app.benchmark_store import BenchmarkStore  # noqa: E402
+from app.benchmarks import configure_store  # noqa: E402
 from app.main import create_app  # noqa: E402
+from tests.benchmark_fixtures import seed_standard_benchmark_window  # noqa: E402
 
 _TMP = Path(__file__).resolve().parent / "_tmp"
+
+# First Monday on/after 2026-07-01 — shared with test_performance date helpers.
+_BENCHMARK_ANCHOR_MONDAY = date(2026, 7, 6)
 
 
 def _fresh_db_path() -> Path:
@@ -30,15 +37,31 @@ def _fresh_db_path() -> Path:
     return _TMP / f"test_{uuid4().hex}.db"
 
 
-def _make_client(**overrides) -> TestClient:
+def _make_client(seed_benchmarks: bool = True, **overrides) -> TestClient:
     dbfile = _fresh_db_path()
+    cache_dir = Path(overrides.pop("benchmark_cache_dir", _TMP / f"bench_{uuid4().hex}"))
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    if seed_benchmarks:
+        seed_standard_benchmark_window(cache_dir, _BENCHMARK_ANCHOR_MONDAY)
+    cache_only = overrides.pop("benchmark_cache_only", True)
     # _env_file=None -> ignore any real .env; explicit kwargs override os env.
     settings = Settings(
         _env_file=None,
         database_path=str(dbfile),
+        benchmark_cache_dir=str(cache_dir),
+        benchmark_cache_only=cache_only,
         **overrides,
     )
-    client = TestClient(create_app(settings))
+    app = create_app(settings)
+    configure_store(
+        BenchmarkStore(
+            cache_dir=cache_dir,
+            cache_only=cache_only,
+            allow_fixture=settings.benchmark_allow_fixture,
+            fetcher=None,
+        )
+    )
+    client = TestClient(app)
     client._uploader_db_path = dbfile  # type: ignore[attr-defined]
     return client
 

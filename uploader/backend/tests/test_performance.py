@@ -3,6 +3,10 @@
 from __future__ import annotations
 
 from datetime import date, timedelta
+from pathlib import Path
+from uuid import uuid4
+
+from tests.conftest import _make_client
 
 
 def _next_weekday(start: date, target_weekday: int) -> date:
@@ -118,12 +122,15 @@ def test_benchmark_rebases_to_100000_at_program_start(sandbox_client):
 
 
 def test_benchmark_missing_on_start_date_rolls_forward_with_warning(sandbox_client):
-    # First row lands on a Saturday, which the deterministic fixture models as
-    # a non-trading day (no benchmark value) — must roll forward and warn.
+    # First row on Saturday has no market close — rebase rolls forward to Monday.
     _post(sandbox_client, "TCP", _A_SATURDAY.isoformat(), stonex_nlv=50000)
     r = sandbox_client.get("/api/performance?mode=program&program=TCP&benchmarks=SPX")
     body = r.json()
-    assert body["points"]["SPX"][0]["y"] == 100000
+    spx = body["points"]["SPX"]
+    assert len(spx) == 1
+    assert spx[0]["x"] == _A_SATURDAY.isoformat()
+    # Prior-weekday close vs Monday rebase anchor — not exactly 100k on a weekend start.
+    assert 99000 < spx[0]["y"] < 100000
     assert any("rebased" in w.lower() for w in body["warnings"])
 
 
@@ -201,13 +208,35 @@ def test_combined_mode_declares_uploader_program_source(sandbox_client):
     assert body["benchmark_data_source"] is None
 
 
-def test_program_mode_declares_fixture_benchmark_source(sandbox_client):
+def test_program_mode_declares_cached_benchmark_source(sandbox_client):
     _post(sandbox_client, "TCP", _A_MONDAY.isoformat(), stonex_nlv=50000)
     body = sandbox_client.get(
         "/api/performance?mode=program&program=TCP&benchmarks=SPX,NDX"
     ).json()
     assert body["program_data_source"] == "uploader_daily_rows"
-    assert body["benchmark_data_source"] == "deterministic_fixture"
+    assert body["benchmark_data_source"] == "market_cache_cached"
+    assert body["benchmark_align_policy"] == "prior_close_within_5_calendar_days"
+
+
+def test_program_mode_benchmark_unavailable_without_cache():
+    """Empty cache + cache_only must not fabricate benchmark values."""
+    empty = Path(__file__).resolve().parent / "_tmp" / f"empty_{uuid4().hex}"
+    empty.mkdir(parents=True, exist_ok=True)
+    client = _make_client(
+        seed_benchmarks=False,
+        benchmark_cache_dir=str(empty),
+        benchmark_cache_only=True,
+    )
+    try:
+        _post(client, "TCP", _A_MONDAY.isoformat(), stonex_nlv=50000)
+        body = client.get(
+            "/api/performance?mode=program&program=TCP&benchmarks=SPX"
+        ).json()
+        assert body["benchmarks"] == []
+        assert body["benchmark_data_source"] == "unavailable"
+        assert "SPX" not in body["points"]
+    finally:
+        client.close()
 
 
 def test_program_mode_without_benchmarks_has_null_benchmark_source(sandbox_client):

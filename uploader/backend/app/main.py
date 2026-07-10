@@ -16,7 +16,11 @@ from fastapi import Body, Depends, FastAPI, HTTPException, Query, Request, statu
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from pathlib import Path
+
 from . import __version__
+from .benchmark_store import BenchmarkStore, _default_yfinance_fetch
+from .benchmarks import configure_store
 from .config import Settings
 from .db import Database, SchemaError
 from .downstream_export import run_downstream_export
@@ -52,6 +56,14 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
             db.verify_schema()
         except SchemaError as exc:
             raise RuntimeError(str(exc)) from exc
+        configure_store(
+            BenchmarkStore(
+                cache_dir=Path(settings.benchmark_cache_dir),
+                cache_only=settings.benchmark_cache_only,
+                allow_fixture=settings.benchmark_allow_fixture,
+                fetcher=None if settings.benchmark_cache_only else _default_yfinance_fetch,
+            )
+        )
         yield
 
     app = FastAPI(

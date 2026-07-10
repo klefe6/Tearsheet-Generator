@@ -21,6 +21,13 @@ Accounting:
     The first row of a series has no "prior" — it is simply the $100,000
     anchor point, so its own cash_transfer never affects the series.
 
+Benchmarks (program mode only):
+  * Real daily closes from ``benchmark_store`` (yfinance + CSV cache).
+  * Aligned with ``prior_close_within_5_calendar_days`` — weekends/holidays
+    use the latest prior close within 5 calendar days (documented in warnings).
+  * Program-start rebasing may roll forward up to 14 days when the first entry
+    date has no close (e.g. weekend), with an explicit warning.
+
 This module reads directly from the database on every call (no caching), so
 the chart is always current after a row create/update/delete or an export
 preview.
@@ -31,15 +38,17 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 from typing import Optional
 
-from .benchmarks import BENCHMARK_SYMBOLS, first_available_on_or_after
+from .benchmarks import (
+    BENCHMARK_ALIGN_POLICY,
+    BENCHMARK_SYMBOLS,
+    aggregate_benchmark_source,
+    get_store,
+)
 from .programs import PROGRAM_LABELS, PROGRAMS, normalize_program, program_nlv
 
 BASE_VALUE = 100_000.0
 
-# Exposed in every /api/performance response so the frontend can label series
-# truthfully without guessing.
 PROGRAM_DATA_SOURCE = "uploader_daily_rows"
-BENCHMARK_DATA_SOURCE_FIXTURE = "deterministic_fixture"
 
 
 def _rows_with_nlv(db, program: str) -> list[dict]:
@@ -63,7 +72,7 @@ def _normalized_values(rows: list[dict]) -> list[float]:
     """Compound `rows` (oldest first, each with `_nlv`) into a $100,000 series."""
     values: list[float] = []
     normalized = BASE_VALUE
-    prior_raw: Optional[float] = None
+    prior_raw = None
     for i, row in enumerate(rows):
         raw = row["_nlv"]
         if i == 0:
@@ -72,9 +81,6 @@ def _normalized_values(rows: list[dict]) -> list[float]:
             cash_transfer = row.get("cash_transfer") or 0.0
             adjusted = raw - cash_transfer
             if not prior_raw:
-                # Guard against a division by a zero/missing prior NLV — hold
-                # flat rather than raise. Not expected in practice (NLV is a
-                # required, validated field).
                 daily_return = 0.0
             else:
                 daily_return = adjusted / prior_raw - 1.0
@@ -126,6 +132,7 @@ def build_combined(db) -> dict:
         "warnings": warnings,
         "program_data_source": PROGRAM_DATA_SOURCE,
         "benchmark_data_source": None,
+        "benchmark_align_policy": None,
     }
 
 
@@ -150,6 +157,7 @@ def build_program(db, program: str, benchmark_symbols: list[str]) -> dict:
             "warnings": warnings,
             "program_data_source": PROGRAM_DATA_SOURCE,
             "benchmark_data_source": None,
+            "benchmark_align_policy": None,
         }
 
     values = _normalized_values(rows)
@@ -160,6 +168,16 @@ def build_program(db, program: str, benchmark_symbols: list[str]) -> dict:
     points: dict[str, list[dict]] = {code: [{"x": d, "y": v} for d, v in zip(dates, values)]}
 
     resolved_benchmarks: list[str] = []
+    benchmark_requested = bool(benchmark_symbols)
+    store = get_store()
+    store.reset_session()
+    seen_warnings: set[str] = set()
+
+    def add_warning(msg: Optional[str]) -> None:
+        if msg and msg not in seen_warnings:
+            seen_warnings.add(msg)
+            warnings.append(msg)
+
     if benchmark_symbols:
         start_date = date.fromisoformat(dates[0])
         for sym in benchmark_symbols:
@@ -167,30 +185,37 @@ def build_program(db, program: str, benchmark_symbols: list[str]) -> dict:
                 warnings.append(f"Unknown benchmark '{sym}' ignored.")
                 continue
 
-            base_date, base_val = first_available_on_or_after(sym, start_date)
-            if base_val is None:
+            base = store.close_on_or_after(sym, start_date)
+            add_warning(base.warning)
+            if base.value is None:
                 warnings.append(
                     f"{sym}: no benchmark data available near {dates[0]}; series omitted."
                 )
                 continue
-            if base_date != start_date:
-                warnings.append(
-                    f"{sym} has no data on {dates[0]} (program start); rebased "
-                    f"from {base_date.isoformat()} instead."
-                )
 
             bench_points = []
             for d_str in dates:
-                _bdate, bval = first_available_on_or_after(sym, date.fromisoformat(d_str))
-                if bval is None:
+                aligned = store.close_on_or_before(sym, date.fromisoformat(d_str))
+                add_warning(aligned.warning)
+                if aligned.value is None:
                     continue
-                bench_points.append({"x": d_str, "y": round(BASE_VALUE * bval / base_val, 4)})
+                bench_points.append(
+                    {"x": d_str, "y": round(BASE_VALUE * aligned.value / base.value, 4)}
+                )
+
+            if not bench_points:
+                warnings.append(f"{sym}: no aligned benchmark points; series omitted.")
+                continue
 
             resolved_benchmarks.append(sym)
             series_meta.append(
                 {"key": sym, "label": sym, "kind": "benchmark", "point_count": len(bench_points)}
             )
             points[sym] = bench_points
+
+    bench_source = aggregate_benchmark_source(
+        benchmark_requested, len(resolved_benchmarks), store
+    )
 
     return {
         "mode": "program",
@@ -203,7 +228,8 @@ def build_program(db, program: str, benchmark_symbols: list[str]) -> dict:
         "last_updated_at": _last_updated_at(db),
         "warnings": warnings,
         "program_data_source": PROGRAM_DATA_SOURCE,
-        "benchmark_data_source": (
-            BENCHMARK_DATA_SOURCE_FIXTURE if resolved_benchmarks else None
+        "benchmark_data_source": bench_source,
+        "benchmark_align_policy": (
+            BENCHMARK_ALIGN_POLICY if resolved_benchmarks else None
         ),
     }
