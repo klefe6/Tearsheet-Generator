@@ -75,7 +75,7 @@ def test_agm_profile_copy_matches_tkp_tcp_style(agm_app):
     assert "Advisor: Algominds Financial LLC | Program: Momentum Pacer" in layout
     assert "Live Inception: November 13, 2025" in layout
     assert "Products Traded: Nasdaq-100 Futures (NQ / MNQ)" in layout
-    assert "Style: Systematic Momentum / Trend-Following" in layout
+    assert "Style: Systematic Trend Following" in layout
     assert "Algominds Financial LLC — CTA" not in layout
 
 
