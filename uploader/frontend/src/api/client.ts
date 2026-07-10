@@ -69,6 +69,12 @@ export interface ApiPerformanceResponse {
   points: Record<string, ApiPerformancePoint[]>
   last_updated_at: string
   warnings: string[]
+  /** Always `uploader_daily_rows` when served by the backend. */
+  program_data_source?: string
+  /** `deterministic_fixture` | `market_cache_live_fetch` | `market_cache_cached` | `unavailable` */
+  benchmark_data_source?: string | null
+  /** e.g. `prior_close_within_5_calendar_days` when benchmarks are aligned. */
+  benchmark_align_policy?: string | null
 }
 
 /** One program's downstream export outcome (present only when the backend's

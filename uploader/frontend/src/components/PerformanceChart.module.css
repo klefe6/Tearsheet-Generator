@@ -132,6 +132,18 @@
   font-style: italic;
 }
 
+/* Data provenance — mock fallback vs uploader entries vs sample benchmarks. */
+.provenanceNote {
+  margin: 10px 0 0;
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--ink-secondary);
+  background: #f8f9fb;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
 .chartWrap {
   width: 100%;
   height: 360px;
