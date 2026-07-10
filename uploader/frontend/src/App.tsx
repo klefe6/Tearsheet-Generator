@@ -13,6 +13,7 @@ import { ProductCard, type DateStepSignal } from './components/ProductCard'
 import { Toast } from './components/Toast'
 import { applyProgramMetadata, fromApiRow, PRODUCTS, toApiRowPayload } from './config/products'
 import { INITIAL_ROWS } from './data/rows'
+import { deriveExportState, exportToastMessage, offlineMockExportState } from './lib/exportStatus'
 import type { ExportUiState, ProductConfig, ProductId, ProductRow } from './types'
 import styles from './App.module.css'
 
@@ -22,9 +23,10 @@ const APP_ENV = import.meta.env.VITE_APP_ENV || import.meta.env.MODE || 'sandbox
 
 const INITIAL_EXPORT_STATE: ExportUiState = {
   lastExportAt: null,
-  status: 'idle',
+  overallStatus: 'idle',
   canUndo: false,
   rowCount: 0,
+  programStatuses: [],
 }
 
 const INITIAL_DATE_STEP_SIGNAL: DateStepSignal = { delta: 1, nonce: 0 }
@@ -164,22 +166,18 @@ export default function App() {
     window.clearTimeout(exportTimer.current)
     setExportState({
       lastExportAt: exportedAt,
-      status: 'pending',
+      overallStatus: 'pending',
       canUndo: false,
       rowCount: total,
+      programStatuses: [],
     })
 
     const result = await postExportAll()
 
     if (result.ok) {
-      const { message, total_rows: totalRows } = result.data
-      showToast(`${message} (${totalRows} row${totalRows === 1 ? '' : 's'} in this batch, ${APP_ENV}).`)
-      setExportState({
-        lastExportAt: exportedAt,
-        status: 'processed',
-        canUndo: true,
-        rowCount: totalRows,
-      })
+      const nextState = deriveExportState(result.data, exportedAt)
+      showToast(exportToastMessage(result.data, APP_ENV))
+      setExportState(nextState)
       setPerfRefreshToken((t) => t + 1)
       return
     }
@@ -189,14 +187,9 @@ export default function App() {
         `(${APP_ENV}). Nothing was sent to the backend.`,
     )
 
-    // Simulate a short processing window, then show a reassuring processed state.
+    // Simulate a short processing window, then show the offline/mock result.
     exportTimer.current = window.setTimeout(() => {
-      setExportState({
-        lastExportAt: exportedAt,
-        status: 'processed',
-        canUndo: true,
-        rowCount: total,
-      })
+      setExportState(offlineMockExportState(total, exportedAt))
     }, 1100)
   }, [rowsByProduct, showToast])
 

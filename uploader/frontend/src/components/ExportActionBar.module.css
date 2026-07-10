@@ -123,6 +123,98 @@
   animation: statusFadeIn 0.45s ease-out;
 }
 
+/* Backend unreachable — purely local simulation, nothing sent anywhere. */
+.mutedBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 12px;
+  border-radius: var(--radius-pill);
+  background: #f1f3f6;
+  color: var(--ink-muted);
+  font-size: 12.5px;
+  font-weight: 600;
+  animation: statusFadeIn 0.35s ease-out;
+}
+
+/* Downstream export computed but deliberately not written anywhere. */
+.dryRunBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 12px;
+  border-radius: var(--radius-pill);
+  background: #eef2ff;
+  color: #3730a3;
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: 0.15px;
+  animation: statusFadeIn 0.35s ease-out;
+}
+
+/* Some programs succeeded, some failed — never hidden behind a "Processed" look. */
+.warnBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: var(--radius-pill);
+  background: linear-gradient(180deg, #fff7ed 0%, #ffedd5 100%);
+  color: #9a3412;
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: 0.15px;
+  box-shadow: 0 0 0 1px rgba(154, 52, 18, 0.14);
+  animation: statusFadeIn 0.35s ease-out;
+}
+
+/* Every non-skipped program failed. */
+.failBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: var(--radius-pill);
+  background: linear-gradient(180deg, #fef2f2 0%, #fee2e2 100%);
+  color: #b42318;
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: 0.15px;
+  box-shadow: 0 0 0 1px rgba(180, 35, 24, 0.14);
+  animation: statusFadeIn 0.35s ease-out;
+}
+
+/* Per-program breakdown (TKP/TCP/AGM exported/failed, Y&Q skipped). */
+.programList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+}
+
+.programItem {
+  font-size: 12px;
+  color: var(--ink-secondary);
+}
+
+.programItem strong {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.programItemOk {
+  color: #127a42;
+}
+
+.programItemFail {
+  color: #b42318;
+}
+
+.programItemSkipped {
+  color: var(--ink-muted);
+  font-style: italic;
+}
+
 @keyframes statusFadeIn {
   from {
     opacity: 0;

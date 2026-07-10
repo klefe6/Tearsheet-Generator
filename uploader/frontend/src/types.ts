@@ -66,13 +66,50 @@ export interface ProductRow {
   [key: string]: string | number
 }
 
-/** Mock export / undo UI state (frontend-only until backend wiring). */
-export type ExportProcessStatus = 'idle' | 'pending' | 'processed'
+/**
+ * Truthful, distinguishable outcomes for "Export All Changes":
+ *  - idle            no export attempted yet
+ *  - pending         request in flight
+ *  - offline_mock    backend unreachable -> purely local simulation, nothing sent anywhere
+ *  - saved           backend reached, saved as an uploader-only preview (downstream export not enabled)
+ *  - dry_run         downstream export enabled but EXPORT_DRY_RUN=true -> computed, nothing written
+ *  - sandbox_success downstream export ran for real; every non-skipped program succeeded
+ *  - partial_failure downstream export ran for real; some programs failed, others succeeded
+ *  - failed          downstream export ran for real; every non-skipped program failed
+ */
+export type ExportOverallStatus =
+  | 'idle'
+  | 'pending'
+  | 'offline_mock'
+  | 'saved'
+  | 'dry_run'
+  | 'sandbox_success'
+  | 'partial_failure'
+  | 'failed'
+
+export type ExportProgramOutcome =
+  | 'success'
+  | 'failure'
+  | 'skipped'
+  | 'dry_run'
+  | 'no_rows'
+  | 'partial_failure'
+
+export interface ExportProgramStatus {
+  program: string
+  status: ExportProgramOutcome
+  /** Present for skipped programs, e.g. "destination not configured". */
+  reason?: string
+}
 
 export interface ExportUiState {
   lastExportAt: Date | null
-  status: ExportProcessStatus
+  overallStatus: ExportOverallStatus
   canUndo: boolean
-  /** Rows included in the last mock export (0 when none). */
+  /** Rows included in the last export (0 when none). */
   rowCount: number
+  /** Per-program downstream results; empty when downstream export wasn't attempted. */
+  programStatuses: ExportProgramStatus[]
+  /** "sandbox" | "production" when downstream results are present. */
+  targetEnv?: string
 }

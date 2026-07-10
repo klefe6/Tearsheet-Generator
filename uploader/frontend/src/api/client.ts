@@ -71,6 +71,25 @@ export interface ApiPerformanceResponse {
   warnings: string[]
 }
 
+/** One program's downstream export outcome (present only when the backend's
+ *  EXPORT_DOWNSTREAM_ENABLED flag is on). See docs/downstream_export_contract.md. */
+export interface ApiDownstreamProgramResult {
+  status: 'success' | 'failure' | 'skipped' | 'dry_run' | 'no_rows' | 'partial_failure'
+  date_results: Array<{
+    date: string
+    status: 'success' | 'failure' | 'skipped' | 'dry_run'
+    reason?: string
+    payload_hash?: string
+    downstream_response?: unknown
+  }>
+}
+
+export interface ApiDownstreamResult {
+  target_env: string
+  dry_run: boolean
+  results: Record<string, ApiDownstreamProgramResult>
+}
+
 export interface ApiExportResult {
   dry_run: boolean
   app_env: string
@@ -81,6 +100,8 @@ export interface ApiExportResult {
   total_rows: number
   programs: Record<string, { target_url: string | null; row_count: number; rows: ApiRow[] }>
   message: string
+  /** Present only when the backend attempted downstream TKP/TCP/AGM export. */
+  downstream?: ApiDownstreamResult
 }
 
 const RAW_BASE: string = import.meta.env.VITE_API_BASE_URL || ''
