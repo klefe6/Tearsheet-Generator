@@ -10,6 +10,7 @@
     "dev:prod": "vite --mode production",
     "build": "tsc --noEmit && vite build",
     "build:sandbox": "tsc --noEmit && vite build --mode sandbox",
+    "build:singlehost": "tsc --noEmit && vite build --mode singlehost",
     "preview": "vite preview --port 5173 --strictPort",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

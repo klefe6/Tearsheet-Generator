@@ -39,6 +39,7 @@ Other scripts:
 | `npm run dev:prod` | Dev server, production env |
 | `npm run build` | Type-check + production build to `dist/` |
 | `npm run build:sandbox` | Type-check + sandbox build |
+| `npm run build:singlehost` | Type-check + same-origin `/api` build for Docker |
 | `npm run preview` | Serve the last production build |
 | `npm run typecheck` | `tsc --noEmit` only |
 

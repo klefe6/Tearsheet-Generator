@@ -91,12 +91,19 @@ Override in `.env` when deploying.
 
 ## Docker / sandbox deploy readiness
 
-`backend/Dockerfile` is provided. Mount a volume at `/data` for SQLite
-persistence. Required env for public sandbox:
+See **`docs/SANDBOX_DEPLOY.md`** for the recommended **single-host** image
+(`uploader/Dockerfile`): built Vite UI at `/`, API at `/api/*`, `/health`.
+
+`backend/Dockerfile` remains API-only. Mount a volume at `/data` for SQLite
+and benchmark cache persistence. Required env for public sandbox:
 
 ```
 APP_ENV=sandbox
+SERVE_FRONTEND=true
 DATABASE_PATH=/data/uploader_sandbox.db
+BENCHMARK_CACHE_DIR=/data/benchmark_cache
+EXPORT_DOWNSTREAM_ENABLED=false
+EXPORT_DRY_RUN=true
 CORS_ALLOW_ORIGINS=https://uploader-sandbox.hcresearch.ltd,http://localhost:5173
 ```
 
