@@ -1,0 +1,152 @@
+"""Unit tests for AGM Account Stats helper (public tearsheet table)."""
+from __future__ import annotations
+
+from datetime import datetime
+
+import pandas as pd
+import pytest
+
+import algominds_account_stats as stats
+
+
+def _sample_summary_df() -> pd.DataFrame:
+    return pd.DataFrame(
+        [
+            {
+                "date": pd.Timestamp("2025-11-01"),
+                "bot_start": 30_000.0,
+                "bot_end_after_fees": 34_338.0,
+                "bot_net_ret": 0.1446,
+                "bot_fees_pct": 0.0,
+            },
+            {
+                "date": pd.Timestamp("2026-06-01"),
+                "bot_start": 45_000.0,
+                "bot_end_after_fees": 48_049.07,
+                "bot_net_ret": 0.1016,
+                "bot_fees_pct": 0.0314,
+            },
+        ]
+    )
+
+
+def _sample_net_totals() -> dict:
+    return {
+        "bot_net_dollar": 18_049.07,
+        "bot_fees_dollar": 8_392.91,
+    }
+
+
+INCEPTION = datetime(2025, 11, 13)
+
+
+def test_nav_chart_title_has_no_compounded():
+    assert "Compounded" not in stats.NAV_SINCE_INCEPTION_CHART_TITLE
+    assert "NAV Since Inception" in stats.NAV_SINCE_INCEPTION_CHART_TITLE
+
+
+def test_compute_agm_account_stats_from_summary():
+    result = stats.compute_agm_account_stats(
+        _sample_summary_df(), _sample_net_totals(), INCEPTION
+    )
+    assert result is not None
+    assert result.starting_capital == pytest.approx(30_000.0)
+    assert result.current_nav_after_fees == pytest.approx(48_049.07)
+    assert result.total_net_gain == pytest.approx(18_049.07)
+    assert result.total_fees_paid == pytest.approx(8_392.91)
+    assert result.inception_date == INCEPTION
+    assert result.latest_report_date == pd.Timestamp("2026-06-01").to_pydatetime()
+
+
+def test_total_net_gain_matches_nav_delta_without_cashflows():
+    """No deposits/withdrawals: net gain = latest NAV - starting capital."""
+    result = stats.compute_agm_account_stats(
+        _sample_summary_df(), _sample_net_totals(), INCEPTION
+    )
+    assert result is not None
+    naive = result.current_nav_after_fees - result.starting_capital
+    assert result.total_net_gain == pytest.approx(naive)
+
+
+def test_months_trading_uses_latest_report_date_not_today():
+    months = stats.months_trading_elapsed_approx(
+        INCEPTION, datetime(2026, 6, 1)
+    )
+    # Nov 13, 2025 → Jun 1, 2026 ≈ 6.6 months (matches live tearsheet convention).
+    assert months == pytest.approx(6.6, abs=0.1)
+
+
+def test_months_trading_updates_with_later_data():
+    early = stats.months_trading_elapsed_approx(
+        INCEPTION, datetime(2026, 3, 1)
+    )
+    later = stats.months_trading_elapsed_approx(
+        INCEPTION, datetime(2026, 6, 1)
+    )
+    assert later > early
+
+
+def test_format_agm_account_stats():
+    result = stats.compute_agm_account_stats(
+        _sample_summary_df(), _sample_net_totals(), INCEPTION
+    )
+    assert result is not None
+    formatted = stats.format_agm_account_stats(result)
+    assert formatted["starting_capital"] == "$30,000"
+    assert formatted["current_nav_after_fees"] == "$48,049.07"
+    assert formatted["total_net_gain"] == "$18,049.07"
+    assert formatted["total_fees_paid"] == "$8,392.91"
+    assert formatted["inception_date"] == "November 13, 2025"
+    assert formatted["months_trading_approx"] == f"{result.months_trading_approx:.1f}"
+
+
+def test_compute_returns_none_when_empty():
+    assert stats.compute_agm_account_stats(pd.DataFrame(), {}, INCEPTION) is None
+
+
+def test_mp_ts_nav_figure_title():
+    """Integration: live mp_ts chart must not expose 'Compounded' in the title."""
+    import sys
+    from pathlib import Path
+
+    mp_dir = Path(__file__).resolve().parent.parent / "Momentum Pacer"
+    if str(mp_dir) not in sys.path:
+        sys.path.insert(0, str(mp_dir))
+    import mp_ts
+
+    fig = mp_ts.build_nav_figure()
+    title_text = fig.layout.title.text or ""
+    assert "Compounded" not in title_text
+    assert "NAV Since Inception" in title_text
+
+
+def test_mp_ts_account_stats_not_hardcoded_literals():
+    """Account Stats values in layout must match the helper, not inline literals."""
+    import sys
+    from pathlib import Path
+
+    mp_dir = Path(__file__).resolve().parent.parent / "Momentum Pacer"
+    if str(mp_dir) not in sys.path:
+        sys.path.insert(0, str(mp_dir))
+    import mp_ts
+
+    computed = stats.compute_agm_account_stats(
+        mp_ts._display_summary_df, mp_ts.net_totals, mp_ts.PROGRAM_INCEPTION
+    )
+    assert computed is not None
+    expected = stats.format_agm_account_stats(computed)
+
+    layout = mp_ts.serve_layout()
+    layout_str = str(layout)
+    assert expected["current_nav_after_fees"] in layout_str
+    assert expected["total_net_gain"] in layout_str
+    assert expected["total_fees_paid"] in layout_str
+    assert expected["months_trading_approx"] in layout_str
+    assert "Compounded NAV Since Inception" not in layout_str
+
+    assert computed.current_nav_after_fees == pytest.approx(
+        float(mp_ts._display_summary_df["bot_end_after_fees"].iloc[-1])
+    )
+    assert computed.total_fees_paid == pytest.approx(
+        float(mp_ts.net_totals["bot_fees_dollar"])
+    )

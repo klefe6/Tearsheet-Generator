@@ -59,6 +59,7 @@ import algominds_benchmark_daily as agm_bench
 import algominds_daily_fees as agm_fees
 import algominds_daily_accounting as agm_accounting
 import algominds_monthly_summary as agm_monthly
+import algominds_account_stats as agm_account_stats
 import algominds_fee_payment_evidence as agm_fee_evidence
 
 import numpy as np
@@ -355,19 +356,15 @@ if MONTHLY_SUMMARY_LOAD_ERROR is None and not monthly_summary.table.empty:
 
 def months_trading_elapsed_approx() -> str:
     """
-    Elapsed time from live inception (Nov 13) to the *start* of the latest Summary
-    month row (e.g. Jun 1), expressed as decimal months using 365.25/12 days/month.
-    This is not the same as the count of monthly return rows displayed.
+    Elapsed time from live inception to the latest displayed Summary month stub
+    (e.g. Jun 1), expressed as decimal months using 365.25/12 days/month.
     """
-    disp = _display_summary_df
-    if disp.empty:
+    stats = agm_account_stats.compute_agm_account_stats(
+        _display_summary_df, net_totals, PROGRAM_INCEPTION
+    )
+    if stats is None:
         return "—"
-    end = pd.Timestamp(disp["date"].max()).to_pydatetime()
-    delta = end - PROGRAM_INCEPTION
-    if delta.days <= 0:
-        return "0.0"
-    days_per_month = 365.25 / 12.0
-    return f"{delta.days / days_per_month:.1f}"
+    return f"{stats.months_trading_approx:.1f}"
 
 
 # ==============================================================================
@@ -688,7 +685,7 @@ def build_nav_figure() -> go.Figure:
     # Legend below the plot (not y≈1) so it never collides with the title
     fig.update_layout(
         title={
-            "text": "<u>Compounded NAV Since Inception</u>",
+            "text": agm_account_stats.NAV_SINCE_INCEPTION_CHART_TITLE,
             "x": 0.5,
             "xanchor": "center",
             "y": 0.97,
@@ -2008,7 +2005,18 @@ def serve_layout():
         agm_latest_date
     )
 
-    inception_str = PROGRAM_INCEPTION.strftime("%B %d, %Y")
+    _acct_stats = agm_account_stats.compute_agm_account_stats(
+        _display_summary_df, net_totals, PROGRAM_INCEPTION
+    )
+    _acct_stats_fmt = (
+        agm_account_stats.format_agm_account_stats(_acct_stats)
+        if _acct_stats is not None
+        else {}
+    )
+    inception_str = (
+        _acct_stats_fmt.get("inception_date")
+        or PROGRAM_INCEPTION.strftime("%B %d, %Y")
+    )
     latest_str = (
         _display_summary_df["date"].max().strftime("%B %Y")
         if not _display_summary_df.empty
@@ -2510,27 +2518,26 @@ def serve_layout():
                                                             html.Tbody([
                                                                 html.Tr([
                                                                     html.Td("Starting Capital"),
-                                                                    html.Td(f"${STARTING_CAPITAL:,.0f}"),
+                                                                    html.Td(
+                                                                        _acct_stats_fmt.get("starting_capital", "—")
+                                                                    ),
                                                                 ]),
                                                                 html.Tr([
                                                                     html.Td("Current NAV (after fees)"),
                                                                     html.Td(
-                                                                        f"${_display_summary_df['bot_end_after_fees'].iloc[-1]:,.2f}"
-                                                                        if not _display_summary_df.empty else "—"
+                                                                        _acct_stats_fmt.get("current_nav_after_fees", "—")
                                                                     ),
                                                                 ]),
                                                                 html.Tr([
                                                                     html.Td("Total Net Gain"),
                                                                     html.Td(
-                                                                        f"${net_totals.get('bot_net_dollar', 0):,.2f}"
-                                                                        if net_totals else "—"
+                                                                        _acct_stats_fmt.get("total_net_gain", "—")
                                                                     ),
                                                                 ]),
                                                                 html.Tr([
                                                                     html.Td("Total Fees Paid"),
                                                                     html.Td(
-                                                                        f"${net_totals.get('bot_fees_dollar', 0):,.2f}"
-                                                                        if net_totals else "—"
+                                                                        _acct_stats_fmt.get("total_fees_paid", "—")
                                                                     ),
                                                                 ]),
                                                                 html.Tr([
@@ -2539,7 +2546,9 @@ def serve_layout():
                                                                 ]),
                                                                 html.Tr([
                                                                     html.Td("Months trading (approx.)"),
-                                                                    html.Td(months_trading_elapsed_approx()),
+                                                                    html.Td(
+                                                                        _acct_stats_fmt.get("months_trading_approx", "—")
+                                                                    ),
                                                                 ]),
                                                             ]),
                                                         ],
