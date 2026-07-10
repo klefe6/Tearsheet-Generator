@@ -1,0 +1,68 @@
+.page {
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 32px 32px 72px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.cardsSection {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.cardsRow {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 20px;
+  align-items: stretch;
+}
+
+/* Compact utility controls that shift all 4 current date inputs by ±1 day. */
+.dateStepBtn {
+  flex: none;
+  width: 36px;
+  height: var(--uploader-date-step-size);
+  margin-top: var(--uploader-date-step-offset);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--card-bg);
+  color: var(--ink-secondary);
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1;
+  box-shadow: var(--shadow-sm);
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+
+.dateStepBtn:hover {
+  background: #f4f6f9;
+  color: var(--ink);
+  border-color: var(--ink-muted);
+}
+
+.dateStepBtn:active {
+  transform: translateY(1px);
+}
+
+@media (max-width: 1200px) {
+  .cardsRow {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 720px) {
+  .page {
+    padding: 20px 16px 56px;
+  }
+  .cardsRow {
+    grid-template-columns: 1fr;
+  }
+}
