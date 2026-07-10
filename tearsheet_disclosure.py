@@ -110,7 +110,7 @@ def hnc_program_manager_contact_children():
         "For more information about this Program and Manager, please contact "
         f"{HNC_LEGAL_NAME} at ",
         html.A("info@hughesandco.ltd", href="mailto:info@hughesandco.ltd"),
-        " or 954-500-0500 *",
+        " or 954-500-0500",
     ]
 
 
