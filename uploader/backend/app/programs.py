@@ -24,24 +24,59 @@ class FieldSpec:
     type: str  # "date" | "number"
     required: bool
     default: Optional[float] = None
+    account_label: Optional[str] = None
+    account_number: Optional[str] = None
+    copy_to_clipboard: bool = False
 
 
 # Ordered field definitions per program.
 PROGRAM_FIELDS: dict[str, list[FieldSpec]] = {
     "TKP": [
         FieldSpec("date", "Date", "date", True),
-        FieldSpec("stonex_nlv", "StoneX NLV", "number", True),
-        FieldSpec("plus500_nlv", "Plus500 NLV", "number", True),
+        FieldSpec(
+            "stonex_nlv",
+            "StoneX NLV",
+            "number",
+            True,
+            account_label="StoneX",
+            account_number="69060709",
+            copy_to_clipboard=True,
+        ),
+        FieldSpec(
+            "plus500_nlv",
+            "Plus500 NLV",
+            "number",
+            True,
+            account_label="Plus500",
+            account_number="50110102",
+            copy_to_clipboard=True,
+        ),
         FieldSpec("cash_transfer", "Cash Transfer", "number", False, 0.0),
     ],
     "TCP": [
         FieldSpec("date", "Date", "date", True),
-        FieldSpec("stonex_nlv", "StoneX NLV", "number", True),
+        FieldSpec(
+            "stonex_nlv",
+            "StoneX NLV",
+            "number",
+            True,
+            account_label="StoneX",
+            account_number="69060795",
+            copy_to_clipboard=True,
+        ),
         FieldSpec("cash_transfer", "Cash Transfer", "number", False, 0.0),
     ],
     "AGM": [
         FieldSpec("date", "Date", "date", True),
-        FieldSpec("tradestation_nlv", "TradeStation NLV", "number", True),
+        FieldSpec(
+            "tradestation_nlv",
+            "TradeStation NLV",
+            "number",
+            True,
+            account_label="TradeStation",
+            account_number="210TGG51",
+            copy_to_clipboard=True,
+        ),
         FieldSpec("cash_transfer", "Cash Transfer", "number", False, 0.0),
         FieldSpec("fee", "Fee", "number", False, 0.0),
     ],
@@ -78,6 +113,23 @@ def normalize_program(program: str) -> Optional[str]:
     return code if code in PROGRAM_FIELDS else None
 
 
+def _field_metadata(spec: FieldSpec) -> dict:
+    """Serialize one field spec for GET /api/programs."""
+    out: dict = {
+        "name": spec.name,
+        "label": spec.label,
+        "type": spec.type,
+        "required": spec.required,
+        "default": spec.default,
+        "copy_to_clipboard": spec.copy_to_clipboard,
+    }
+    if spec.account_label is not None:
+        out["account_label"] = spec.account_label
+    if spec.account_number is not None:
+        out["account_number"] = spec.account_number
+    return out
+
+
 def program_metadata() -> list[dict]:
     """JSON-serializable field metadata for every program (for the frontend)."""
     out = []
@@ -86,16 +138,7 @@ def program_metadata() -> list[dict]:
             {
                 "code": code,
                 "label": PROGRAM_LABELS[code],
-                "fields": [
-                    {
-                        "name": f.name,
-                        "label": f.label,
-                        "type": f.type,
-                        "required": f.required,
-                        "default": f.default,
-                    }
-                    for f in specs
-                ],
+                "fields": [_field_metadata(f) for f in specs],
             }
         )
     return out

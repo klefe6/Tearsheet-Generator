@@ -31,6 +31,48 @@ def test_program_metadata(sandbox_client):
     assert programs["YQ"]["label"] == "Y&Q"
 
 
+def _field_by_name(program: dict, name: str) -> dict:
+    return next(f for f in program["fields"] if f["name"] == name)
+
+
+def test_program_account_copy_metadata(sandbox_client):
+    """Account numbers are exposed only on the four NLV fields that need copy."""
+    r = sandbox_client.get("/api/programs")
+    assert r.status_code == 200
+    programs = {p["code"]: p for p in r.json()["programs"]}
+
+    expected_accounts = {
+        ("TKP", "stonex_nlv"): ("StoneX", "69060709"),
+        ("TKP", "plus500_nlv"): ("Plus500", "50110102"),
+        ("TCP", "stonex_nlv"): ("StoneX", "69060795"),
+        ("AGM", "tradestation_nlv"): ("TradeStation", "210TGG51"),
+    }
+
+    for (code, field_name), (label, number) in expected_accounts.items():
+        field = _field_by_name(programs[code], field_name)
+        assert field["copy_to_clipboard"] is True
+        assert field["account_label"] == label
+        assert field["account_number"] == number
+
+    no_account_fields = [
+        ("TKP", "date"),
+        ("TKP", "cash_transfer"),
+        ("TCP", "date"),
+        ("TCP", "cash_transfer"),
+        ("AGM", "date"),
+        ("AGM", "cash_transfer"),
+        ("AGM", "fee"),
+        ("YQ", "date"),
+        ("YQ", "stonex_nlv"),
+        ("YQ", "cash_transfer"),
+    ]
+    for code, field_name in no_account_fields:
+        field = _field_by_name(programs[code], field_name)
+        assert field["copy_to_clipboard"] is False
+        assert "account_number" not in field
+        assert "account_label" not in field
+
+
 def test_performance_series(sandbox_client):
     r = sandbox_client.get("/api/performance")
     assert r.status_code == 200
