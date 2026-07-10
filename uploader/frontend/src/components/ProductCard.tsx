@@ -325,7 +325,12 @@ export function ProductCard({ config, rows, onAddRow, onDeleteLast }: Props) {
                     />
                   </span>
                   <span className={styles.controlStack}>
-                    {field.accountNumber && <AccountChip account={field.accountNumber} />}
+                    {field.accountNumber && (
+                      <AccountChip
+                        account={field.accountNumber}
+                        label={field.accountLabel}
+                      />
+                    )}
                     <PasteButton onPaste={(value) => update(field.key, value)} />
                   </span>
                 </span>
