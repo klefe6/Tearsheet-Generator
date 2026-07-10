@@ -66,6 +66,9 @@ Fly.io, VM, or Cloudflare Tunnel). No separate frontend host is needed.
 
 Production (`uploader.hcresearch.ltd`) is **out of scope** for this document.
 
+For Glenn-facing sandbox usage, limitations, and operator checklist, see
+**`SANDBOX_HANDOFF.md`**.
+
 ## Health check
 
 `GET /health` → `{"status":"ok",...}`
