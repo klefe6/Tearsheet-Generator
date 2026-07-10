@@ -58,6 +58,19 @@ import {
   sparseDataNote,
 } from '../lib/chartState'
 import {
+  LEVERAGE_DEFAULT,
+  LEVERAGE_MAX,
+  LEVERAGE_MIN,
+  LEVERAGE_SIMULATOR_NOTE,
+  LEVERAGE_SIMULATOR_STRATEGIES,
+  LEVERAGE_STEP,
+  applyLeverageToCombinedSeries,
+  applyLeverageToProgramSeries,
+  formatLeverageMultiple,
+  isLeverageActive,
+  leverageSimulatedLabel,
+} from '../lib/leverageSimulator'
+import {
   formatAxisCurrency,
   formatLongDate,
   formatShortDate,
@@ -143,6 +156,8 @@ export function PerformanceChart({ refreshToken = 0 }: Props) {
   const [backendCombined, setBackendCombined] = useState<CombinedTradingDayPoint[] | null>(null)
   const [backendProgram, setBackendProgram] = useState<ProgramSeriesPoint[] | null>(null)
   const [warnings, setWarnings] = useState<string[]>([])
+  const [leverageStrategy, setLeverageStrategy] = useState<ProductKey | ''>('')
+  const [leverage, setLeverage] = useState(LEVERAGE_DEFAULT)
 
   useEffect(() => {
     let cancelled = false
@@ -192,12 +207,36 @@ export function PerformanceChart({ refreshToken = 0 }: Props) {
   )
   const combinedData = backendCombined ?? mockCombinedData
   const programData = backendProgram ?? mockProgramData
-  const data = isCombined ? combinedData : programData
 
   const programsWithData = useMemo(
     () => (isCombined ? combinedProgramsWithData(combinedData) : []),
     [isCombined, combinedData],
   )
+
+  const leverageApplies = useMemo(() => {
+    if (!leverageStrategy || !isLeverageActive(leverageStrategy, leverage)) return false
+    if (isCombined) return programsWithData.includes(leverageStrategy)
+    return leverageStrategy === mode
+  }, [leverageStrategy, leverage, isCombined, programsWithData, mode])
+
+  const chartData = useMemo(() => {
+    if (!leverageApplies || !leverageStrategy) {
+      return isCombined ? combinedData : programData
+    }
+    if (isCombined) {
+      return applyLeverageToCombinedSeries(combinedData, leverageStrategy, leverage)
+    }
+    return applyLeverageToProgramSeries(programData, leverageStrategy, leverage)
+  }, [
+    leverageApplies,
+    leverageStrategy,
+    leverage,
+    isCombined,
+    combinedData,
+    programData,
+  ])
+
+  const data = chartData
 
   const legendProducts = useMemo(() => {
     if (!isCombined) return []
@@ -307,6 +346,20 @@ export function PerformanceChart({ refreshToken = 0 }: Props) {
   const lineType = chartLineType(displayState)
   const chartHeight = chartHeightPx(displayState)
 
+  const seriesLabel = (key: SeriesKey): string => {
+    if (
+      leverageApplies &&
+      leverageStrategy &&
+      key === leverageStrategy &&
+      (PRODUCT_KEYS as string[]).includes(key)
+    ) {
+      return leverageSimulatedLabel(leverageStrategy, leverage)
+    }
+    return seriesDisplayLabel(key, provenance, benchmarkSource)
+  }
+
+  const leverageSliderDisabled = !leverageStrategy
+
   return (
     <section className={styles.card}>
       <div className={styles.head}>
@@ -341,6 +394,46 @@ export function PerformanceChart({ refreshToken = 0 }: Props) {
         </p>
       )}
 
+      <div className={styles.leverageBar} aria-label="Leverage simulator">
+        <span className={styles.leverageTitle}>Leverage simulator</span>
+        <label className={styles.leverageField}>
+          <span className={styles.leverageFieldLabel}>Strategy</span>
+          <select
+            className={styles.leverageSelect}
+            value={leverageStrategy}
+            onChange={(e) => {
+              const v = e.target.value
+              setLeverageStrategy(v === '' ? '' : (v as ProductKey))
+              if (v === '') setLeverage(LEVERAGE_DEFAULT)
+            }}
+          >
+            <option value="">None</option>
+            {LEVERAGE_SIMULATOR_STRATEGIES.map((key) => (
+              <option key={key} value={key}>
+                {key}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className={styles.leverageField}>
+          <span className={styles.leverageFieldLabel}>
+            {formatLeverageMultiple(leverage)}
+          </span>
+          <input
+            className={styles.leverageRange}
+            type="range"
+            min={LEVERAGE_MIN}
+            max={LEVERAGE_MAX}
+            step={LEVERAGE_STEP}
+            value={leverage}
+            disabled={leverageSliderDisabled}
+            onChange={(e) => setLeverage(Number(e.target.value))}
+            aria-label="Leverage multiplier"
+          />
+        </label>
+        <p className={styles.leverageNote}>{LEVERAGE_SIMULATOR_NOTE}</p>
+      </div>
+
       <div className={styles.legend}>
         {isCombined
           ? legendProducts.map((key) => {
@@ -355,7 +448,7 @@ export function PerformanceChart({ refreshToken = 0 }: Props) {
                   aria-pressed={!off}
                 >
                   <span className={styles.swatch} style={{ background: s.color }} />
-                  {seriesDisplayLabel(key, provenance, benchmarkSource)}
+                  {seriesLabel(key)}
                 </button>
               )
             })
@@ -365,7 +458,7 @@ export function PerformanceChart({ refreshToken = 0 }: Props) {
                 <>
                   <span className={styles.activeSeriesChip}>
                     <span className={styles.swatch} style={{ background: active.color }} />
-                    {seriesDisplayLabel(mode as ProductKey, provenance, benchmarkSource)}
+                    {seriesLabel(mode as ProductKey)}
                   </span>
                   {benchmarksVisible && (
                     <>
@@ -471,7 +564,7 @@ export function PerformanceChart({ refreshToken = 0 }: Props) {
                     key={key}
                     type={lineType}
                     dataKey={key}
-                    name={seriesDisplayLabel(key, provenance, benchmarkSource)}
+                    name={seriesLabel(key)}
                     stroke={s.color}
                     strokeWidth={s.strokeWidth}
                     strokeDasharray={s.dashed ? '5 4' : undefined}
