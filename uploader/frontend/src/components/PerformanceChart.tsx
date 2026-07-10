@@ -9,17 +9,23 @@ import {
   YAxis,
 } from 'recharts'
 import {
-  DEFAULT_RANGE_KEY,
-  RANGE_OPTIONS,
+  BENCHMARK_KEYS,
+  PRODUCT_KEYS,
   SERIES,
+  buildCombinedTradingDaySeries,
+  buildProgramBenchmarkSeries,
+  formatChartXAxis,
   getMonthTicks,
-  getNormalizedData,
+  getSeriesStartDate,
+  type BenchmarkKey,
+  type ChartMode,
+  type ProductKey,
   type SeriesKey,
 } from '../data/performance'
 import {
   formatAxisCurrency,
-  formatAxisDate,
   formatLongDate,
+  formatShortDate,
   formatTooltipCurrency,
 } from '../lib/format'
 import styles from './PerformanceChart.module.css'
@@ -31,49 +37,88 @@ const GRID = '#eef0f3'
 const BORDER = '#e6e8ec'
 const CURSOR = '#c9ced6'
 
+const MODE_OPTIONS: { key: ChartMode; label: string }[] = [
+  { key: 'combined', label: 'All Strategies' },
+  { key: 'TKP', label: 'TKP' },
+  { key: 'TCP', label: 'TCP' },
+  { key: 'AGM', label: 'AGM' },
+  { key: 'YQ', label: 'Y&Q' },
+]
+
+const SERIES_BY_KEY = new Map(SERIES.map((s) => [s.key, s]))
+
 interface TooltipEntry {
-  dataKey: SeriesKey
+  dataKey: string
   name: string
   value: number
   color: string
+  payload: Record<string, number | string | undefined>
 }
 
 interface ChartTooltipProps {
   active?: boolean
   payload?: TooltipEntry[]
-  label?: string
+  label?: string | number
+  mode: ChartMode
 }
 
-function ChartTooltip({ active, payload, label }: ChartTooltipProps) {
-  if (!active || !payload || payload.length === 0) return null
+function ChartTooltip({ active, payload, label, mode }: ChartTooltipProps) {
+  if (!active || !payload || payload.length === 0 || label === undefined) return null
   const rows = [...payload].sort((a, b) => b.value - a.value)
+  const heading =
+    mode === 'combined' ? `Day ${label}` : formatLongDate(String(label))
+
   return (
     <div className={styles.tooltip}>
-      <div className={styles.tooltipDate}>{formatLongDate(label ?? '')}</div>
+      <div className={styles.tooltipDate}>{heading}</div>
       <ul className={styles.tooltipList}>
-        {rows.map((entry) => (
-          <li key={entry.dataKey} className={styles.tooltipRow}>
-            <span className={styles.tooltipDot} style={{ background: entry.color }} />
-            <span className={styles.tooltipName}>{entry.name}</span>
-            <span className={styles.tooltipVal}>{formatTooltipCurrency(entry.value)}</span>
-          </li>
-        ))}
+        {rows.map((entry) => {
+          // Combined mode: each product's own real calendar date on this
+          // trading day, since products don't share one calendar start.
+          const realDate =
+            mode === 'combined' ? entry.payload[`${entry.dataKey}_date`] : undefined
+          return (
+            <li key={entry.dataKey} className={styles.tooltipRow}>
+              <span className={styles.tooltipDot} style={{ background: entry.color }} />
+              <span className={styles.tooltipName}>{entry.name}</span>
+              {typeof realDate === 'string' && (
+                <span className={styles.tooltipSubDate}>{formatShortDate(realDate)}</span>
+              )}
+              <span className={styles.tooltipVal}>{formatTooltipCurrency(entry.value)}</span>
+            </li>
+          )
+        })}
       </ul>
     </div>
   )
 }
 
 export function PerformanceChart() {
-  const [rangeKey, setRangeKey] = useState(DEFAULT_RANGE_KEY)
-  const [hidden, setHidden] = useState<Set<SeriesKey>>(() => new Set())
+  const [mode, setMode] = useState<ChartMode>('combined')
+  const [hiddenProducts, setHiddenProducts] = useState<Set<ProductKey>>(() => new Set())
+  // Requested default: SPX and NDX on, BTC off (keeps individual-mode charts readable).
+  const [enabledBenchmarks, setEnabledBenchmarks] = useState<Set<BenchmarkKey>>(
+    () => new Set(['SPX', 'NDX']),
+  )
 
-  const range =
-    RANGE_OPTIONS.find((r) => r.key === rangeKey) ?? RANGE_OPTIONS[RANGE_OPTIONS.length - 1]
-  const data = useMemo(() => getNormalizedData(range.days), [range.days])
-  const monthTicks = useMemo(() => getMonthTicks(data), [data])
+  const isCombined = mode === 'combined'
 
-  const toggleSeries = (key: SeriesKey) => {
-    setHidden((prev) => {
+  const combinedData = useMemo(
+    () => (isCombined ? buildCombinedTradingDaySeries() : []),
+    [isCombined],
+  )
+  const programData = useMemo(
+    () => (isCombined ? [] : buildProgramBenchmarkSeries(mode as ProductKey)),
+    [isCombined, mode],
+  )
+  const data = isCombined ? combinedData : programData
+  const monthTicks = useMemo(
+    () => (isCombined ? [] : getMonthTicks(programData)),
+    [isCombined, programData],
+  )
+
+  const toggleProduct = (key: ProductKey) => {
+    setHiddenProducts((prev) => {
       const next = new Set(prev)
       if (next.has(key)) next.delete(key)
       else next.add(key)
@@ -81,96 +126,166 @@ export function PerformanceChart() {
     })
   }
 
+  const toggleBenchmark = (key: BenchmarkKey) => {
+    setEnabledBenchmarks((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+
+  // Lines actually rendered for the current mode.
+  const lineKeys: SeriesKey[] = isCombined
+    ? PRODUCT_KEYS.filter((k) => !hiddenProducts.has(k))
+    : [mode as ProductKey, ...BENCHMARK_KEYS.filter((k) => enabledBenchmarks.has(k))]
+
+  const isEmpty = data.length === 0 || lineKeys.length === 0
+
+  const activeLabel = isCombined ? '' : SERIES_BY_KEY.get(mode as ProductKey)?.label ?? mode
+  const subtitle = isCombined
+    ? 'Each strategy is normalized to $100,000 on its own first trading day — compared by trading-day count, not calendar date.'
+    : `${activeLabel} is normalized to $100,000 on its first available date (${formatLongDate(
+        getSeriesStartDate(mode as ProductKey),
+      )}); enabled benchmarks are rebased to $100,000 from that same date.`
+
   return (
     <section className={styles.card}>
       <div className={styles.head}>
         <div className={styles.heading}>
           <h2 className={styles.title}>Performance of $100,000 Investment</h2>
-          <p className={styles.subtitle}>
-            All series are normalized to a $100,000 starting investment.
-          </p>
+          <p className={styles.subtitle}>{subtitle}</p>
         </div>
-        <div className={styles.rangePill} role="group" aria-label="Date range">
-          {RANGE_OPTIONS.map((r) => (
+        <div className={styles.modePill} role="group" aria-label="Chart mode">
+          {MODE_OPTIONS.map((m) => (
             <button
-              key={r.key}
+              key={m.key}
               type="button"
-              className={`${styles.rangeBtn} ${r.key === rangeKey ? styles.rangeBtnActive : ''}`}
-              onClick={() => setRangeKey(r.key)}
-              aria-pressed={r.key === rangeKey}
+              className={`${styles.modeBtn} ${m.key === mode ? styles.modeBtnActive : ''}`}
+              onClick={() => setMode(m.key)}
+              aria-pressed={m.key === mode}
             >
-              {r.label}
+              {m.label}
             </button>
           ))}
         </div>
       </div>
 
-      <ul className={styles.legend}>
-        {SERIES.map((s) => {
-          const off = hidden.has(s.key)
-          const swatch = s.dashed
-            ? `repeating-linear-gradient(90deg, ${s.color} 0 6px, transparent 6px 10px)`
-            : s.color
-          return (
-            <li key={s.key}>
-              <button
-                type="button"
-                className={`${styles.legendItem} ${off ? styles.legendOff : ''}`}
-                onClick={() => toggleSeries(s.key)}
-                aria-pressed={!off}
-              >
-                <span className={styles.swatch} style={{ background: swatch }} />
-                {s.label}
-              </button>
-            </li>
-          )
-        })}
-      </ul>
+      <div className={styles.legend}>
+        {isCombined
+          ? PRODUCT_KEYS.map((key) => {
+              const s = SERIES_BY_KEY.get(key)!
+              const off = hiddenProducts.has(key)
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  className={`${styles.legendItem} ${off ? styles.legendOff : ''}`}
+                  onClick={() => toggleProduct(key)}
+                  aria-pressed={!off}
+                >
+                  <span className={styles.swatch} style={{ background: s.color }} />
+                  {s.label}
+                </button>
+              )
+            })
+          : (() => {
+              const active = SERIES_BY_KEY.get(mode)!
+              return (
+                <>
+                  <span className={styles.activeSeriesChip}>
+                    <span className={styles.swatch} style={{ background: active.color }} />
+                    {active.label}
+                  </span>
+                  <span className={styles.toggleDivider} aria-hidden="true" />
+                  {BENCHMARK_KEYS.map((key) => {
+                    const s = SERIES_BY_KEY.get(key)!
+                    const on = enabledBenchmarks.has(key)
+                    const swatch = s.dashed
+                      ? `repeating-linear-gradient(90deg, ${s.color} 0 6px, transparent 6px 10px)`
+                      : s.color
+                    return (
+                      <button
+                        key={key}
+                        type="button"
+                        className={`${styles.legendItem} ${!on ? styles.legendOff : ''}`}
+                        onClick={() => toggleBenchmark(key)}
+                        aria-pressed={on}
+                      >
+                        <span className={styles.swatch} style={{ background: swatch }} />
+                        {s.label}
+                      </button>
+                    )
+                  })}
+                </>
+              )
+            })()}
+      </div>
 
       <div className={styles.chartWrap}>
-        <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={data} margin={{ top: 8, right: 18, bottom: 4, left: 4 }}>
-            <CartesianGrid stroke={GRID} vertical={false} />
-            <XAxis
-              dataKey="date"
-              ticks={monthTicks}
-              tickFormatter={formatAxisDate}
-              tick={{ fill: AXIS_MUTED, fontSize: 12 }}
-              tickMargin={10}
-              minTickGap={28}
-              axisLine={{ stroke: BORDER }}
-              tickLine={false}
-            />
-            <YAxis
-              tickFormatter={formatAxisCurrency}
-              tick={{ fill: AXIS_MUTED, fontSize: 12 }}
-              width={58}
-              axisLine={false}
-              tickLine={false}
-              domain={['auto', 'auto']}
-            />
-            <Tooltip
-              content={<ChartTooltip />}
-              cursor={{ stroke: CURSOR, strokeWidth: 1 }}
-            />
-            {SERIES.map((s) => (
-              <Line
-                key={s.key}
-                type="monotone"
-                dataKey={s.key}
-                name={s.label}
-                stroke={s.color}
-                strokeWidth={s.strokeWidth}
-                strokeDasharray={s.dashed ? '5 4' : undefined}
-                dot={false}
-                activeDot={{ r: 3.5, strokeWidth: 0 }}
-                hide={hidden.has(s.key)}
-                isAnimationActive={false}
-                connectNulls
+        {isEmpty ? (
+          <div className={styles.emptyState}>
+            No data to display for this selection — enable a series above to see the chart.
+          </div>
+        ) : (
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={data} margin={{ top: 8, right: 18, bottom: 4, left: 4 }}>
+              <CartesianGrid stroke={GRID} vertical={false} />
+              {isCombined ? (
+                <XAxis
+                  dataKey="dayIndex"
+                  type="number"
+                  domain={[0, 'dataMax']}
+                  tickFormatter={(v) => formatChartXAxis('combined', v)}
+                  tick={{ fill: AXIS_MUTED, fontSize: 12 }}
+                  tickMargin={10}
+                  axisLine={{ stroke: BORDER }}
+                  tickLine={false}
+                />
+              ) : (
+                <XAxis
+                  dataKey="date"
+                  ticks={monthTicks}
+                  tickFormatter={(v) => formatChartXAxis(mode, v)}
+                  tick={{ fill: AXIS_MUTED, fontSize: 12 }}
+                  tickMargin={10}
+                  minTickGap={28}
+                  axisLine={{ stroke: BORDER }}
+                  tickLine={false}
+                />
+              )}
+              <YAxis
+                tickFormatter={formatAxisCurrency}
+                tick={{ fill: AXIS_MUTED, fontSize: 12 }}
+                width={58}
+                axisLine={false}
+                tickLine={false}
+                domain={['auto', 'auto']}
               />
-            ))}
-          </LineChart>
-        </ResponsiveContainer>
+              <Tooltip
+                content={<ChartTooltip mode={mode} />}
+                cursor={{ stroke: CURSOR, strokeWidth: 1 }}
+              />
+              {lineKeys.map((key) => {
+                const s = SERIES_BY_KEY.get(key)!
+                return (
+                  <Line
+                    key={key}
+                    type="monotone"
+                    dataKey={key}
+                    name={s.label}
+                    stroke={s.color}
+                    strokeWidth={s.strokeWidth}
+                    strokeDasharray={s.dashed ? '5 4' : undefined}
+                    dot={false}
+                    activeDot={{ r: 3.5, strokeWidth: 0 }}
+                    isAnimationActive={false}
+                  />
+                )
+              })}
+            </LineChart>
+          </ResponsiveContainer>
+        )}
       </div>
     </section>
   )

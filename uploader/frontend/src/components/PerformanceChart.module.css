@@ -32,32 +32,35 @@
   color: var(--ink-secondary);
 }
 
-/* Date-range pill (top-right of the chart card). */
-.rangePill {
+/* Chart-mode segmented control (top-right of the chart card): All
+   Strategies / TKP / TCP / AGM / Y&Q. */
+.modePill {
   display: inline-flex;
   padding: 3px;
   background: #f1f3f6;
   border: 1px solid var(--border);
   border-radius: var(--radius-pill);
   flex: none;
+  flex-wrap: wrap;
 }
 
-.rangeBtn {
+.modeBtn {
   border: none;
   background: transparent;
   color: var(--ink-secondary);
   font-size: 12.5px;
   font-weight: 600;
-  padding: 5px 13px;
+  padding: 5px 12px;
   border-radius: var(--radius-pill);
+  white-space: nowrap;
   transition: background 0.12s ease, color 0.12s ease;
 }
 
-.rangeBtn:hover {
+.modeBtn:hover {
   color: var(--ink);
 }
 
-.rangeBtnActive {
+.modeBtnActive {
   background: var(--card-bg);
   color: var(--ink);
   box-shadow: var(--shadow-sm);
@@ -95,6 +98,25 @@
   opacity: 0.4;
 }
 
+/* Individual-program mode: the active program shown as a plain (non-toggleable)
+   label, visually matching the legend chips beside it. */
+.activeSeriesChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 4px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.toggleDivider {
+  width: 1px;
+  height: 14px;
+  background: var(--border-strong);
+  margin: 0 2px;
+}
+
 .swatch {
   width: 16px;
   height: 4px;
@@ -106,6 +128,18 @@
   width: 100%;
   height: 360px;
   margin-top: 6px;
+  position: relative;
+}
+
+.emptyState {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--ink-muted);
+  font-size: 13px;
+  text-align: center;
+  padding: 0 24px;
 }
 
 /* Tooltip */
@@ -151,6 +185,13 @@
 .tooltipName {
   color: var(--ink-secondary);
   min-width: 34px;
+}
+
+/* Combined mode only: each product's own real calendar date on this trading day. */
+.tooltipSubDate {
+  color: var(--ink-muted);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
 }
 
 .tooltipVal {
