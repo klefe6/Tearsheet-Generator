@@ -61,7 +61,7 @@ export function resolveCombinedChartState(
 
 export function programEmptyMessage(program: ProductKey): string {
   const label = program === 'YQ' ? 'Y&Q' : program
-  return `No ${label} entries yet. Enter a ${label} row below to start the line.`
+  return `No ${label} entries yet. Enter a ${label} row below to start the line. Benchmarks appear after this strategy has entries.`
 }
 
 export function programNeedsMoreMessage(program: ProductKey, firstDate: string): string {

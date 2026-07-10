@@ -49,16 +49,23 @@ from .programs import PROGRAM_LABELS, PROGRAMS, normalize_program, program_nlv
 BASE_VALUE = 100_000.0
 
 PROGRAM_DATA_SOURCE = "uploader_daily_rows"
+# Emitted instead when any plotted point came from backfilled tearsheet
+# history (historical_rows). Manual entries always win on a shared date —
+# see Database.get_merged_rows and docs/historical_backfill.md.
+PROGRAM_DATA_SOURCE_WITH_BACKFILL = "uploader_daily_rows+tearsheet_backfill"
 
 
 def _rows_with_nlv(db, program: str) -> list[dict]:
-    """This program's rows (oldest first), each annotated with its `_nlv`.
+    """This program's chartable rows (oldest first), each annotated with `_nlv`.
 
-    Rows missing a required NLV component are dropped defensively — validation
-    at write time should already guarantee this never happens.
+    Reads the MERGED view: manual daily_rows plus backfilled historical_rows,
+    with a manual entry superseding a historical row on the same date. Each
+    row carries `row_source` ("manual" or the import's source label). Rows
+    missing a required NLV component are dropped defensively — validation at
+    write/import time should already guarantee this never happens.
     """
     out = []
-    for row in db.get_all_rows(program):
+    for row in db.get_merged_rows(program):
         nlv = program_nlv(program, row)
         if nlv is None:
             continue
@@ -66,6 +73,14 @@ def _rows_with_nlv(db, program: str) -> list[dict]:
         row["_nlv"] = nlv
         out.append(row)
     return out
+
+
+def _backfilled_count(rows: list[dict]) -> int:
+    return sum(1 for r in rows if r.get("row_source") not in (None, "manual"))
+
+
+def _aggregate_program_source(any_backfill: bool) -> str:
+    return PROGRAM_DATA_SOURCE_WITH_BACKFILL if any_backfill else PROGRAM_DATA_SOURCE
 
 
 def _normalized_values(rows: list[dict]) -> list[float]:
@@ -105,6 +120,7 @@ def build_combined(db) -> dict:
     warnings: list[str] = []
     series_meta: list[dict] = []
     points: dict[str, list[dict]] = {}
+    any_backfill = False
 
     for code in PROGRAMS:
         rows = _rows_with_nlv(db, code)
@@ -115,8 +131,17 @@ def build_combined(db) -> dict:
             points.update(p)
             continue
         values = _normalized_values(rows)
+        backfilled = _backfilled_count(rows)
+        any_backfill = any_backfill or backfilled > 0
         series_meta.append(
-            {"key": code, "label": PROGRAM_LABELS[code], "kind": "program", "point_count": len(values)}
+            {
+                "key": code,
+                "label": PROGRAM_LABELS[code],
+                "kind": "program",
+                "point_count": len(values),
+                "backfilled_point_count": backfilled,
+                "manual_point_count": len(values) - backfilled,
+            }
         )
         points[code] = [{"x": i, "y": v} for i, v in enumerate(values)]
 
@@ -130,7 +155,7 @@ def build_combined(db) -> dict:
         "points": points,
         "last_updated_at": _last_updated_at(db),
         "warnings": warnings,
-        "program_data_source": PROGRAM_DATA_SOURCE,
+        "program_data_source": _aggregate_program_source(any_backfill),
         "benchmark_data_source": None,
         "benchmark_align_policy": None,
     }
@@ -162,8 +187,16 @@ def build_program(db, program: str, benchmark_symbols: list[str]) -> dict:
 
     values = _normalized_values(rows)
     dates = [r["date"] for r in rows]
+    backfilled = _backfilled_count(rows)
     series_meta: list[dict] = [
-        {"key": code, "label": PROGRAM_LABELS[code], "kind": "program", "point_count": len(values)}
+        {
+            "key": code,
+            "label": PROGRAM_LABELS[code],
+            "kind": "program",
+            "point_count": len(values),
+            "backfilled_point_count": backfilled,
+            "manual_point_count": len(values) - backfilled,
+        }
     ]
     points: dict[str, list[dict]] = {code: [{"x": d, "y": v} for d, v in zip(dates, values)]}
 
@@ -227,7 +260,7 @@ def build_program(db, program: str, benchmark_symbols: list[str]) -> dict:
         "points": points,
         "last_updated_at": _last_updated_at(db),
         "warnings": warnings,
-        "program_data_source": PROGRAM_DATA_SOURCE,
+        "program_data_source": _aggregate_program_source(backfilled > 0),
         "benchmark_data_source": bench_source,
         "benchmark_align_policy": (
             BENCHMARK_ALIGN_POLICY if resolved_benchmarks else None

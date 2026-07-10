@@ -16,6 +16,12 @@ export type BenchmarkDataSource =
   | 'unavailable'
   | null
 
+/** Where the strategy lines' rows came from (backend `program_data_source`). */
+export type ProgramDataSource =
+  | 'uploader_daily_rows'
+  | 'uploader_daily_rows+tearsheet_backfill'
+  | null
+
 const SERIES_LABEL = new Map(SERIES.map((s) => [s.key, s.label]))
 
 /** Whether strategy/benchmark lines came from the API or local mock builders. */
@@ -41,6 +47,21 @@ export function readBenchmarkDataSource(
     return raw
   }
   return null
+}
+
+export function readProgramDataSource(
+  response: ApiPerformanceResponse | null,
+): ProgramDataSource {
+  const raw = response?.program_data_source
+  if (raw === 'uploader_daily_rows' || raw === 'uploader_daily_rows+tearsheet_backfill') {
+    return raw
+  }
+  return null
+}
+
+/** True when any plotted strategy point was backfilled from tearsheet history. */
+export function hasBackfilledHistory(source: ProgramDataSource): boolean {
+  return source === 'uploader_daily_rows+tearsheet_backfill'
 }
 
 export function isRealBenchmarkSource(source: BenchmarkDataSource): boolean {
@@ -74,24 +95,31 @@ export function provenanceNotice(
   provenance: ChartProvenance,
   mode: ChartMode,
   benchmarkSource: BenchmarkDataSource,
+  programDataSource: ProgramDataSource = null,
 ): string | null {
   if (provenance === 'loading') return null
   if (provenance === 'mock') {
     return 'Preview chart — demo data only. Connect the uploader backend to show strategy lines from your entries.'
   }
+  const backfilled = hasBackfilledHistory(programDataSource)
   if (mode === 'combined') {
-    return 'Strategy lines reflect uploader entries only (no historical tearsheet data).'
+    return backfilled
+      ? 'Strategy lines include historical tearsheet backfill plus uploader entries.'
+      : 'Strategy lines reflect uploader entries only.'
   }
+  const strategyLead = backfilled
+    ? 'Strategy line includes historical tearsheet backfill plus uploader entries.'
+    : 'Strategy line from uploader entries.'
   if (benchmarksAreUnavailable(benchmarkSource)) {
-    return 'Strategy line from uploader entries. Market benchmarks are unavailable — cache not populated yet.'
+    return `${strategyLead} Market benchmarks are unavailable — cache not populated yet.`
   }
   if (benchmarksAreSynthetic(provenance, benchmarkSource)) {
-    return 'Strategy line from uploader entries. SPX / NDX / BTC are sample benchmarks — not live market data.'
+    return `${strategyLead} SPX / NDX / BTC are sample benchmarks — not live market data.`
   }
   if (isRealBenchmarkSource(benchmarkSource)) {
-    return 'Strategy line from uploader entries. Benchmarks use cached market closes (prior close within 5 calendar days on weekends/holidays).'
+    return `${strategyLead} Benchmarks use cached market closes (prior close within 5 calendar days on weekends/holidays).`
   }
-  return 'Strategy line from uploader entries.'
+  return strategyLead
 }
 
 export function seriesDisplayLabel(
@@ -121,6 +149,7 @@ export function programModeSubtitle(
   formatLongDate: (iso: string) => string,
   benchmarkSource: BenchmarkDataSource,
   entryCount?: number,
+  programDataSource: ProgramDataSource = null,
 ): string | null {
   const count = entryCount ?? programPoints.length
 
@@ -148,15 +177,24 @@ export function programModeSubtitle(
   }
   // backend + null benchmarkSource: no benchmark note (benchmarks not returned)
 
-  return `${programLabel} is normalized to $100,000 on its first uploader entry (${formatLongDate(startDate)}).${benchmarkNote}`
+  const entryNoun = hasBackfilledHistory(programDataSource)
+    ? 'first recorded entry (imported tearsheet history or uploader entry)'
+    : 'first uploader entry'
+  return `${programLabel} is normalized to $100,000 on its ${entryNoun} (${formatLongDate(startDate)}).${benchmarkNote}`
 }
 
 /** Combined-mode subtitle keyed to data source. */
-export function combinedModeSubtitle(provenance: ChartProvenance): string {
+export function combinedModeSubtitle(
+  provenance: ChartProvenance,
+  programDataSource: ProgramDataSource = null,
+): string {
   if (provenance === 'mock') {
     return 'Preview demo curves — not from uploader entries. Each strategy is indexed by trading-day count.'
   }
-  return 'Each strategy is normalized to $100,000 on its first uploader entry — compared by trading-day count, not calendar date.'
+  const entryNoun = hasBackfilledHistory(programDataSource)
+    ? 'first recorded entry'
+    : 'first uploader entry'
+  return `Each strategy is normalized to $100,000 on its ${entryNoun} — compared by trading-day count, not calendar date.`
 }
 
 /** Whether benchmark legend toggles should render in program mode. */

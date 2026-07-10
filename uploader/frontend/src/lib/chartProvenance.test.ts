@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest'
 import {
   combinedModeSubtitle,
   defaultEnabledBenchmarks,
+  hasBackfilledHistory,
   isRealBenchmarkSource,
   programModeSubtitle,
   provenanceNotice,
   readBenchmarkDataSource,
+  readProgramDataSource,
   resolveChartProvenance,
   seriesDisplayLabel,
   showBenchmarkToggles,
@@ -93,6 +95,55 @@ describe('provenanceNotice', () => {
   it('states unavailable benchmarks clearly', () => {
     expect(provenanceNotice('backend', 'TKP', 'unavailable')).toMatch(/unavailable/)
   })
+
+  it('keeps uploader-only wording when no backfill is present', () => {
+    expect(provenanceNotice('backend', 'combined', null, 'uploader_daily_rows')).toBe(
+      'Strategy lines reflect uploader entries only.',
+    )
+  })
+
+  it('states historical tearsheet backfill in combined mode when backfilled', () => {
+    expect(
+      provenanceNotice(
+        'backend',
+        'combined',
+        null,
+        'uploader_daily_rows+tearsheet_backfill',
+      ),
+    ).toBe('Strategy lines include historical tearsheet backfill plus uploader entries.')
+  })
+
+  it('states historical tearsheet backfill in program mode when backfilled', () => {
+    const notice = provenanceNotice(
+      'backend',
+      'TKP',
+      'market_cache_cached',
+      'uploader_daily_rows+tearsheet_backfill',
+    )
+    expect(notice).toMatch(/includes historical tearsheet backfill plus uploader entries/)
+    expect(notice).toMatch(/cached market closes/)
+  })
+})
+
+describe('readProgramDataSource / hasBackfilledHistory', () => {
+  it('reads both known values and rejects unknowns', () => {
+    expect(
+      readProgramDataSource({ program_data_source: 'uploader_daily_rows' } as never),
+    ).toBe('uploader_daily_rows')
+    expect(
+      readProgramDataSource({
+        program_data_source: 'uploader_daily_rows+tearsheet_backfill',
+      } as never),
+    ).toBe('uploader_daily_rows+tearsheet_backfill')
+    expect(readProgramDataSource({ program_data_source: 'weird' } as never)).toBeNull()
+    expect(readProgramDataSource(null)).toBeNull()
+  })
+
+  it('flags backfill only for the backfill source', () => {
+    expect(hasBackfilledHistory('uploader_daily_rows+tearsheet_backfill')).toBe(true)
+    expect(hasBackfilledHistory('uploader_daily_rows')).toBe(false)
+    expect(hasBackfilledHistory(null)).toBe(false)
+  })
 })
 
 describe('readBenchmarkDataSource', () => {
@@ -142,6 +193,18 @@ describe('isRealBenchmarkSource', () => {
 describe('combinedModeSubtitle', () => {
   it('labels mock as preview demo', () => {
     expect(combinedModeSubtitle('mock')).toMatch(/Preview demo/)
+  })
+
+  it('says first uploader entry without backfill', () => {
+    expect(combinedModeSubtitle('backend', 'uploader_daily_rows')).toMatch(
+      /first uploader entry/,
+    )
+  })
+
+  it('says first recorded entry with backfill', () => {
+    expect(
+      combinedModeSubtitle('backend', 'uploader_daily_rows+tearsheet_backfill'),
+    ).toMatch(/first recorded entry/)
   })
 })
 
@@ -194,5 +257,20 @@ describe('programModeSubtitle', () => {
         2,
       ),
     ).toMatch(/cached market closes/)
+  })
+
+  it('says first recorded entry when backfilled history is present', () => {
+    const sub = programModeSubtitle(
+      'TKP',
+      'backend',
+      [{ date: '2026-07-10' }, { date: '2026-07-11' }],
+      '2026-01-01',
+      fmt,
+      null,
+      2,
+      'uploader_daily_rows+tearsheet_backfill',
+    )
+    expect(sub).toMatch(/first recorded entry/)
+    expect(sub).toMatch(/imported tearsheet history/)
   })
 })

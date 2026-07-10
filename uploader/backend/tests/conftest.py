@@ -78,6 +78,17 @@ def sandbox_client():
 
 
 @pytest.fixture
+def backfill_client():
+    """Sandbox client with historical backfill explicitly enabled."""
+    client = _make_client(app_env="sandbox", export_enabled=False, backfill_enabled=True)
+    try:
+        yield client
+    finally:
+        client.close()
+        _cleanup(client)
+
+
+@pytest.fixture
 def prod_client():
     """Production client with a known admin token; export disabled."""
     client = _make_client(
