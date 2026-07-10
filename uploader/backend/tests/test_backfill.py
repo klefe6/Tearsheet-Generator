@@ -50,14 +50,17 @@ _TCP_STATE = {
     ],
 }
 
+# One pre-inception row (2025-11-12, must be SKIPPED — AGM's strategy began
+# 2025-11-13) plus two tradeable rows.
 _AGM_CSV_NEW = (
     "Account: 210TGG51\n"
     "Report: Historical Balances\n"
     "\n"
     "Date,Net Worth,Cash Balance,Unrealized P/L,Securities on Deposit,"
     "Initial Margin Req.,Maint Margin Req.,Buying Power/Margin Deficit\n"
-    '10/20/2025,"$30,000.00 ","$30,000.00 ","$0.00 ","$0.00 ","$0.00 ","$0.00 ","$30,000.00 "\n'
-    '10/21/2025,"$30,125.50 ","$30,125.50 ","$0.00 ","$0.00 ","$0.00 ","$0.00 ","$30,125.50 "\n'
+    '11/12/2025,"$30,000.00 ","$30,000.00 ","$0.00 ","$0.00 ","$0.00 ","$0.00 ","$30,000.00 "\n'
+    '11/13/2025,"$30,000.00 ","$30,000.00 ","$0.00 ","$0.00 ","$0.00 ","$0.00 ","$30,000.00 "\n'
+    '11/14/2025,"$30,125.50 ","$30,125.50 ","$0.00 ","$0.00 ","$0.00 ","$0.00 ","$30,125.50 "\n'
 )
 
 # An older, superseded export — the resolver must pick the NEW file above.
@@ -66,7 +69,7 @@ _AGM_CSV_OLD = (
     "\n"
     "Date,Net Worth,Cash Balance,Unrealized P/L,Securities on Deposit,"
     "Initial Margin Req.,Maint Margin Req.,Buying Power/Margin Deficit\n"
-    '10/20/2025,"$30,000.00 ","$30,000.00 ","$0.00 ","$0.00 ","$0.00 ","$0.00 ","$30,000.00 "\n'
+    '11/13/2025,"$30,000.00 ","$30,000.00 ","$0.00 ","$0.00 ","$0.00 ","$0.00 ","$30,000.00 "\n'
 )
 
 
@@ -92,17 +95,17 @@ def tmp_repo_root():
     (root / "tcp_daily_returns_secret_state.json").write_text(
         json.dumps({"revision": 1, "records": []}), encoding="utf-8"
     )
-    (balances / "balances_210TGG51_20OCT2025_21OCT2025.csv").write_text(
+    (balances / "balances_210TGG51_12NOV2025_14NOV2025.csv").write_text(
         _AGM_CSV_NEW, encoding="utf-8"
     )
-    (balances / "balances_210TGG51_20OCT2025_20OCT2025.csv").write_text(
+    (balances / "balances_210TGG51_12NOV2025_13NOV2025.csv").write_text(
         _AGM_CSV_OLD, encoding="utf-8"
     )
     # Evidenced AGM fee withdrawal (parsed textually by the extractor).
     (root / "algominds_fee_payment_evidence.py").write_text(
         'EVIDENCED_FEE_PAYMENTS = (\n'
         '    FeePaymentEvidence(\n'
-        '        date=pd.Timestamp("2025-10-21"),\n'
+        '        date=pd.Timestamp("2025-11-14"),\n'
         '        description="Test Incentive Fee",\n'
         '        amount=123.45,\n'
         '    ),\n'
@@ -464,17 +467,19 @@ def test_extractor_parses_fixture_stores_read_only(tmp_repo_root):
     assert "nav-x1" in tcp[0]["source_detail"]
     assert "revision" in tcp[0]["source_detail"]
 
-    # AGM: Net Worth -> tradestation_nlv, no fee key emitted, and the
-    # evidenced fee withdrawal applied as a negative cash transfer.
+    # AGM: Net Worth -> tradestation_nlv, no fee key emitted, the evidenced
+    # fee withdrawal applied as a negative cash transfer, and the
+    # pre-inception 2025-11-12 row SKIPPED (strategy began 2025-11-13).
     agm = by_program["AGM"].rows
-    assert [r["date"] for r in agm] == ["2025-10-20", "2025-10-21"]
+    assert [r["date"] for r in agm] == ["2025-11-13", "2025-11-14"]
     assert agm[0]["tradestation_nlv"] == 30000.0
     assert agm[0]["cash_transfer"] == 0.0
     assert agm[1]["tradestation_nlv"] == 30125.5
     assert agm[1]["cash_transfer"] == -123.45
     assert "fee" not in agm[0]
+    assert any("pre-inception" in w and "2025-11-13" in w for w in by_program["AGM"].warnings)
     # The resolver picked the newest export, not the older overlapping one.
-    assert "21OCT2025" in agm[0]["source_detail"]
+    assert "14NOV2025" in agm[0]["source_detail"]
 
     # YQ: always skipped with the documented reason.
     assert by_program["YQ"].skipped_reason
@@ -533,6 +538,24 @@ def test_tkp_withdrawals_do_not_dent_the_extracted_series(tmp_repo_root):
     # Under the uploader formula this day is now +0.02%, not a -12% fake drop.
     assert abs(values[1] / values[0] - 1) < 0.001
     assert any("blank NAV" in w for w in res.warnings)
+
+
+def test_agm_pre_inception_rows_are_skipped_with_count(tmp_repo_root):
+    """AGM strategy inception is 2025-11-13; the account-funding rows before
+    it (idle cash) must be skipped, counted, and explained — otherwise the
+    uploader graph draws a fake flat segment from 2025-10-20."""
+    from scripts.extract_tearsheet_history import (
+        AGM_BACKFILL_START,
+        extract_agm,
+        resolve_agm_balances_path,
+    )
+
+    repo_root, _files = tmp_repo_root
+    assert AGM_BACKFILL_START == "2025-11-13"
+    res = extract_agm(resolve_agm_balances_path(repo_root))
+    assert res.rows[0]["date"] == "2025-11-13"  # graph will normalize here
+    assert all(r["date"] >= AGM_BACKFILL_START for r in res.rows)
+    assert any("1 pre-inception rows before 2025-11-13" in w for w in res.warnings)
 
 
 def test_extractor_refuses_stale_tcp_repo_seed(tmp_repo_root):

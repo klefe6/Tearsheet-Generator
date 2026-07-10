@@ -36,7 +36,7 @@ scripts/extract_tearsheet_history.py  ──JSON──▶ POST /api/backfill/imp
 | ------- | ----- | ------- | -------- |
 | TKP | `<repo>/daily_returns_secret_state.json` — the **`NAV`** column (equity curve), NOT raw StoneX/Plus500 balances (see TKP decision below) | stonex_nlv = `NAV`, plus500_nlv = 0, cash_transfer = 0 | 837 rows, 2023-04-10 → 2026-07-09 |
 | TCP | LIVE state file from `TCP_V2_STATE_PATH` in `<repo>/.tcp_production.env` — the repo-root file of the same name is a **stale seed**, never used by default. **Gated**: skipped unless `BACKFILL_TCP_NLV_FIELD=nav-x1` | stonex_nlv = `nav-x1`, cash_transfer = 0 (see TCP decision below) | 121 rows, 2026-01-20 → 2026-07-07 |
-| AGM | newest `<repo>/Momentum Pacer/data/daily_balances/balances_210TGG51_*.csv` (`Net Worth` = raw actual_nlv, **not** the client-net value the tearsheet shows) | tradestation_nlv, cash_transfer (evidenced fee withdrawals only) | 184 rows, 2025-10-20 → 2026-07-06 |
+| AGM | newest `<repo>/Momentum Pacer/data/daily_balances/balances_210TGG51_*.csv` (`Net Worth` = raw actual_nlv, **not** the client-net value the tearsheet shows). **Rows before 2025-11-13 skipped** — account funded 2025-10-20 but strategy inception is 2025-11-13 (the fee engine anchors there); earlier idle-cash rows would chart a fake flat segment | tradestation_nlv, cash_transfer (evidenced fee withdrawals only) | 166 rows, 2025-11-13 → 2026-07-06 |
 | Y&Q | `yq.csv` is **monthly** (2011-04 →), at real-fund ~$89M scale, while the tearsheet renders a $100k-normalized ROR curve | **no daily source — always skipped** | — |
 
 ### TKP decision: the `NAV` equity curve, never raw balances (traced 2026-07-10)
