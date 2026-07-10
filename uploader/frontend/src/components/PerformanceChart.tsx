@@ -48,10 +48,10 @@ import {
   combinedNeedsMoreMessage,
   combinedProgramsWithData,
   countProgramPoints,
-  filterWarningsForMode,
-  getCombinedDayTicks,
+  partitionChartWarnings,
   programEmptyMessage,
   programNeedsMoreMessage,
+  getCombinedDayTicks,
   resolveCombinedChartState,
   resolveProgramChartState,
   shouldShowDots,
@@ -293,8 +293,8 @@ export function PerformanceChart({ refreshToken = 0 }: Props) {
     return null
   }, [displayState, isCombined, mode, programData])
 
-  const filteredWarnings = useMemo(
-    () => filterWarningsForMode(warnings, mode),
+  const { visible: visibleWarnings, diagnostic: diagnosticWarnings } = useMemo(
+    () => partitionChartWarnings(warnings, mode),
     [warnings, mode],
   )
 
@@ -396,8 +396,19 @@ export function PerformanceChart({ refreshToken = 0 }: Props) {
             })()}
       </div>
 
-      {filteredWarnings.length > 0 && (
-        <p className={styles.warningNote}>{filteredWarnings.join(' ')}</p>
+      {visibleWarnings.length > 0 && (
+        <p className={styles.warningNote}>{visibleWarnings.join(' ')}</p>
+      )}
+
+      {diagnosticWarnings.length > 0 && (
+        <details className={styles.diagnostics}>
+          <summary>Data details ({diagnosticWarnings.length})</summary>
+          <ul className={styles.diagnosticsList}>
+            {diagnosticWarnings.map((w) => (
+              <li key={w}>{w}</li>
+            ))}
+          </ul>
+        </details>
       )}
 
       <div

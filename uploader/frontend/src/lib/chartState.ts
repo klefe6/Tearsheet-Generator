@@ -106,3 +106,32 @@ export function filterWarningsForMode(
   const prefix = `${mode}:`
   return warnings.filter((w) => !w.startsWith(prefix))
 }
+
+/** Routine weekend/holiday benchmark alignment — expected, not user-facing inline. */
+export function isRoutinePriorCloseWarning(message: string): boolean {
+  return (
+    /used prior close from/i.test(message) ||
+    /rebased from .* instead/i.test(message)
+  )
+}
+
+export interface PartitionedChartWarnings {
+  /** Shown inline when meaningful (unavailable, unknown symbol, etc.). */
+  visible: string[]
+  /** Prior-close alignment detail — diagnostics only, not inline spam. */
+  diagnostic: string[]
+}
+
+/** Split API warnings into user-facing vs routine benchmark alignment detail. */
+export function partitionChartWarnings(
+  warnings: string[],
+  mode: 'combined' | ProductKey,
+): PartitionedChartWarnings {
+  const visible: string[] = []
+  const diagnostic: string[] = []
+  for (const w of filterWarningsForMode(warnings, mode)) {
+    if (isRoutinePriorCloseWarning(w)) diagnostic.push(w)
+    else visible.push(w)
+  }
+  return { visible, diagnostic }
+}
