@@ -40,6 +40,22 @@ import {
   type ChartProvenance,
 } from '../lib/chartProvenance'
 import {
+  chartHeightPx,
+  chartLineType,
+  combinedEmptyMessage,
+  combinedNeedsMoreMessage,
+  combinedProgramsWithData,
+  countProgramPoints,
+  filterWarningsForMode,
+  getCombinedDayTicks,
+  programEmptyMessage,
+  programNeedsMoreMessage,
+  resolveCombinedChartState,
+  resolveProgramChartState,
+  shouldShowDots,
+  sparseDataNote,
+} from '../lib/chartState'
+import {
   formatAxisCurrency,
   formatLongDate,
   formatShortDate,
@@ -90,8 +106,6 @@ function ChartTooltip({ active, payload, label, mode }: ChartTooltipProps) {
       <div className={styles.tooltipDate}>{heading}</div>
       <ul className={styles.tooltipList}>
         {rows.map((entry) => {
-          // Combined mode: each product's own real calendar date on this
-          // trading day, since products don't share one calendar start.
           const realDate =
             mode === 'combined' ? entry.payload[`${entry.dataKey}_date`] : undefined
           return (
@@ -111,8 +125,6 @@ function ChartTooltip({ active, payload, label, mode }: ChartTooltipProps) {
 }
 
 interface Props {
-  /** Bump this (e.g. after Enter/Delete/Export) to force a fresh
-   *  GET /api/performance for whatever mode is currently showing. */
   refreshToken?: number
 }
 
@@ -176,10 +188,60 @@ export function PerformanceChart({ refreshToken = 0 }: Props) {
   const combinedData = backendCombined ?? mockCombinedData
   const programData = backendProgram ?? mockProgramData
   const data = isCombined ? combinedData : programData
+
+  const programsWithData = useMemo(
+    () => (isCombined ? combinedProgramsWithData(combinedData) : []),
+    [isCombined, combinedData],
+  )
+
+  const legendProducts = useMemo(() => {
+    if (!isCombined) return []
+    if (provenance === 'backend') return programsWithData
+    return PRODUCT_KEYS
+  }, [isCombined, provenance, programsWithData])
+
+  const programEntryCount = useMemo(
+    () => (isCombined ? 0 : countProgramPoints(programData, mode as ProductKey)),
+    [isCombined, programData, mode],
+  )
+
+  const displayState = useMemo(() => {
+    if (isCombined) {
+      const visible = programsWithData.filter((k) => !hiddenProducts.has(k))
+      return resolveCombinedChartState(provenance, combinedData, visible)
+    }
+    return resolveProgramChartState(provenance, programData, mode as ProductKey)
+  }, [
+    isCombined,
+    provenance,
+    combinedData,
+    programData,
+    mode,
+    programsWithData,
+    hiddenProducts,
+  ])
+
+  const combinedDayTicks = useMemo(
+    () => (isCombined ? getCombinedDayTicks(combinedData) : []),
+    [isCombined, combinedData],
+  )
   const monthTicks = useMemo(
     () => (isCombined ? [] : getMonthTicks(programData)),
     [isCombined, programData],
   )
+
+  const lineKeys: SeriesKey[] = isCombined
+    ? legendProducts.filter((k) => !hiddenProducts.has(k))
+    : [
+        mode as ProductKey,
+        ...BENCHMARK_KEYS.filter((k) => enabledBenchmarks.has(k)),
+      ]
+
+  const canDrawChart =
+    displayState !== 'loading' &&
+    displayState !== 'empty' &&
+    displayState !== 'needs_more' &&
+    lineKeys.length > 0
 
   const toggleProduct = (key: ProductKey) => {
     setHiddenProducts((prev) => {
@@ -199,13 +261,6 @@ export function PerformanceChart({ refreshToken = 0 }: Props) {
     })
   }
 
-  // Lines actually rendered for the current mode.
-  const lineKeys: SeriesKey[] = isCombined
-    ? PRODUCT_KEYS.filter((k) => !hiddenProducts.has(k))
-    : [mode as ProductKey, ...BENCHMARK_KEYS.filter((k) => enabledBenchmarks.has(k))]
-
-  const isEmpty = data.length === 0 || lineKeys.length === 0
-
   const activeLabel = isCombined ? '' : SERIES_BY_KEY.get(mode as ProductKey)?.label ?? mode
   const notice = provenanceNotice(provenance, mode, benchmarkSource)
   const subtitle = isCombined
@@ -217,15 +272,41 @@ export function PerformanceChart({ refreshToken = 0 }: Props) {
         getSeriesStartDate(mode as ProductKey),
         formatLongDate,
         benchmarkSource,
+        programEntryCount,
       )
-  const benchmarksVisible = showBenchmarkToggles(provenance, benchmarkSource)
+
+  const emptyMessage = useMemo(() => {
+    if (displayState === 'empty') {
+      return isCombined ? combinedEmptyMessage() : programEmptyMessage(mode as ProductKey)
+    }
+    if (displayState === 'needs_more') {
+      if (isCombined) return combinedNeedsMoreMessage()
+      const firstDate = programData[0]?.date ?? ''
+      return programNeedsMoreMessage(mode as ProductKey, formatLongDate(firstDate))
+    }
+    return null
+  }, [displayState, isCombined, mode, programData])
+
+  const filteredWarnings = useMemo(
+    () => filterWarningsForMode(warnings, mode),
+    [warnings, mode],
+  )
+
+  const benchmarksVisible = showBenchmarkToggles(
+    provenance,
+    benchmarkSource,
+    programEntryCount > 0,
+  )
+  const showDots = shouldShowDots(displayState)
+  const lineType = chartLineType(displayState)
+  const chartHeight = chartHeightPx(displayState)
 
   return (
     <section className={styles.card}>
       <div className={styles.head}>
         <div className={styles.heading}>
           <h2 className={styles.title}>Performance of $100,000 Investment</h2>
-          <p className={styles.subtitle}>{subtitle}</p>
+          {subtitle && <p className={styles.subtitle}>{subtitle}</p>}
         </div>
         <div className={styles.modePill} role="group" aria-label="Chart mode">
           {MODE_OPTIONS.map((m) => (
@@ -248,9 +329,15 @@ export function PerformanceChart({ refreshToken = 0 }: Props) {
         </p>
       )}
 
+      {displayState === 'sparse' && (
+        <p className={styles.sparseNote} role="note">
+          {sparseDataNote()}
+        </p>
+      )}
+
       <div className={styles.legend}>
         {isCombined
-          ? PRODUCT_KEYS.map((key) => {
+          ? legendProducts.map((key) => {
               const s = SERIES_BY_KEY.get(key)!
               const off = hiddenProducts.has(key)
               return (
@@ -303,14 +390,21 @@ export function PerformanceChart({ refreshToken = 0 }: Props) {
             })()}
       </div>
 
-      {warnings.length > 0 && (
-        <p className={styles.warningNote}>{warnings.join(' ')}</p>
+      {filteredWarnings.length > 0 && (
+        <p className={styles.warningNote}>{filteredWarnings.join(' ')}</p>
       )}
 
-      <div className={styles.chartWrap}>
-        {isEmpty ? (
+      <div
+        className={styles.chartWrap}
+        style={{ height: chartHeight }}
+        data-display-state={displayState}
+      >
+        {!canDrawChart ? (
           <div className={styles.emptyState}>
-            No data to display for this selection — enable a series above to see the chart.
+            {emptyMessage ??
+              (lineKeys.length === 0
+                ? 'No series selected — enable a strategy above to see the chart.'
+                : 'Loading chart…')}
           </div>
         ) : (
           <ResponsiveContainer width="100%" height="100%">
@@ -321,6 +415,8 @@ export function PerformanceChart({ refreshToken = 0 }: Props) {
                   dataKey="dayIndex"
                   type="number"
                   domain={[0, 'dataMax']}
+                  ticks={combinedDayTicks}
+                  allowDecimals={false}
                   tickFormatter={(v) => formatChartXAxis('combined', v)}
                   tick={{ fill: AXIS_MUTED, fontSize: 12 }}
                   tickMargin={10}
@@ -356,14 +452,15 @@ export function PerformanceChart({ refreshToken = 0 }: Props) {
                 return (
                   <Line
                     key={key}
-                    type="monotone"
+                    type={lineType}
                     dataKey={key}
                     name={seriesDisplayLabel(key, provenance, benchmarkSource)}
                     stroke={s.color}
                     strokeWidth={s.strokeWidth}
                     strokeDasharray={s.dashed ? '5 4' : undefined}
-                    dot={false}
-                    activeDot={{ r: 3.5, strokeWidth: 0 }}
+                    dot={showDots ? { r: 4, strokeWidth: 0 } : false}
+                    activeDot={{ r: showDots ? 5 : 3.5, strokeWidth: 0 }}
+                    connectNulls={false}
                     isAnimationActive={false}
                   />
                 )

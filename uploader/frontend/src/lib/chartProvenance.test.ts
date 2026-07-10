@@ -3,6 +3,7 @@ import {
   combinedModeSubtitle,
   defaultEnabledBenchmarks,
   isRealBenchmarkSource,
+  programModeSubtitle,
   provenanceNotice,
   readBenchmarkDataSource,
   resolveChartProvenance,
@@ -117,8 +118,16 @@ describe('showBenchmarkToggles', () => {
     expect(showBenchmarkToggles('backend', 'unavailable')).toBe(false)
   })
 
-  it('shows toggles for cached market data', () => {
-    expect(showBenchmarkToggles('backend', 'market_cache_cached')).toBe(true)
+  it('hides toggles when program has no rows', () => {
+    expect(showBenchmarkToggles('backend', 'market_cache_cached', false)).toBe(false)
+  })
+
+  it('hides toggles when backend returns no benchmark source', () => {
+    expect(showBenchmarkToggles('backend', null)).toBe(false)
+  })
+
+  it('shows toggles for cached market data with rows', () => {
+    expect(showBenchmarkToggles('backend', 'market_cache_cached', true)).toBe(true)
   })
 })
 
@@ -133,5 +142,57 @@ describe('isRealBenchmarkSource', () => {
 describe('combinedModeSubtitle', () => {
   it('labels mock as preview demo', () => {
     expect(combinedModeSubtitle('mock')).toMatch(/Preview demo/)
+  })
+})
+
+describe('programModeSubtitle', () => {
+  const fmt = (iso: string) => iso
+
+  it('returns null when backend has zero rows (no contradictory normalized copy)', () => {
+    expect(
+      programModeSubtitle('TKP', 'backend', [], '2026-01-01', fmt, null, 0),
+    ).toBeNull()
+  })
+
+  it('returns null when backend has one row', () => {
+    expect(
+      programModeSubtitle(
+        'TKP',
+        'backend',
+        [{ date: '2026-07-10' }],
+        '2026-01-01',
+        fmt,
+        null,
+        1,
+      ),
+    ).toBeNull()
+  })
+
+  it('does not mention sample benchmarks when backend source is null', () => {
+    const sub = programModeSubtitle(
+      'TCP',
+      'backend',
+      [{ date: '2026-07-10' }, { date: '2026-07-11' }],
+      '2026-01-01',
+      fmt,
+      null,
+      2,
+    )
+    expect(sub).toMatch(/normalized/)
+    expect(sub).not.toMatch(/sample/)
+  })
+
+  it('mentions cached market closes for real benchmark source', () => {
+    expect(
+      programModeSubtitle(
+        'TCP',
+        'backend',
+        [{ date: '2026-07-10' }, { date: '2026-07-11' }],
+        '2026-01-01',
+        fmt,
+        'market_cache_live_fetch',
+        2,
+      ),
+    ).toMatch(/cached market closes/)
   })
 })
