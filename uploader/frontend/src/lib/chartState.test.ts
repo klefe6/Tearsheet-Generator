@@ -3,6 +3,8 @@ import {
   combinedProgramsWithData,
   filterWarningsForMode,
   getCombinedDayTicks,
+  isRoutinePriorCloseWarning,
+  partitionChartWarnings,
   programEmptyMessage,
   programNeedsMoreMessage,
   resolveCombinedChartState,
@@ -99,5 +101,60 @@ describe('filterWarningsForMode', () => {
   it('drops all no-data warnings in combined mode', () => {
     const warnings = ['TKP: no data yet.', 'YQ: no data yet.', 'TCP: aligned.']
     expect(filterWarningsForMode(warnings, 'combined')).toEqual(['TCP: aligned.'])
+  })
+})
+
+describe('isRoutinePriorCloseWarning', () => {
+  it('matches weekend/holiday prior-close alignment', () => {
+    expect(
+      isRoutinePriorCloseWarning(
+        'SPX: no close on 2026-07-11; used prior close from 2026-07-10 (1d earlier).',
+      ),
+    ).toBe(true)
+    expect(
+      isRoutinePriorCloseWarning(
+        'NDX has no close on 2026-01-01; rebased from 2026-01-02 instead.',
+      ),
+    ).toBe(true)
+  })
+
+  it('does not match unavailable or mock warnings', () => {
+    expect(isRoutinePriorCloseWarning('SPX: no benchmark data available.')).toBe(false)
+    expect(isRoutinePriorCloseWarning('Using mock performance fallback.')).toBe(false)
+    expect(isRoutinePriorCloseWarning('SPX: no close within 5d before 2026-07-11.')).toBe(false)
+  })
+})
+
+describe('partitionChartWarnings', () => {
+  const priorClose = [
+    'SPX: no close on 2026-07-11; used prior close from 2026-07-10 (1d earlier).',
+    'NDX: no close on 2026-07-11; used prior close from 2026-07-10 (1d earlier).',
+  ]
+
+  it('keeps prior-close warnings out of visible inline list', () => {
+    const { visible, diagnostic } = partitionChartWarnings(
+      [...priorClose, 'SPX: no benchmark data available.'],
+      'combined',
+    )
+    expect(visible).toEqual(['SPX: no benchmark data available.'])
+    expect(diagnostic).toEqual(priorClose)
+  })
+
+  it('still surfaces mock/fallback and no-data strategy messages', () => {
+    const warnings = [
+      'TKP: no data yet.',
+      'Using mock performance fallback.',
+      ...priorClose,
+    ]
+    const { visible, diagnostic } = partitionChartWarnings(warnings, 'TKP')
+    expect(visible).toEqual(['Using mock performance fallback.'])
+    expect(diagnostic).toEqual(priorClose)
+  })
+
+  it('filters program no-data warnings in combined mode before partitioning', () => {
+    const warnings = ['YQ: no data yet.', ...priorClose, 'TCP: no aligned benchmark points.']
+    const { visible, diagnostic } = partitionChartWarnings(warnings, 'combined')
+    expect(visible).toEqual(['TCP: no aligned benchmark points.'])
+    expect(diagnostic).toEqual(priorClose)
   })
 })

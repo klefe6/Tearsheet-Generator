@@ -132,6 +132,24 @@
   font-style: italic;
 }
 
+.diagnostics {
+  margin: 4px 0 0;
+  font-size: 11.5px;
+  color: var(--ink-muted);
+}
+
+.diagnostics summary {
+  cursor: pointer;
+  user-select: none;
+}
+
+.diagnosticsList {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
 /* Data provenance — mock fallback vs uploader entries vs sample benchmarks. */
 .provenanceNote {
   margin: 10px 0 0;
