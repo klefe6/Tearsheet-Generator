@@ -7,7 +7,7 @@ Set-Location $PSScriptRoot
 
 $venvPython = Join-Path $PSScriptRoot ".venv\Scripts\python.exe"
 if (-not (Test-Path $venvPython)) {
-    Write-Error "Missing .venv — run: python -m venv .venv; .\.venv\Scripts\pip install -r requirements.txt"
+    Write-Error "Missing .venv - run: python -m venv .venv; .\.venv\Scripts\pip install -r requirements.txt"
 }
 
 $env:DATABASE_PATH = if ($env:DATABASE_PATH) { $env:DATABASE_PATH } else { "data/uploader_sandbox.db" }
