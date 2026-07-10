@@ -1,133 +1,58 @@
-# Momentum Pacer — Tearsheet
+# Momentum Pacer (AGM) — Tearsheet
 
-**CTA:** Algominds Financial LLC  
-**Strategy:** Momentum Pacer  
-**Engine:** `calc_engine.py` (reusable, config-driven)  
-**App file:** `mp_ts.py`  
-**Port:** 8079  
+- **CTA:** Algominds Financial LLC
+- **Program:** Momentum Pacer
+- **App file:** `mp_ts.py`
+- **Port:** 8304 (host `127.0.0.1`; override with `AGM_BIND_PORT`)
 
----
-
-## How to Run
-
-```bash
-cd "c:\Coding Projects\Tearsheet Generator\Momentum Pacer"
-python mp_ts.py
-```
-
-Then open your browser to:
-
-```
-http://localhost:8079
-```
+> This README was rewritten 2026-07-09 to match the actual app. The previous version
+> described an older `calc_engine.py`/CSV template design (port 8079) that is no
+> longer how this app works. `calc_engine.py` is currently **unused** by the app.
+> See `../docs/REPO_MAP.md` for the repo-wide map.
 
 ---
 
-## How to Change Frequency or Compounding
+## How to run
 
-Open `mp_ts.py` and find the **STRATEGY CONFIGURATION** block near the top (clearly marked with arrows). Change the two key fields:
+Production launch (from the repo root):
 
-| Field | Options | Effect |
+```bat
+reboot_mp_ts.bat
+```
+
+That launcher `cd`s into `Momentum Pacer/`, sets `MP_TS_PRODUCTION=1` (disables Dash
+debug/reloader — required behind the reverse proxy), and runs `python mp_ts.py` with
+the `python` on PATH (no venv activation). Then open:
+
+```
+http://127.0.0.1:8304
+```
+
+For local development, run `python mp_ts.py` from inside `Momentum Pacer/` (debug
+mode on by default when `MP_TS_PRODUCTION` is unset).
+
+Note: the production process has historically run **elevated**; restarting it
+requires an elevated session.
+
+## Data sources (what the app actually reads)
+
+| Source | Location | Notes |
 |---|---|---|
-| `result_frequency` | `"monthly"` or `"weekly"` | Controls row grouping and period labels |
-| `return_mode` | `"compounded"` or `"non_compounded"` | Controls how cumulative returns are calculated |
+| Daily balances (source of truth) | `data/daily_balances/balances_*.csv` | TradeStation export; the active filename is pinned by `DAILY_BALANCES_FILENAME` in `../algominds_daily_balances.py` and must be bumped when a new export is dropped. Force-tracked in git |
+| Benchmark cache (^GSPC / ^NDX) | `data/benchmarks/*.csv` | Cache-first via `../algominds_benchmark_daily.py` (yfinance refresh; `AGM_BENCHMARK_CACHE_ONLY=1` forces offline). Force-tracked |
+| Fee workbook | `Momentum Fee Calculation.xlsx` (this folder) | **Gitignored, machine-local.** Fee engine's payment-reconciliation reference. If missing, the app runs but crystallized-fee figures are silently wrong — copy it into any fresh worktree before running AGM fee tests |
+| Admin manual rows | `momentum_pacer_manual_daily_rows.json` (this folder) | Gitignored runtime state written by the admin Add Row controls. No file locking — single writer only |
 
-### Compounded vs Non-Compounded
+## Architecture notes
 
-| Mode | Formula | When to use |
-|---|---|---|
-| `compounded` | `(1+r1)(1+r2)…(1+rN) - 1` | Recommended for real accounts where profits are reinvested |
-| `non_compounded` | `r1 + r2 + … + rN` | Used for notional/non-reinvested reporting |
-
-> **Note:** On the same data these will produce different cumulative numbers — that difference is intentional and expected. The website always shows a banner stating which mode is active.
-
-### Weekly vs Monthly
-
-| Mode | Row label format | Example |
-|---|---|---|
-| `monthly` | `Jan 2026` | Standard tearsheet rows |
-| `weekly` | `Wk ending May 02, 2026` | Higher-frequency data |
-
-Yearly summary rows work in both modes.
-
----
-
-## CSV Data File
-
-The app reads from `sample_data.csv` by default.  
-To use live data, change `CSV_PATH` in `mp_ts.py`:
-
-```python
-CSV_PATH = BASE_DIR / "momentum_pacer_live.csv"
-```
-
-### Required CSV columns
-
-| Column | Required | Description |
-|---|---|---|
-| `date` | **Yes** | Period end date (any standard date format) |
-| `net_return_pct` | **Yes** | Net return for the period as a percentage (e.g. `2.15` for 2.15%) |
-| `gross_return_pct` | No | Gross return before fees (hidden if missing) |
-| `fees_pct` | No | Fee charged that period (hidden if missing) |
-| `nav` | No | Explicit NAV value (derived from returns if missing) |
-
-> Rename columns in `mp_ts.py` → `cfg` block if your CSV uses different headers.
-
----
-
-## Folder Structure
-
-```
-Momentum Pacer/
-├── mp_ts.py           # Main Dash app
-├── calc_engine.py     # Reusable calculation engine (no UI code)
-├── sample_data.csv    # 28-month sample data for testing
-├── README.md          # This file
-└── algominds_logo.png # (optional) Drop your logo here
-```
-
----
-
-## Reusing This Template for Other Strategies
-
-1. Copy this entire folder.
-2. Rename `mp_ts.py` to your strategy's name.
-3. Edit only the `StrategyConfig` block at the top of the app file.
-4. Point `CSV_PATH` to your data.
-5. Run with a new port number.
-
-The `calc_engine.py` is shared and requires no changes between strategies.
-
----
-
-## Validation Errors
-
-The engine will print clear errors for:
-
-- Missing `date_column`
-- Missing `net_return_column`
-- Invalid `result_frequency` (not `weekly` or `monthly`)
-- Invalid `return_mode` (not `compounded` or `non_compounded`)
-- Unparseable date values
-- Negative `starting_capital`
-
-All errors display as a red banner on the website and are also printed to the console.
-
----
-
-## Dependencies
-
-```
-dash
-dash-bootstrap-components
-pandas
-numpy
-plotly
-yfinance
-```
-
-Install with:
-
-```bash
-pip install dash dash-bootstrap-components pandas numpy plotly yfinance
-```
+- `mp_ts.py` bootstraps imports of repo-root modules (`tearsheet_*`, `tcp_admin`,
+  `algominds_*`) by inserting the repo root onto `sys.path` at startup — do not move
+  this folder or the root modules without reading `../docs/REPO_MAP.md` §7 first.
+- The app passes an explicit `assets_folder` pointing at the repo root's `assets/`
+  directory (this folder has no assets dir of its own); without it the gate CSS 404s.
+- Fee logic lives in `../algominds_daily_fees.py` (daily slab/HWM accrual) with
+  hand-confirmed payment evidence in `../algominds_fee_payment_evidence.py`. Derived
+  monthly display comes from `../algominds_monthly_summary.py` and
+  `../algominds_monthly_stats.py`. `/monthly` deliberately returns 404.
+- Tests: `../tests/test_agm_*.py`, run from the repo root, e.g.
+  `.venv310\Scripts\python.exe -m pytest tests/test_agm_password_gate.py -q`.

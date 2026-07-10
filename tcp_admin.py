@@ -117,6 +117,7 @@ def configure_flask_session_secret(
     settings: AdminAuthSettings,
     *,
     secure_cookies: bool = False,
+    session_cookie_name: Optional[str] = None,
 ) -> None:
     if settings.session_secret:
         server.secret_key = settings.session_secret
@@ -124,6 +125,8 @@ def configure_flask_session_secret(
     server.config.setdefault("SESSION_COOKIE_SAMESITE", "Lax")
     if secure_cookies:
         server.config.setdefault("SESSION_COOKIE_SECURE", True)
+    if session_cookie_name:
+        server.config["SESSION_COOKIE_NAME"] = session_cookie_name
 
 
 def map_calculator_error(exc: Exception) -> str:
