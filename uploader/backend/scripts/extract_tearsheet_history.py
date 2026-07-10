@@ -52,8 +52,12 @@ Sources (per the 2026-07-10 field-level audit):
   * AGM  — newest <repo>/Momentum Pacer/data/daily_balances/
            balances_210TGG51_*.csv (TradeStation Historical Balances Report;
            ``Net Worth`` = raw account NLV / actual_nlv — NOT the client-net
-           value shown on the tearsheet). AGM ``fee`` is deliberately NOT
-           extracted: the uploader's fee-vs-NLV relationship is an open,
+           value shown on the tearsheet). Rows BEFORE 2025-11-13 are skipped:
+           the account was funded 2025-10-20 but the strategy's inception is
+           2025-11-13 (the AGM fee engine anchors its inception month at the
+           2025-11-13 ^GSPC close) — the pre-inception rows are idle cash and
+           would draw a misleading flat segment. AGM ``fee`` is deliberately
+           NOT extracted: the uploader's fee-vs-NLV relationship is an open,
            documented question and performance excludes fee anyway.
   * Y&Q  — NO daily source exists (yq.csv is monthly, at real-fund scale,
            while the tearsheet renders a normalized ROR curve). Y&Q is
@@ -93,6 +97,13 @@ YQ_SKIP_REASON = (
     "real-fund scale, and the tearsheet renders a $100k-normalized ROR curve. "
     "Skipped — Y&Q stays uploader-entries-only."
 )
+
+# AGM strategy inception. The balances CSV starts at account FUNDING
+# (2025-10-20, idle cash); trading began 2025-11-13 — the AGM fee engine
+# anchors its inception month at the 2025-11-13 ^GSPC close. Earlier rows
+# are skipped so the uploader graph normalizes from real inception instead
+# of drawing a fake flat pre-inception segment.
+AGM_BACKFILL_START = "2025-11-13"
 
 # The only approved TCP value: the tearsheet's own calculated performance
 # track. See the module docstring for the full trace/justification.
@@ -383,7 +394,11 @@ def extract_agm(balances_path: Path, fee_payments: Optional[dict[str, float]] = 
     res = SourceResult("AGM", balances_path)
     fee_payments = fee_payments or {}
     by_date: dict[str, dict] = {}
+    pre_inception_skipped = 0
     for rec in _read_agm_csv_rows(balances_path):
+        if rec["date"] < AGM_BACKFILL_START:
+            pre_inception_skipped += 1
+            continue
         if rec["date"] in by_date:
             res.warnings.append(f"duplicate date {rec['date']}: later row wins")
         # Evidenced incentive-fee withdrawals are the only per-date cash
@@ -409,7 +424,13 @@ def extract_agm(balances_path: Path, fee_payments: Optional[dict[str, float]] = 
                 "(from algominds_fee_payment_evidence.py)"
             )
     if not by_date:
-        raise ValueError(f"{balances_path}: no data rows parsed")
+        raise ValueError(f"{balances_path}: no data rows parsed on/after {AGM_BACKFILL_START}")
+    if pre_inception_skipped:
+        res.warnings.append(
+            f"{pre_inception_skipped} pre-inception rows before {AGM_BACKFILL_START} "
+            "skipped (account funded 2025-10-20 but the strategy's inception is "
+            f"{AGM_BACKFILL_START} — idle-cash rows would chart a fake flat segment)"
+        )
     unmatched = sorted(d for d in fee_payments if d not in by_date)
     if unmatched:
         res.warnings.append(
