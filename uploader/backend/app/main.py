@@ -18,6 +18,7 @@ from fastapi.responses import JSONResponse
 from . import __version__
 from .config import Settings
 from .db import Database
+from .downstream_export import run_downstream_export
 from .performance import build_combined, build_program
 from .programs import (
     PROGRAM_LABELS,
@@ -173,12 +174,21 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     # -- export -----------------------------------------------------------
     @app.post("/api/export/all", tags=["export"])
     def export_all(actor: str = Depends(require_actor)) -> dict:
-        """Preview an export of all changed/unexported rows.
+        """Preview (and, when explicitly enabled, attempt) an export of all
+        changed/unexported rows.
 
-        SAFETY: this build never calls the TKP/TCP/AGM/Y&Q websites. In sandbox
-        it is always a dry-run. In production it is a dry-run unless
-        EXPORT_ENABLED=true, but even then no external transport exists yet, so
-        no request is made and no row is marked exported.
+        SAFETY: this build never calls the TKP/TCP/AGM websites directly (Y&Q
+        is never a target at all). In sandbox it is always a dry-run unless
+        EXPORT_ENABLED=true. In production it is a dry-run unless
+        EXPORT_ENABLED=true, but even then no external transport exists yet
+        for the ORIGINAL uploader-only preview, so no request is made and no
+        row is marked exported by that path alone.
+
+        Downstream export (TKP/TCP/AGM sandbox destinations) is a SEPARATE,
+        independently-flagged feature — see docs/downstream_export_contract.md.
+        It only runs when EXPORT_DOWNSTREAM_ENABLED=true; when that flag is
+        false (the default), this endpoint's behavior and response shape are
+        UNCHANGED from before this feature existed.
         """
         rows = db.get_unexported_rows()
 
@@ -219,7 +229,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
                 "were made and no rows were marked exported."
             )
 
-        return {
+        response: dict = {
             "dry_run": dry_run,
             "app_env": settings.app_env,
             "export_enabled": settings.export_enabled,
@@ -230,6 +240,23 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
             "programs": programs_payload,
             "message": message,
         }
+
+        if not settings.export_downstream_enabled:
+            return response
+
+        downstream_results = run_downstream_export(
+            db=db,
+            settings=settings,
+            actor=actor,
+            batch_id=batch_id,
+            rows=rows,
+        )
+        response["downstream"] = {
+            "target_env": settings.export_target_env,
+            "dry_run": settings.export_dry_run,
+            "results": downstream_results,
+        }
+        return response
 
     # -- audit ------------------------------------------------------------
     @app.get("/api/audit", tags=["audit"])
