@@ -54,17 +54,25 @@ pip install -r requirements.txt
 # 3) configure (optional — sandbox defaults work out of the box)
 cp .env.example .env      # then edit if needed
 
-# 4) run
-uvicorn app.main:app --reload --port 8090
+# 4) run (standard local dev port — see docs/LOCAL_DEV.md)
+uvicorn app.main:app --reload --host 127.0.0.1 --port 8091
+```
+
+Or use the helper script:
+
+```powershell
+.\start_dev.ps1
 ```
 
 Then open:
 
-- Health:  http://127.0.0.1:8090/health
-- Swagger: http://127.0.0.1:8090/docs
+- Health:  http://127.0.0.1:8091/health
+- Swagger: http://127.0.0.1:8091/docs
 
 > Note: this backend does **not** bind any of the protected tearsheet ports
-> (8301/8302/8303/8304 etc.). Pick a free port such as **8090**.
+> (8301/8302/8303/8304 etc.). Standard local dev uses **8091** (backend) and
+> **5173** (frontend). Avoid :8090 unless you have verified the SQLite schema;
+> see `docs/LOCAL_DEV.md` for DB reset instructions.
 
 ### Future public URLs
 
@@ -73,9 +81,12 @@ Then open:
 | Sandbox     | `https://uploader-sandbox.hcresearch.ltd` | `https://uploader-sandbox.hcresearch.ltd/api` |
 | Production  | `https://uploader.hcresearch.ltd` | `https://uploader.hcresearch.ltd/api` |
 
-Local dev keeps `http://localhost:5173` (frontend) and `http://localhost:8090` (backend).
+Local dev keeps `http://localhost:5173` (frontend) and `http://localhost:8091` (backend).
 Configure `CORS_ALLOW_ORIGINS` in `.env` to include both local and public frontend
 origins when deploying (see `.env.example`).
+
+**Local DB reset** (stale schema on an old port/DB file): `python scripts/reset_local_db.py --confirm`
+— see `docs/LOCAL_DEV.md`.
 
 ---
 

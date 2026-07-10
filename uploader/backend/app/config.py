@@ -45,7 +45,8 @@ class Settings(BaseSettings):
 
     # CORS_ALLOW_ORIGINS: comma-separated list of allowed frontend origins.
     cors_allow_origins: str = (
-        "http://localhost:3000,http://localhost:5173,http://127.0.0.1:5173"
+        "http://localhost:3000,http://localhost:5173,http://127.0.0.1:5173,"
+        "https://uploader-sandbox.hcresearch.ltd,https://uploader.hcresearch.ltd"
     )
 
     # --- Future export targets (NOT called yet) ---------------------------

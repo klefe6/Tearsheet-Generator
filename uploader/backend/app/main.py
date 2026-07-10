@@ -1,7 +1,7 @@
 """FastAPI application: routes + wiring.
 
-Run locally:
-    uvicorn app.main:app --reload --port 8090
+Run locally (standard dev port — see docs/LOCAL_DEV.md):
+    uvicorn app.main:app --reload --port 8091
 
 The module-level ``app`` is built from environment settings. Tests use the
 ``create_app(settings)`` factory to inject an isolated sandbox configuration.
@@ -9,7 +9,8 @@ The module-level ``app`` is built from environment settings. Tests use the
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from contextlib import asynccontextmanager
+from typing import Any, AsyncIterator, Optional
 
 from fastapi import Body, Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,7 +18,7 @@ from fastapi.responses import JSONResponse
 
 from . import __version__
 from .config import Settings
-from .db import Database
+from .db import Database, SchemaError
 from .downstream_export import run_downstream_export
 from .performance import build_combined, build_program
 from .programs import (
@@ -45,6 +46,14 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     settings = settings or Settings()
     db = Database(settings.database_path)
 
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+        try:
+            db.verify_schema()
+        except SchemaError as exc:
+            raise RuntimeError(str(exc)) from exc
+        yield
+
     app = FastAPI(
         title="Glenn Daily Uploader — Backend",
         version=__version__,
@@ -53,6 +62,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
             "Sandbox by default; export is dry-run only and never calls the "
             "four websites in this build."
         ),
+        lifespan=lifespan,
     )
     app.state.settings = settings
     app.state.db = db
