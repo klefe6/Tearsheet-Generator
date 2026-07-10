@@ -1,0 +1,45 @@
+# Glenn Daily Uploader — Fly.io sandbox (single-host Docker)
+# Deploy from uploader/:  fly deploy
+# Docs: backend/docs/SANDBOX_DEPLOY.md
+
+app = 'glenn-uploader-sandbox'
+primary_region = 'iad'
+
+[build]
+  dockerfile = 'Dockerfile'
+
+[env]
+  APP_ENV = 'sandbox'
+  SERVE_FRONTEND = 'true'
+  DATABASE_PATH = '/data/uploader_sandbox.db'
+  BENCHMARK_CACHE_DIR = '/data/benchmark_cache'
+  DOWNSTREAM_SANDBOX_DIR = '/data/downstream_sandbox'
+  EXPORT_DOWNSTREAM_ENABLED = 'false'
+  EXPORT_DRY_RUN = 'true'
+  EXPORT_ENABLED = 'false'
+  CORS_ALLOW_ORIGINS = 'https://uploader-sandbox.hcresearch.ltd,http://127.0.0.1:5173,http://localhost:5173'
+  PORT = '8091'
+
+[http_service]
+  internal_port = 8091
+  force_https = true
+  auto_stop_machines = 'off'
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ['app']
+
+  [[http_service.checks]]
+    interval = '30s'
+    timeout = '5s'
+    grace_period = '30s'
+    method = 'GET'
+    path = '/health'
+
+[[mounts]]
+  source = 'uploader_data'
+  destination = '/data'
+
+[[vm]]
+  memory = '512mb'
+  cpu_kind = 'shared'
+  cpus = 1
