@@ -1,4 +1,9 @@
-"""Health, program metadata, and performance endpoints."""
+"""Health and program metadata endpoints.
+
+Performance-endpoint tests live in test_performance.py — the old mock-only
+`normalization_base`/`series[key][0]` contract asserted here previously was
+replaced by the real mode=combined|program contract built from stored rows.
+"""
 
 from __future__ import annotations
 
@@ -71,16 +76,3 @@ def test_program_account_copy_metadata(sandbox_client):
         assert field["copy_to_clipboard"] is False
         assert "account_number" not in field
         assert "account_label" not in field
-
-
-def test_performance_series(sandbox_client):
-    r = sandbox_client.get("/api/performance")
-    assert r.status_code == 200
-    body = r.json()
-    assert body["normalization_base"] == 100000
-    series = body["series"]
-    for key in ["TKP", "TCP", "AGM", "YQ", "SPX", "NDX", "BTC"]:
-        assert key in series
-        assert len(series[key]) > 0
-        # Every series is normalized to start at the base value.
-        assert series[key][0]["value"] == 100000

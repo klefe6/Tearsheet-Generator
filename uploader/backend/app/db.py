@@ -160,6 +160,20 @@ class Database:
             ).fetchall()
         return [dict(r) for r in rows]
 
+    def get_all_rows(self, program: str) -> list[dict]:
+        """Return every stored row for `program`, oldest first (date ascending).
+
+        Used by the performance builder, which needs the full history to
+        compound a normalized series — unlike `get_last_rows`, nothing is
+        truncated here.
+        """
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM daily_rows WHERE program = ? ORDER BY date ASC, id ASC",
+                (program,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
     def delete_last_row(self, program: str, actor: str) -> Optional[dict]:
         """Delete the newest row for `program`. Returns it, or None if empty."""
         now = _utcnow()
@@ -210,6 +224,17 @@ class Database:
                 ),
             )
             return int(cur.lastrowid)
+
+    def get_last_activity_ts(self) -> Optional[str]:
+        """Timestamp of the most recent audit event, or None if there are none.
+
+        Every row create/update/delete and every export preview writes an audit
+        event, so this single query is a correct "last changed" signal for the
+        performance endpoint without needing a separate cache/version column.
+        """
+        with self.connect() as conn:
+            row = conn.execute("SELECT MAX(ts) AS ts FROM audit_events").fetchone()
+        return row["ts"] if row and row["ts"] else None
 
     def get_audit(self, limit: int = 50) -> list[dict]:
         with self.connect() as conn:

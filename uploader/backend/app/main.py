@@ -18,7 +18,7 @@ from fastapi.responses import JSONResponse
 from . import __version__
 from .config import Settings
 from .db import Database
-from .performance import build_performance
+from .performance import build_combined, build_program
 from .programs import (
     PROGRAM_LABELS,
     PROGRAMS,
@@ -97,8 +97,37 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         return {"programs": program_metadata()}
 
     @app.get("/api/performance", tags=["performance"])
-    def get_performance(points: int = Query(default=90, ge=2, le=750)) -> dict:
-        return build_performance(points=points)
+    def get_performance(
+        mode: str = Query(default="combined", pattern="^(combined|program)$"),
+        program: Optional[str] = Query(default=None),
+        benchmarks: Optional[str] = Query(
+            default=None, description="Comma-separated symbols, e.g. SPX,NDX,BTC"
+        ),
+    ) -> dict:
+        """Chart data for the performance card. Always computed fresh from the
+        current `daily_rows` (no caching), so it reflects the latest add/delete/
+        export immediately. See app/performance.py for the response contract.
+        """
+        if mode == "combined":
+            return build_combined(db)
+
+        code = normalize_program(program or "")
+        if code is None:
+            raise HTTPException(
+                status_code=422,
+                detail=f"program is required and must be one of {PROGRAMS} when mode=program",
+            )
+
+        bench_list: list[str] = []
+        if benchmarks:
+            seen: set[str] = set()
+            for raw_sym in benchmarks.split(","):
+                sym = raw_sym.strip().upper()
+                if sym and sym not in seen:
+                    seen.add(sym)
+                    bench_list.append(sym)
+
+        return build_program(db, code, bench_list)
 
     # -- rows -------------------------------------------------------------
     @app.get("/api/rows/{program}", tags=["rows"])

@@ -24,7 +24,8 @@ uploader/backend/
 │  ├─ programs.py      # program registry + field rules + row serializer
 │  ├─ validation.py    # per-program validation + rejection rules
 │  ├─ db.py            # SQLite storage (daily_rows, audit_events, export_batches)
-│  ├─ performance.py   # deterministic mock $100k performance series
+│  ├─ performance.py   # /api/performance builder (combined + program modes)
+│  ├─ benchmarks.py    # deterministic local SPX/NDX/BTC fixture (no external calls)
 │  ├─ security.py      # bearer-token auth dependency
 │  └─ main.py          # FastAPI app + routes (create_app factory)
 ├─ tests/              # pytest suite
@@ -150,12 +151,73 @@ Validation rules:
 | ----------------------------- | ----------- | ------------------------------------------------------ |
 | `GET /health`                 | open        | `status`, `app_env`, `export_enabled`, `version`       |
 | `GET /api/programs`           | open        | Program + field metadata for the frontend              |
-| `GET /api/performance`        | open        | Normalized $100k series (TKP/TCP/AGM/YQ/SPX/NDX/BTC)    |
+| `GET /api/performance`        | open        | Chart-ready $100k performance series — see below       |
 | `GET /api/rows/{program}?limit=7` | open    | Last N rows for a program (newest first)               |
 | `POST /api/rows/{program}`    | **token**   | Validate + upsert one row by `(program, date)`         |
 | `DELETE /api/rows/{program}/last` | **token** | Delete the most recent row; audited                  |
 | `POST /api/export/all`        | **token**   | Dry-run preview of all unexported rows; audited        |
 | `GET /api/audit?limit=50`     | open        | Recent audit events                                    |
+
+### Performance (`GET /api/performance`)
+
+Computed fresh from `daily_rows` on every request — no caching, so it reflects
+the latest add/delete/export immediately.
+
+Query params:
+
+| Param         | Values                          | Notes                                              |
+| ------------- | -------------------------------- | --------------------------------------------------- |
+| `mode`        | `combined` (default) \| `program` |                                                     |
+| `program`     | `TKP` \| `TCP` \| `AGM` \| `YQ`   | required when `mode=program` (else `422`)          |
+| `benchmarks`  | e.g. `SPX,NDX,BTC`                | optional, `mode=program` only; ignored in combined |
+
+**Combined mode** — one series per program (TKP/TCP/AGM/YQ) only, **no**
+SPX/NDX/BTC. X-axis is each program's own trading-day index (`x: 0, 1, 2, ...`
+— the frontend labels these "Day N"), not a shared calendar, so a program with
+fewer rows simply ends earlier.
+
+**Program mode** — the selected program's own series, X-axis = real ISO
+dates, optionally overlaid with SPX/NDX/BTC benchmarks **rebased to $100,000
+as of the program's first available date**. If the benchmark has no data on
+that exact date, the first available point on/after it is used instead and a
+warning is added.
+
+Response shape:
+
+```jsonc
+{
+  "mode": "combined" | "program",
+  "x_axis": "trading_day" | "date",
+  "base_value": 100000,
+  "program": null | "TKP" | "TCP" | "AGM" | "YQ",
+  "benchmarks": [],              // resolved symbols; always [] in combined mode
+  "series": [                    // legend/metadata, one entry per line
+    {"key": "TKP", "label": "TKP", "kind": "program", "point_count": 12}
+  ],
+  "points": {                    // actual data, keyed by series key
+    "TKP": [{"x": 0, "y": 100000.0}, {"x": 1, "y": 100230.5}]
+  },
+  "last_updated_at": "2026-07-09T20:31:00+00:00",
+  "warnings": []                 // missing/sparse-data notes; never crashes
+}
+```
+
+Accounting rules:
+
+- Program NLV per row (`app/programs.py::program_nlv`): TKP = StoneX + Plus500,
+  TCP = StoneX, AGM = TradeStation, YQ = StoneX.
+- **AGM `fee` is intentionally excluded** from performance — it's not yet
+  confirmed whether `fee` is already netted out of `tradestation_nlv` or
+  billed separately, so per "don't silently mix it in", only
+  `tradestation_nlv` drives AGM's series today. Revisit once confirmed.
+- Cash transfers are neutralized so deposits/withdrawals never appear as
+  performance: `daily_return = (ending_nlv - cash_transfer) / prior_ending_nlv - 1`,
+  compounded onto the $100,000 base. A series' first point is always exactly
+  $100,000 regardless of that day's own transfer (there's no "prior" yet).
+- Benchmark data (`app/benchmarks.py`) is a **deterministic local fixture**
+  (no external calls) — real values are keyed off the calendar date via a
+  fixed formula, so tests never depend on wall-clock time or network access.
+  Swap it for real ingestion later behind the same two functions.
 
 ### Export safety
 
@@ -179,8 +241,10 @@ pytest            # from uploader/backend/
 Covered: health, program metadata, per-program field acceptance
 (TKP StoneX+Plus500 / TCP StoneX / AGM TradeStation+Fee / YQ StoneX), the three
 rejection rules (Fee non-AGM, Plus500 non-TKP, TradeStation non-AGM), upsert
-idempotency, delete-last, export dry-run-by-default (and safe-when-enabled), and
-sandbox/production auth.
+idempotency, delete-last, export dry-run-by-default (and safe-when-enabled),
+sandbox/production auth, and `/api/performance` (combined trading-day index,
+program-mode real dates, benchmark rebasing + missing-data fallback, cash-transfer
+neutralization, AGM fee exclusion, empty-data warnings, refresh-after-mutation).
 
 ---
 

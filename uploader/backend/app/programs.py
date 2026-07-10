@@ -144,6 +144,40 @@ def program_metadata() -> list[dict]:
     return out
 
 
+def program_nlv(program: str, row: dict) -> Optional[float]:
+    """Total NLV for one stored row, per program's accounting rule:
+
+      * TKP = stonex_nlv + plus500_nlv
+      * TCP = stonex_nlv
+      * AGM = tradestation_nlv
+      * YQ  = stonex_nlv
+
+    AGM's `fee` is deliberately NOT read here. Whether `fee` is already netted
+    out of `tradestation_nlv` by the broker or billed separately is not yet
+    confirmed, so per the "do not silently mix it into performance" rule this
+    is a conservative, documented placeholder: performance is computed from
+    `tradestation_nlv` alone until the real fee/NLV relationship is confirmed.
+    See app/performance.py for where this feeds the return calculation.
+
+    Returns None if a required component is missing (defensive — validation
+    should already guarantee required NLV fields are present).
+    """
+    code = program.upper()
+    if code == "TKP":
+        stonex = row.get("stonex_nlv")
+        plus500 = row.get("plus500_nlv")
+        if stonex is None or plus500 is None:
+            return None
+        return float(stonex) + float(plus500)
+    if code in ("TCP", "YQ"):
+        stonex = row.get("stonex_nlv")
+        return float(stonex) if stonex is not None else None
+    if code == "AGM":
+        tradestation = row.get("tradestation_nlv")
+        return float(tradestation) if tradestation is not None else None
+    return None
+
+
 def public_row(program: str, raw: dict) -> dict:
     """Project a raw daily_rows record down to just the fields for `program`."""
     code = program.upper()
