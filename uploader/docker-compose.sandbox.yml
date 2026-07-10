@@ -1,0 +1,26 @@
+# Local single-host sandbox smoke (API + UI on :8091)
+#   docker compose -f docker-compose.sandbox.yml up --build
+#   open http://127.0.0.1:8091
+
+services:
+  uploader:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8091:8091"
+    environment:
+      APP_ENV: sandbox
+      SERVE_FRONTEND: "true"
+      DATABASE_PATH: /data/uploader_sandbox.db
+      BENCHMARK_CACHE_DIR: /data/benchmark_cache
+      DOWNSTREAM_SANDBOX_DIR: /data/downstream_sandbox
+      EXPORT_DOWNSTREAM_ENABLED: "false"
+      EXPORT_DRY_RUN: "true"
+      EXPORT_ENABLED: "false"
+      CORS_ALLOW_ORIGINS: https://uploader-sandbox.hcresearch.ltd,http://127.0.0.1:5173,http://localhost:5173
+    volumes:
+      - uploader_data:/data
+
+volumes:
+  uploader_data:

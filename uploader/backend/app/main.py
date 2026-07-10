@@ -24,6 +24,7 @@ from .benchmarks import configure_store
 from .config import Settings
 from .db import Database, SchemaError
 from .downstream_export import run_downstream_export
+from .frontend_static import mount_frontend
 from .performance import build_combined, build_program
 from .programs import (
     PROGRAM_LABELS,
@@ -104,16 +105,19 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
             "app_env": settings.app_env,
             "export_enabled": settings.export_enabled,
             "version": __version__,
+            "serve_frontend": settings.serve_frontend,
         }
 
-    @app.get("/", tags=["meta"])
-    def root() -> dict:
-        return {
-            "service": "glenn-daily-uploader-backend",
-            "version": __version__,
-            "app_env": settings.app_env,
-            "docs": "/docs",
-        }
+    if not settings.serve_frontend:
+
+        @app.get("/", tags=["meta"])
+        def root() -> dict:
+            return {
+                "service": "glenn-daily-uploader-backend",
+                "version": __version__,
+                "app_env": settings.app_env,
+                "docs": "/docs",
+            }
 
     @app.get("/api/programs", tags=["programs"])
     def get_programs() -> dict:
@@ -285,6 +289,10 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     def get_audit(limit: int = Query(default=50, ge=1, le=500)) -> dict:
         events = db.get_audit(limit)
         return {"count": len(events), "events": events}
+
+    if settings.serve_frontend:
+        static_dir = Path(settings.frontend_static_dir)
+        mount_frontend(app, static_dir)
 
     return app
 

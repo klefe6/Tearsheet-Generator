@@ -90,6 +90,12 @@ class Settings(BaseSettings):
     # Test-only: allow deterministic_fixture (never enable in production).
     benchmark_allow_fixture: bool = False
 
+    # --- Single-host deploy (Docker serves built Vite UI + API) ------------
+    # When true, serve frontend static files from ``frontend_static_dir`` at /
+    # (API remains at /api/*, health at /health). Local dev keeps this false.
+    serve_frontend: bool = False
+    frontend_static_dir: str = "static"
+
     # --- Derived helpers --------------------------------------------------
     @property
     def is_sandbox(self) -> bool:
