@@ -1,8 +1,10 @@
-// Mock performance data for the "$100,000 investment" chart.
+// FALLBACK demo performance data for the "$100,000 investment" chart.
 //
-// Deterministic by construction (seeded PRNG, fixed anchor date) so the chart
-// looks identical on every load. Two comparison modes are supported, each
-// with a different x-axis:
+// Used ONLY when GET /api/performance is unreachable (see PerformanceChart.tsx).
+// Deterministic by construction (seeded PRNG, fixed anchor date). NOT uploader
+// entries and NOT real market data — the UI labels this mode "Preview".
+//
+// Two comparison modes, each with a different x-axis:
 //
 //   Combined ("All Strategies") — a LIFECYCLE comparison. Each product is
 //   normalized to $100,000 on its own first trading day and plotted against
@@ -15,9 +17,8 @@
 //   real first date; SPX/NDX/BTC are rebased to $100,000 from that same real
 //   date, sharing one calendar x-axis with the product.
 //
-// All builder functions here are pure (no React, no fetch) so the same shape
-// can be produced by a future `/api/performance` backend call without
-// touching the chart component.
+// All builder functions here are pure (no React, no fetch). The backend
+// `/api/performance` endpoint produces the same shape when reachable.
 
 import type { ApiPerformanceResponse } from '../api/client'
 import { formatAxisDate } from '../lib/format'

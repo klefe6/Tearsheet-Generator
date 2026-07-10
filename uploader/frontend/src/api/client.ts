@@ -69,6 +69,10 @@ export interface ApiPerformanceResponse {
   points: Record<string, ApiPerformancePoint[]>
   last_updated_at: string
   warnings: string[]
+  /** Always `uploader_daily_rows` when served by the backend. */
+  program_data_source?: string
+  /** `deterministic_fixture` when SPX/NDX/BTC are synthetic; null in combined mode. */
+  benchmark_data_source?: string | null
 }
 
 export interface ApiExportResult {

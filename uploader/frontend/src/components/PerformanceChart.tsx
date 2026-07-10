@@ -28,6 +28,17 @@ import {
   type SeriesKey,
 } from '../data/performance'
 import {
+  combinedModeSubtitle,
+  defaultEnabledBenchmarks,
+  programModeSubtitle,
+  provenanceNotice,
+  readBenchmarkDataSource,
+  resolveChartProvenance,
+  seriesDisplayLabel,
+  type BenchmarkDataSource,
+  type ChartProvenance,
+} from '../lib/chartProvenance'
+import {
   formatAxisCurrency,
   formatLongDate,
   formatShortDate,
@@ -107,18 +118,12 @@ interface Props {
 export function PerformanceChart({ refreshToken = 0 }: Props) {
   const [mode, setMode] = useState<ChartMode>('combined')
   const [hiddenProducts, setHiddenProducts] = useState<Set<ProductKey>>(() => new Set())
-  // Requested default: SPX and NDX on, BTC off (keeps individual-mode charts readable).
-  const [enabledBenchmarks, setEnabledBenchmarks] = useState<Set<BenchmarkKey>>(
-    () => new Set(['SPX', 'NDX']),
-  )
+  const [enabledBenchmarks, setEnabledBenchmarks] = useState<Set<BenchmarkKey>>(() => new Set())
+  const [provenance, setProvenance] = useState<ChartProvenance>('loading')
+  const [benchmarkSource, setBenchmarkSource] = useState<BenchmarkDataSource>(null)
 
   const isCombined = mode === 'combined'
 
-  // Backend-sourced data (GET /api/performance), null until a fetch resolves
-  // or when the backend is unreachable — in which case the local mock
-  // builders below are used instead, so the chart never requires a running
-  // backend. Reset to null immediately on mode/refresh change so a mode
-  // switch never briefly shows a stale OTHER mode's backend data.
   const [backendCombined, setBackendCombined] = useState<CombinedTradingDayPoint[] | null>(null)
   const [backendProgram, setBackendProgram] = useState<ProgramSeriesPoint[] | null>(null)
   const [warnings, setWarnings] = useState<string[]>([])
@@ -128,26 +133,36 @@ export function PerformanceChart({ refreshToken = 0 }: Props) {
     setBackendCombined(null)
     setBackendProgram(null)
     setWarnings([])
+    setProvenance('loading')
+
+    const onSettled = (resp: Awaited<ReturnType<typeof fetchPerformance>>) => {
+      if (cancelled) return
+      setProvenance(resolveChartProvenance(resp, true))
+      setBenchmarkSource(readBenchmarkDataSource(resp))
+      if (resp) setWarnings(resp.warnings)
+    }
 
     if (isCombined) {
       fetchPerformance('combined').then((resp) => {
-        if (cancelled || !resp) return
-        setBackendCombined(transformCombinedResponse(resp))
-        setWarnings(resp.warnings)
+        if (cancelled) return
+        if (resp) setBackendCombined(transformCombinedResponse(resp))
+        onSettled(resp)
       })
     } else {
-      // Always request all three benchmarks — toggling on/off is purely
-      // client-side (which <Line>s render), so it never needs a refetch.
       fetchPerformance('program', mode as ProductKey, [...BENCHMARK_KEYS]).then((resp) => {
-        if (cancelled || !resp) return
-        setBackendProgram(transformProgramResponse(resp))
-        setWarnings(resp.warnings)
+        if (cancelled) return
+        if (resp) setBackendProgram(transformProgramResponse(resp))
+        onSettled(resp)
       })
     }
     return () => {
       cancelled = true
     }
   }, [mode, isCombined, refreshToken])
+
+  useEffect(() => {
+    setEnabledBenchmarks(defaultEnabledBenchmarks(provenance, benchmarkSource))
+  }, [provenance, benchmarkSource, mode])
 
   const mockCombinedData = useMemo(
     () => (isCombined ? buildCombinedTradingDaySeries() : []),
@@ -191,11 +206,16 @@ export function PerformanceChart({ refreshToken = 0 }: Props) {
   const isEmpty = data.length === 0 || lineKeys.length === 0
 
   const activeLabel = isCombined ? '' : SERIES_BY_KEY.get(mode as ProductKey)?.label ?? mode
+  const notice = provenanceNotice(provenance, mode, benchmarkSource)
   const subtitle = isCombined
-    ? 'Each strategy is normalized to $100,000 on its own first trading day — compared by trading-day count, not calendar date.'
-    : `${activeLabel} is normalized to $100,000 on its first available date (${formatLongDate(
+    ? combinedModeSubtitle(provenance)
+    : programModeSubtitle(
+        activeLabel,
+        provenance,
+        programData,
         getSeriesStartDate(mode as ProductKey),
-      )}); enabled benchmarks are rebased to $100,000 from that same date.`
+        formatLongDate,
+      )
 
   return (
     <section className={styles.card}>
@@ -219,6 +239,12 @@ export function PerformanceChart({ refreshToken = 0 }: Props) {
         </div>
       </div>
 
+      {notice && (
+        <p className={styles.provenanceNote} role="note">
+          {notice}
+        </p>
+      )}
+
       <div className={styles.legend}>
         {isCombined
           ? PRODUCT_KEYS.map((key) => {
@@ -233,7 +259,7 @@ export function PerformanceChart({ refreshToken = 0 }: Props) {
                   aria-pressed={!off}
                 >
                   <span className={styles.swatch} style={{ background: s.color }} />
-                  {s.label}
+                  {seriesDisplayLabel(key, provenance, benchmarkSource)}
                 </button>
               )
             })
@@ -243,7 +269,7 @@ export function PerformanceChart({ refreshToken = 0 }: Props) {
                 <>
                   <span className={styles.activeSeriesChip}>
                     <span className={styles.swatch} style={{ background: active.color }} />
-                    {active.label}
+                    {seriesDisplayLabel(mode as ProductKey, provenance, benchmarkSource)}
                   </span>
                   <span className={styles.toggleDivider} aria-hidden="true" />
                   {BENCHMARK_KEYS.map((key) => {
@@ -261,7 +287,7 @@ export function PerformanceChart({ refreshToken = 0 }: Props) {
                         aria-pressed={on}
                       >
                         <span className={styles.swatch} style={{ background: swatch }} />
-                        {s.label}
+                        {seriesDisplayLabel(key, provenance, benchmarkSource)}
                       </button>
                     )
                   })}
@@ -325,7 +351,7 @@ export function PerformanceChart({ refreshToken = 0 }: Props) {
                     key={key}
                     type="monotone"
                     dataKey={key}
-                    name={s.label}
+                    name={seriesDisplayLabel(key, provenance, benchmarkSource)}
                     stroke={s.color}
                     strokeWidth={s.strokeWidth}
                     strokeDasharray={s.dashed ? '5 4' : undefined}
