@@ -121,7 +121,7 @@ def test_mp_ts_nav_figure_title():
 
 
 def test_mp_ts_account_stats_not_hardcoded_literals():
-    """Account Stats values in layout must match the helper, not inline literals."""
+    """Program Account Stats in layout must match the helper, not inline literals."""
     import sys
     from pathlib import Path
 
@@ -130,26 +130,24 @@ def test_mp_ts_account_stats_not_hardcoded_literals():
         sys.path.insert(0, str(mp_dir))
     import mp_ts
 
-    computed = stats.compute_agm_account_stats(
-        mp_ts._display_summary_df, mp_ts.net_totals, mp_ts.PROGRAM_INCEPTION
-    )
-    assert computed is not None
-    expected = stats.format_agm_account_stats(computed)
+    program_stats = stats.compute_agm_program_account_stats()
+    rows = stats.format_agm_program_account_stats(program_stats)
+    by_label = {label: (total, client, prop) for label, total, client, prop in rows}
 
     layout = mp_ts.serve_layout()
     layout_str = str(layout)
-    assert expected["current_nav_after_fees"] in layout_str
-    assert expected["total_net_gain"] in layout_str
-    assert expected["total_fees_paid"] in layout_str
-    assert expected["months_trading_approx"] in layout_str
+    assert by_label["Total Accounts/Tranches Opened"] == ("12", "7", "5")
+    assert by_label["Nominal Assets Being Traded in the Program"] == (
+        "360k",
+        "210k",
+        "150k",
+    )
+    for total, client, prop in by_label.values():
+        assert total in layout_str
+        assert client in layout_str
+        assert prop in layout_str
+    assert "Current NAV (after fees)" not in layout_str
     assert "Compounded NAV Since Inception" not in layout_str
-
-    assert computed.current_nav_after_fees == pytest.approx(
-        float(mp_ts._display_summary_df["bot_end_after_fees"].iloc[-1])
-    )
-    assert computed.total_fees_paid == pytest.approx(
-        float(mp_ts.net_totals["bot_fees_dollar"])
-    )
 
 
 def test_compute_agm_program_account_stats_known_buckets():
