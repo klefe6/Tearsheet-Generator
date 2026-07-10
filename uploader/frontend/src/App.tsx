@@ -3,7 +3,7 @@ import { fetchProgramMetadata } from './api/client'
 import { ExportActionBar } from './components/ExportActionBar'
 import { PageHeader } from './components/PageHeader'
 import { PerformanceChart } from './components/PerformanceChart'
-import { ProductCard } from './components/ProductCard'
+import { ProductCard, type DateStepSignal } from './components/ProductCard'
 import { Toast } from './components/Toast'
 import { applyProgramMetadata, PRODUCTS } from './config/products'
 import { INITIAL_ROWS } from './data/rows'
@@ -19,6 +19,8 @@ const INITIAL_EXPORT_STATE: ExportUiState = {
   rowCount: 0,
 }
 
+const INITIAL_DATE_STEP_SIGNAL: DateStepSignal = { delta: 1, nonce: 0 }
+
 export default function App() {
   // Product config renders immediately from the local mock; if the backend
   // answers the one optional metadata GET, its account-chip data overlays it.
@@ -29,6 +31,10 @@ export default function App() {
   const [toast, setToast] = useState<string | null>(null)
   const toastTimer = useRef<number | undefined>(undefined)
   const exportTimer = useRef<number | undefined>(undefined)
+  // Global date stepper: bumping "nonce" (re-)fires every card's shift
+  // effect, even when "delta" repeats (e.g. two "-" clicks in a row). Frontend
+  // form state only — never touches historical table rows or the backend.
+  const [dateStepSignal, setDateStepSignal] = useState<DateStepSignal>(INITIAL_DATE_STEP_SIGNAL)
 
   const showToast = useCallback((message: string) => {
     setToast(message)
@@ -98,23 +104,52 @@ export default function App() {
     showToast('Last merge undone — mock action. No backend call was made.')
   }, [showToast])
 
+  // Shift all 4 current (in-progress) date form inputs by one day. Purely
+  // local form state — never touches the historical rows shown in the tables.
+  const stepAllDates = useCallback((delta: -1 | 1) => {
+    setDateStepSignal((prev) => ({ delta, nonce: prev.nonce + 1 }))
+  }, [])
+
   return (
     <div className={styles.page}>
       <PageHeader env={APP_ENV} />
 
       <PerformanceChart />
 
-      <section className={styles.cardsRow} aria-label="Daily entry by product">
-        {products.map((config) => (
-          <ProductCard
-            key={config.id}
-            config={config}
-            rows={rowsByProduct[config.id]}
-            onAddRow={handleAddRow}
-            onDeleteLast={handleDeleteLast}
-          />
-        ))}
-      </section>
+      <div className={styles.cardsSection}>
+        <button
+          type="button"
+          className={styles.dateStepBtn}
+          onClick={() => stepAllDates(-1)}
+          aria-label="Shift all current dates back one day"
+          title="Shift all current dates back 1 day"
+        >
+          -
+        </button>
+
+        <section className={styles.cardsRow} aria-label="Daily entry by product">
+          {products.map((config) => (
+            <ProductCard
+              key={config.id}
+              config={config}
+              rows={rowsByProduct[config.id]}
+              onAddRow={handleAddRow}
+              onDeleteLast={handleDeleteLast}
+              dateStepSignal={dateStepSignal}
+            />
+          ))}
+        </section>
+
+        <button
+          type="button"
+          className={styles.dateStepBtn}
+          onClick={() => stepAllDates(1)}
+          aria-label="Shift all current dates forward one day"
+          title="Shift all current dates forward 1 day"
+        >
+          +
+        </button>
+      </div>
 
       <ExportActionBar
         exportState={exportState}

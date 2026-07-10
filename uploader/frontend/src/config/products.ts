@@ -9,9 +9,9 @@ export const MAX_PRODUCT_FIELD_COUNT = 4
 //   TKP  — the only product with BOTH StoneX NLV and Plus500 NLV.
 //   AGM  — the only product with a Fee.
 //   TCP, Y&Q — StoneX NLV + Cash Transfer only.
-// Input tints: NLV fields on TKP/TCP/AGM = translucent purple; every other
-// non-date field (cash transfers, AGM fee, all Y&Q currency fields) = light
-// translucent pink. Date inputs stay white. `accountNumber` renders a
+// Input tints: NLV fields on TKP/TCP/AGM = pale, ~80% transparent yellow;
+// every other non-date field (cash transfers, AGM fee, all Y&Q currency
+// fields) = light translucent pink. Date inputs stay white. `accountNumber` renders a
 // copy-to-clipboard chip beside the label (only the four broker NLV accounts).
 //
 // Account chip data below is the LOCAL MOCK FALLBACK. When the backend is
@@ -27,8 +27,8 @@ export const PRODUCTS: ProductConfig[] = [
     colorSoft: '#eaf1fb',
     fields: [
       { key: 'date', apiName: 'date', label: 'Date', type: 'date' },
-      { key: 'stonexNlv', apiName: 'stonex_nlv', label: 'StoneX NLV', type: 'currency', placeholder: '0.00', tint: 'purple', accountNumber: '69060709', accountLabel: 'StoneX' },
-      { key: 'plus500Nlv', apiName: 'plus500_nlv', label: 'Plus500 NLV', type: 'currency', placeholder: '0.00', tint: 'purple', accountNumber: '50110102', accountLabel: 'Plus500' },
+      { key: 'stonexNlv', apiName: 'stonex_nlv', label: 'StoneX NLV', type: 'currency', placeholder: '0.00', tint: 'yellow', accountNumber: '69060709', accountLabel: 'StoneX' },
+      { key: 'plus500Nlv', apiName: 'plus500_nlv', label: 'Plus500 NLV', type: 'currency', placeholder: '0.00', tint: 'yellow', accountNumber: '50110102', accountLabel: 'Plus500' },
       { key: 'cash', apiName: 'cash_transfer', label: 'Cash Transfer', type: 'currency', placeholder: '0.00', tint: 'pink' },
     ],
     columns: [
@@ -46,7 +46,7 @@ export const PRODUCTS: ProductConfig[] = [
     colorSoft: '#e7f6ee',
     fields: [
       { key: 'date', apiName: 'date', label: 'Date', type: 'date' },
-      { key: 'stonexNlv', apiName: 'stonex_nlv', label: 'StoneX NLV', type: 'currency', placeholder: '0.00', tint: 'purple', accountNumber: '69060795', accountLabel: 'StoneX' },
+      { key: 'stonexNlv', apiName: 'stonex_nlv', label: 'StoneX NLV', type: 'currency', placeholder: '0.00', tint: 'yellow', accountNumber: '69060795', accountLabel: 'StoneX' },
       { key: 'cash', apiName: 'cash_transfer', label: 'Cash Transfer', type: 'currency', placeholder: '0.00', tint: 'pink' },
     ],
     columns: [
@@ -63,7 +63,7 @@ export const PRODUCTS: ProductConfig[] = [
     colorSoft: '#f1ecfd',
     fields: [
       { key: 'date', apiName: 'date', label: 'Date', type: 'date' },
-      { key: 'tradestationNlv', apiName: 'tradestation_nlv', label: 'TradeStation NLV', type: 'currency', placeholder: '0.00', tint: 'purple', accountNumber: '210TGG51', accountLabel: 'TradeStation' },
+      { key: 'tradestationNlv', apiName: 'tradestation_nlv', label: 'TradeStation NLV', type: 'currency', placeholder: '0.00', tint: 'yellow', accountNumber: '210TGG51', accountLabel: 'TradeStation' },
       { key: 'cash', apiName: 'cash_transfer', label: 'Cash Transfer', type: 'currency', placeholder: '0.00', tint: 'pink' },
       { key: 'fee', apiName: 'fee', label: 'Fee', type: 'currency', placeholder: '0.00', tint: 'pink' },
     ],

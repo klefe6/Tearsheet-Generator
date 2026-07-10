@@ -217,18 +217,19 @@
 }
 
 /* Input tints (date inputs always stay white).
-   Purple = NLV fields on TKP/TCP/AGM; pink = every other non-date field. */
-.wrapPurple .currencyInput {
-  background: rgba(139, 92, 246, 0.5);
-  border-color: rgba(109, 40, 217, 0.35);
+   Yellow = NLV fields on TKP/TCP/AGM (pale, ~80% transparent wash);
+   pink = every other non-date field. */
+.wrapYellow .currencyInput {
+  background: rgba(250, 204, 21, 0.2);
+  border-color: rgba(202, 138, 4, 0.35);
 }
 
-.wrapPurple .currencyInput::placeholder {
-  color: rgba(46, 16, 101, 0.55);
+.wrapYellow .currencyInput::placeholder {
+  color: rgba(120, 84, 8, 0.6);
 }
 
-.wrapPurple .currencyPrefix {
-  color: rgba(46, 16, 101, 0.7);
+.wrapYellow .currencyPrefix {
+  color: rgba(120, 84, 8, 0.75);
 }
 
 .wrapPink .currencyInput {

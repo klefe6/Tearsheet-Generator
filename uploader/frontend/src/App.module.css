@@ -7,11 +7,48 @@
   gap: 24px;
 }
 
+.cardsSection {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
 .cardsRow {
+  flex: 1;
+  min-width: 0;
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 20px;
   align-items: stretch;
+}
+
+/* Compact utility controls that shift all 4 current date inputs by ±1 day. */
+.dateStepBtn {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--card-bg);
+  color: var(--ink-secondary);
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1;
+  box-shadow: var(--shadow-sm);
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+
+.dateStepBtn:hover {
+  background: #f4f6f9;
+  color: var(--ink);
+  border-color: var(--ink-muted);
+}
+
+.dateStepBtn:active {
+  transform: translateY(1px);
 }
 
 @media (max-width: 1200px) {

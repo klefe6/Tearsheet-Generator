@@ -1,15 +1,33 @@
-import { useRef, useState, type CSSProperties, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from 'react'
 import { MAX_PRODUCT_FIELD_COUNT } from '../config/products'
 import type { ProductConfig, ProductId, ProductRow } from '../types'
 import { makeRowId } from '../data/rows'
 import { formatCurrency, formatShortDate } from '../lib/format'
 import styles from './ProductCard.module.css'
 
+/** One shift request from the global date-step buttons ("nonce" makes repeat clicks re-fire the effect even when `delta` repeats). */
+export interface DateStepSignal {
+  delta: -1 | 1
+  nonce: number
+}
+
 interface Props {
   config: ProductConfig
   rows: ProductRow[]
   onAddRow: (productId: ProductId, row: ProductRow) => void
   onDeleteLast: (productId: ProductId) => void
+  /** Shifts this card's current date input by ±1 day; local form state only. */
+  dateStepSignal: DateStepSignal
+}
+
+/** Shift a YYYY-MM-DD string by `days`, safely across month/year boundaries (UTC-anchored to dodge local-timezone DST edge cases). Invalid input is returned unchanged. */
+function shiftIsoDate(iso: string, days: number): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso)
+  if (!match) return iso
+  const [, y, m, d] = match
+  const utc = new Date(Date.UTC(Number(y), Number(m) - 1, Number(d)))
+  utc.setUTCDate(utc.getUTCDate() + days)
+  return utc.toISOString().slice(0, 10)
 }
 
 type FormState = Record<string, string>
@@ -244,11 +262,24 @@ function CardGlyph() {
   )
 }
 
-export function ProductCard({ config, rows, onAddRow, onDeleteLast }: Props) {
+export function ProductCard({ config, rows, onAddRow, onDeleteLast, dateStepSignal }: Props) {
   const [form, setForm] = useState<FormState>(() => initialForm(config))
 
   const update = (key: string, value: string) =>
     setForm((prev) => ({ ...prev, [key]: value }))
+
+  // Global date stepper: shift this card's own current date field by ±1 day.
+  // Skipped on mount (nonce 0) and whenever this card has no date field.
+  useEffect(() => {
+    if (dateStepSignal.nonce === 0) return
+    const dateField = config.fields.find((field) => field.type === 'date')
+    if (!dateField) return
+    setForm((prev) => ({
+      ...prev,
+      [dateField.key]: shiftIsoDate(prev[dateField.key], dateStepSignal.delta),
+    }))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dateStepSignal])
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -310,7 +341,7 @@ export function ProductCard({ config, rows, onAddRow, onDeleteLast }: Props) {
                 <span className={styles.inputRow}>
                   <span
                     className={`${styles.currencyWrap} ${
-                      field.tint === 'purple' ? styles.wrapPurple : ''
+                      field.tint === 'yellow' ? styles.wrapYellow : ''
                     } ${field.tint === 'pink' ? styles.wrapPink : ''}`}
                   >
                     <span className={styles.currencyPrefix}>$</span>

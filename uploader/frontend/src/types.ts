@@ -7,10 +7,10 @@ export type FieldType = 'date' | 'currency'
 
 /**
  * Background tint for currency inputs (date inputs always stay white):
- * 'purple' = bright translucent purple (NLV fields on TKP/TCP/AGM),
+ * 'yellow' = pale, ~80% transparent yellow wash (NLV fields on TKP/TCP/AGM),
  * 'pink'   = light translucent red/pink (all other non-date fields, incl. Y&Q).
  */
-export type CurrencyInputTint = 'purple' | 'pink'
+export type CurrencyInputTint = 'yellow' | 'pink'
 
 export interface ProductField {
   /** Row key this input writes to. */
