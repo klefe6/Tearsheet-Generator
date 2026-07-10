@@ -6,11 +6,13 @@
   "description": "Frontend for the Glenn Daily Uploader — daily NLV / cash / fee entry for TKP, TCP, AGM and Y&Q.",
   "scripts": {
     "dev": "vite --mode sandbox",
+    "dev:local": "vite --mode sandbox",
     "dev:prod": "vite --mode production",
     "build": "tsc --noEmit && vite build",
     "build:sandbox": "tsc --noEmit && vite build --mode sandbox",
-    "preview": "vite preview",
-    "typecheck": "tsc --noEmit"
+    "preview": "vite preview --port 5173 --strictPort",
+    "typecheck": "tsc --noEmit",
+    "smoke:check": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/smoke_check.ps1"
   },
   "dependencies": {
     "react": "^18.3.1",

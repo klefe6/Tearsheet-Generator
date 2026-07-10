@@ -13,6 +13,10 @@ dist-ssr
 .env.local
 .env.*.local
 
+# stray sqlite from misconfigured cwd
+*.db
+*.db-journal
+
 # logs
 logs
 *.log

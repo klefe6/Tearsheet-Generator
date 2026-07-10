@@ -4,10 +4,10 @@ Frontend-only scaffold for the **Glenn Daily Uploader**: a clean fintech dashboa
 for entering daily NLVs, cash transfers, and fees for the four products
 (**TKP**, **TCP**, **AGM**, **Y&Q**), with a normalized performance chart on top.
 
-> **Scope of this package.** This is UI only. It does **not** import from, modify,
-> or talk to the existing TKP/TCP/AGM/Y&Q tearsheet apps or any production data.
-> All data here is mock. "Export All Changes" is a non-destructive mock action —
-> no backend call is made yet.
+> **Scope of this package.** UI for the Glenn Daily Uploader. When
+> `VITE_API_BASE_URL` points at a running backend, Enter / Delete / Export and
+> the performance chart use real API endpoints. If the backend is unreachable,
+> the UI falls back to local mock data so preview still works.
 
 ## Stack
 
@@ -33,7 +33,9 @@ Other scripts:
 
 | Command | What it does |
 |---|---|
-| `npm run dev` | Dev server, sandbox env (hot reload) |
+| `npm run dev` | Dev server on **5173** (sandbox env, strict port) |
+| `npm run dev:local` | Same as `dev` — use with `.env.local` for local API |
+| `npm run smoke:check` | Verify backend :8091 (and frontend if running) |
 | `npm run dev:prod` | Dev server, production env |
 | `npm run build` | Type-check + production build to `dist/` |
 | `npm run build:sandbox` | Type-check + sandbox build |
@@ -54,6 +56,9 @@ Vite loads `.env.<mode>` automatically. Two committed templates ship with the re
 | `VITE_APP_ENV` | `sandbox` | `production` |
 | `VITE_API_BASE_URL` | `https://uploader-sandbox.hcresearch.ltd/api` | `https://uploader.hcresearch.ltd/api` |
 
+> This is a **Vite** app — use `VITE_*` variables only. There is no
+> `INTERNAL_API_ORIGIN` or `NEXT_PUBLIC_*` wiring in this codebase.
+
 **Future public URLs**
 
 | Environment | Frontend | Backend API |
@@ -65,11 +70,17 @@ Vite loads `.env.<mode>` automatically. Two committed templates ship with the re
 
 | Service | URL |
 |---|---|
-| Frontend (Vite) | `http://localhost:5173` |
-| Backend API | `http://localhost:8090/api` |
+| Frontend (Vite) | `http://127.0.0.1:5173` |
+| Backend API | `http://127.0.0.1:8091/api` |
 
-- `VITE_APP_ENV` drives only the on-screen environment badge for now.
-- `VITE_API_BASE_URL` is reserved for the future export wiring; it is **not called** yet.
+Copy `.env.local.example` → `.env.local`:
+
+```
+VITE_API_BASE_URL=http://127.0.0.1:8091/api
+```
+
+- `VITE_APP_ENV` drives the on-screen environment badge.
+- `VITE_API_BASE_URL` is the **only** backend URL the frontend calls (via `src/api/client.ts`).
 
 See `.env.example` for the full contract.
 
@@ -98,14 +109,14 @@ See `.env.example` for the full contract.
 TKP is the only card with **both** StoneX NLV and Plus500 NLV; AGM is the only card
 with a **Fee**.
 
-## Behavior (this PR)
+## Behavior
 
-- **Enter** — appends a row to that product's local state and clears the numeric inputs.
-- **Delete Last Row** — removes the most recent local row for that product.
-- **Export All Changes** — shows a mock toast; sends nothing.
+- **Enter** — `POST /api/rows/{program}`; falls back to local append if backend unreachable.
+- **Delete Last Row** — `DELETE /api/rows/{program}/last`; falls back to local trim on network failure.
+- **Export All Changes** — `POST /api/export/all` (dry-run preview by default; does **not** push to live TKP/TCP/AGM/Y&Q sites).
+- **Undo Last Merge** — mock only (no backend endpoint).
 
-State lives in `App.tsx` (`rowsByProduct`), keyed by product, so the export step
-already has everything it needs when a real backend endpoint is wired in later.
+See `backend/docs/LOCAL_DEV.md` for ports, DB reset, and export details.
 
 ## Structure
 
