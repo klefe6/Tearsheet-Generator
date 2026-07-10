@@ -92,6 +92,14 @@ All config is environment-driven (loaded from `.env` if present). See
 | `ADMIN_API_TOKEN`    | *(empty)*                       | Bearer token required for mutations in production              |
 | `CORS_ALLOW_ORIGINS` | local dev + `uploader-*.hcresearch.ltd` | Comma-separated allowed frontend origins (see `.env.example`) |
 | `EXPORT_URL_{TKP,TCP,AGM,YQ}` | *(empty)*              | **Future** export targets — surfaced in preview, never called  |
+| `EXPORT_DOWNSTREAM_ENABLED` | `false`           | Master switch for downstream TKP/TCP/AGM export. `false` = `/api/export/all` is unchanged from before this feature existed |
+| `EXPORT_DRY_RUN`     | `true`                          | Even with the switch on, compute + report only; write nothing |
+| `EXPORT_TARGET_ENV`  | `sandbox`                       | `sandbox` (local files this backend owns) or `production` (not implemented — always fails) |
+| `EXPORT_INCLUDE_YQ`  | `false`                         | Forward-compatible only; Y&Q has no destination yet regardless |
+| `DOWNSTREAM_SANDBOX_DIR` | `data/downstream_sandbox`  | Where sandbox destination files are written |
+| `DOWNSTREAM_API_TOKEN` | *(empty)*                     | Token for a future real production downstream call (not used yet) |
+
+See `docs/downstream_export_contract.md` for the full downstream export contract.
 
 ---
 

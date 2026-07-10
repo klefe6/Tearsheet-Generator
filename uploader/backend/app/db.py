@@ -201,6 +201,19 @@ class Database:
             ).fetchall()
         return [dict(r) for r in rows]
 
+    def mark_exported(self, program: str, date: str) -> None:
+        """Flip `exported` to 1 for one (program, date) row.
+
+        Called ONLY after a downstream export attempt for that row succeeds —
+        a failed or skipped row is deliberately left `exported=0` so the next
+        export batch naturally retries it (it stays in get_unexported_rows()).
+        """
+        with self.connect() as conn:
+            conn.execute(
+                "UPDATE daily_rows SET exported = 1 WHERE program = ? AND date = ?",
+                (program, date),
+            )
+
     # --- audit ------------------------------------------------------------
     def add_audit(
         self,

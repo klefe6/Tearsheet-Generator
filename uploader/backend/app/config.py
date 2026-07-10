@@ -56,6 +56,32 @@ class Settings(BaseSettings):
     export_url_agm: Optional[str] = None
     export_url_yq: Optional[str] = None
 
+    # --- Downstream export (TKP/TCP/AGM) — see docs/downstream_export_contract.md
+    # ALL default to the safest possible value. Y&Q has no destination and is
+    # always reported "skipped", regardless of these flags.
+    #
+    # Master switch. False => /api/export/all behaves EXACTLY as before this
+    # feature existed (uploader-only preview, nothing downstream attempted).
+    export_downstream_enabled: bool = False
+    # Even when the master switch is on, still just compute + report; write
+    # nothing anywhere.
+    export_dry_run: bool = True
+    # "sandbox" (local files this backend owns) or "production" (the real
+    # TKP/TCP/AGM websites). Production transport is NOT IMPLEMENTED in this
+    # build — selecting it always yields a "failure" result per row, by
+    # construction, the same hard guarantee the original uploader-only
+    # export already relied on (`transport_implemented: false`).
+    export_target_env: Literal["sandbox", "production"] = "sandbox"
+    # Forward-compatible flag for whenever Y&Q gets a real destination. Until
+    # then Y&Q is always "skipped" no matter what this is set to.
+    export_include_yq: bool = False
+    # Directory (relative to the backend's cwd) holding the sandbox
+    # destination files this backend owns and writes to directly.
+    downstream_sandbox_dir: str = "data/downstream_sandbox"
+    # Bearer token this backend sends WHEN calling a real production
+    # downstream endpoint (does not exist yet). Never defaulted on.
+    downstream_api_token: Optional[str] = None
+
     # --- Derived helpers --------------------------------------------------
     @property
     def is_sandbox(self) -> bool:
