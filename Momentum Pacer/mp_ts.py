@@ -50,6 +50,7 @@ from tcp_admin import AdminAuthManager
 from tearsheet_runtime_mode import apply_runtime_session_config, resolve_agm_bind_port
 from tearsheet_portal import render_portal_page
 from tearsheet_date_defaults import default_add_row_date_str
+from tearsheet_local_admin import is_local_direct_admin_request
 from tearsheet_header import (
     build_header_date_label_children_from_date,
     build_tearsheet_header_row,
@@ -63,6 +64,12 @@ import algominds_monthly_summary as agm_monthly
 import algominds_account_stats as agm_account_stats
 import algominds_monthly_stats as agm_monthly_stats
 import algominds_fee_payment_evidence as agm_fee_evidence
+import algominds_drawdown_semantics as agm_drawdown
+from tcp_public_sections import (
+    ACCOUNT_STATS_TABLE_CLASS,
+    MONTHLY_PERFORMANCE_CLASS,
+    monthly_performance_cell_class,
+)
 
 import numpy as np
 import pandas as pd
@@ -1663,7 +1670,10 @@ def build_client_daily_table_section():
 
 
 def build_drawdown_figure() -> go.Figure:
-    """Drawdown from peak, DAILY — computed from the client net value curve."""
+    """Strategy-UNIT drawdown from peak, DAILY — computed from the strategy
+    (trading-unit) net value curve. This is strategy-level, NOT account-level:
+    an account/tranche that entered later has its own entry balance and high
+    watermark, so its drawdown-since-entry can differ (see agm_drawdown)."""
     fig = go.Figure()
     eq_df = _daily_equity_frame()
     if eq_df.empty:
@@ -1679,7 +1689,7 @@ def build_drawdown_figure() -> go.Figure:
         x=dd_x, y=dd_vals,
         mode="lines", fill="tozeroy",
         line={"color": ACCENT_RED, "width": 1.5},
-        name="Momentum Pacer Drawdown",
+        name=agm_drawdown.STRATEGY_UNIT_DRAWDOWN_LABEL,
         hovertemplate=(
             "<b>%{fullData.name}</b><br>"
             "%{x|%b %d, %Y}<br>"
@@ -1688,7 +1698,7 @@ def build_drawdown_figure() -> go.Figure:
     ))
 
     fig.update_layout(
-        title={"text": "<u>Drawdown from Peak</u>",
+        title={"text": agm_drawdown.STRATEGY_UNIT_DRAWDOWN_CHART_TITLE,
                "x": 0.5, "xanchor": "center"},
         template="ggplot2",
         plot_bgcolor=GREY_BG, paper_bgcolor=WHITE_BG,
@@ -1707,6 +1717,103 @@ def build_drawdown_figure() -> go.Figure:
     )
     fig.update_yaxes(showgrid=True)
     return fig
+
+
+def _strategy_unit_drawdown_stats() -> "agm_drawdown.StrategyUnitDrawdown":
+    """Strategy-unit drawdown scalars from the same curve as the chart."""
+    eq_df = _daily_equity_frame()
+    if eq_df.empty:
+        return agm_drawdown.compute_strategy_unit_drawdown([])
+    return agm_drawdown.compute_strategy_unit_drawdown(
+        [float(v) for v in eq_df["client_net_value"]]
+    )
+
+
+def build_client_drawdown_note():
+    """Client-facing note beneath the Strategy Unit Drawdown chart.
+
+    Neutral / clarifying only (never alarmist): the strategy is one trading
+    unit; account/tranche drawdown since entry differs and is not computed yet,
+    so it is shown as N/A rather than derived (misleadingly) from strategy NAV.
+    """
+    return html.Div(
+        [
+            html.P(
+                agm_drawdown.CLIENT_STRATEGY_VS_ACCOUNT_NOTE,
+                className="small text-muted mb-1",
+                title=agm_drawdown.CLIENT_STRATEGY_VS_ACCOUNT_TOOLTIP,
+            ),
+            html.P(
+                [
+                    html.Span(
+                        f"{agm_drawdown.ACCOUNT_TRANCHE_DRAWDOWN_LABEL}: ",
+                        className="fw-semibold",
+                    ),
+                    html.Span(agm_drawdown.NA_DISPLAY),
+                ],
+                className="small text-muted mb-0",
+                title=agm_drawdown.ACCOUNT_TRANCHE_DRAWDOWN_UNAVAILABLE_NOTE,
+            ),
+        ],
+        id="agm-client-drawdown-note",
+        className="text-center",
+        style={"display": "block", "marginTop": "-0.75rem",
+               "marginBottom": "1.5rem"},
+    )
+
+
+def build_admin_drawdown_note():
+    """Admin-facing drawdown semantics: more explicit than the client note.
+
+    Shows the strategy-unit scalars (computed), the account/tranche placeholder
+    (N/A — not computed), the concrete $5k/$30k/$50k validation example, and the
+    TODO describing what a tranche-level calculation would require. The dollar
+    example is intentionally admin-only — it is not shown on the client page.
+    """
+    su = _strategy_unit_drawdown_stats()
+    current_dd = agm_drawdown.format_drawdown_pct(su.strategy_unit_current_drawdown_pct)
+    max_dd = agm_drawdown.format_drawdown_pct(su.strategy_unit_max_drawdown_pct)
+    # TODO(tranche-drawdown): replace this N/A with a real per-tranche figure
+    # once an entry-balance/entry-date/HWM ledger exists (see agm_drawdown).
+    return html.Div(
+        [
+            html.P("Drawdown semantics (admin)", className="small fw-bold mb-1"),
+            html.P(
+                [
+                    html.Span(
+                        f"{agm_drawdown.STRATEGY_UNIT_DRAWDOWN_LABEL} — current: ",
+                        className="fw-semibold",
+                    ),
+                    html.Span(current_dd),
+                    html.Span("  |  max: ", className="fw-semibold"),
+                    html.Span(max_dd),
+                ],
+                className="small mb-1",
+            ),
+            html.P(
+                [
+                    html.Span(
+                        f"{agm_drawdown.ACCOUNT_TRANCHE_DRAWDOWN_LABEL}: ",
+                        className="fw-semibold",
+                    ),
+                    html.Span(agm_drawdown.NA_DISPLAY),
+                ],
+                className="small mb-1",
+            ),
+            html.P(
+                agm_drawdown.ADMIN_DRAWDOWN_EXAMPLE_NOTE,
+                className="small text-muted mb-1",
+            ),
+            html.P(
+                agm_drawdown.ADMIN_TRANCHE_TODO_PLACEHOLDER,
+                className="small text-muted fst-italic mb-0",
+            ),
+        ],
+        id="agm-admin-drawdown-note",
+        className="text-center",
+        style={"display": "none", "marginTop": "-0.75rem",
+               "marginBottom": "1.5rem"},
+    )
 
 
 # ==============================================================================
@@ -1732,9 +1839,9 @@ def _cell_style(val_str: str, extra: dict | None = None) -> dict:
     return style
 
 
-def build_performance_summary_table():
+def build_admin_monthly_performance_table():
     """
-    Spreadsheet-style monthly table matching the screenshot exactly:
+    Admin-only spreadsheet-style monthly table (diagnostics / accounting):
     Month | SPX Start | SPX End | NDX Start | NDX End |
     BOT Start | BOT End After Fees |
     SPX Returns% | NDX Returns% |
@@ -1883,6 +1990,130 @@ def build_performance_summary_table():
         className="table-responsive",
         style={"width": "100%", "margin": "0 auto",
                "pageBreakInside": "avoid"},
+    )
+
+
+# Back-compat alias — older tests / call sites may still use this name.
+build_performance_summary_table = build_admin_monthly_performance_table
+
+
+def build_client_performance_summary_table():
+    """
+    Client-facing Performance Summary: Year | Jan…Dec | Year Total.
+    Built from the same derived monthly net returns as the admin table.
+    """
+    calendar_df = agm_monthly.build_client_performance_calendar(_display_summary_df)
+    if calendar_df.empty:
+        return html.P("No monthly performance data available.", className="text-muted text-center")
+
+    body_rows = []
+    for i in range(len(calendar_df)):
+        cells = []
+        for col in calendar_df.columns:
+            value = calendar_df.iloc[i][col]
+            if col == "Year":
+                cells.append(html.Td(value, className="fw-semibold"))
+            else:
+                cells.append(html.Td(value, className=monthly_performance_cell_class(str(value))))
+        body_rows.append(html.Tr(cells))
+
+    return html.Div(
+        dbc.Table(
+            [
+                html.Thead(
+                    html.Tr(
+                        [
+                            html.Th(col, style={"backgroundColor": GREY_BG, "color": "#000"})
+                            for col in calendar_df.columns
+                        ]
+                    )
+                ),
+                html.Tbody(body_rows),
+            ],
+            bordered=True,
+            hover=True,
+            size="sm",
+            className=MONTHLY_PERFORMANCE_CLASS,
+        ),
+        className="tcp-monthly-performance-wrapper",
+    )
+
+
+def build_admin_account_stats_table(acct_stats_fmt: dict, inception_str: str) -> dbc.Table:
+    """Admin Account Stats | Current (NAV / fees / inception diagnostics)."""
+    return dbc.Table(
+        [
+            html.Thead(html.Tr([
+                html.Th("Account Stats"),
+                html.Th("Current"),
+            ])),
+            html.Tbody([
+                html.Tr([
+                    html.Td("Starting Capital"),
+                    html.Td(acct_stats_fmt.get("starting_capital", "—")),
+                ]),
+                html.Tr([
+                    html.Td("Current NAV (after fees)"),
+                    html.Td(acct_stats_fmt.get("current_nav_after_fees", "—")),
+                ]),
+                html.Tr([
+                    html.Td("Total Net Gain"),
+                    html.Td(acct_stats_fmt.get("total_net_gain", "—")),
+                ]),
+                html.Tr([
+                    html.Td("Total Fees Paid"),
+                    html.Td(acct_stats_fmt.get("total_fees_paid", "—")),
+                ]),
+                html.Tr([
+                    html.Td("Inception Date"),
+                    html.Td(inception_str),
+                ]),
+                html.Tr([
+                    html.Td("Months trading (approx.)"),
+                    html.Td(acct_stats_fmt.get("months_trading_approx", "—")),
+                ]),
+            ]),
+        ],
+        striped=False, bordered=True,
+        hover=True, size="sm",
+        id="agm-admin-account-stats-table",
+    )
+
+
+def build_program_account_stats_table() -> dbc.Table:
+    """Client-facing Account Stats | Total | Client | Proprietary."""
+    program_stats = agm_account_stats.compute_agm_program_account_stats(
+        agm_registry.INVESTOR_REGISTRY,
+        proprietary_account_number=agm_registry.ACTIVE_TEARSHEET_ACCOUNT_NUMBER,
+    )
+    rows = agm_account_stats.format_agm_program_account_stats(program_stats)
+    label_style = {"width": "45%", "textAlign": "left"}
+    return dbc.Table(
+        [
+            html.Thead(
+                html.Tr([
+                    html.Th("Account Stats", style={"backgroundColor": GREY_BG}),
+                    html.Th("Total", style={"backgroundColor": GREY_BG}),
+                    html.Th("Client", style={"backgroundColor": GREY_BG}),
+                    html.Th("Proprietary", style={"backgroundColor": GREY_BG}),
+                ])
+            ),
+            html.Tbody([
+                html.Tr([
+                    html.Td(label, style=label_style),
+                    html.Td(total),
+                    html.Td(client),
+                    html.Td(prop),
+                ])
+                for label, total, client, prop in rows
+            ]),
+        ],
+        striped=False,
+        bordered=True,
+        hover=True,
+        size="sm",
+        className=f"mb-0 table-responsive {ACCOUNT_STATS_TABLE_CLASS}",
+        id="agm-client-account-stats-table",
     )
 
 
@@ -2163,15 +2394,25 @@ def serve_layout():
                     ),
 
                     # ── Performance Summary Table ──────────────────────────────
+                    # Admin (access-mode=secret): full SPX/NDX/BOT accounting table.
+                    # Client (access-mode=standard): Year×month Performance Summary.
                     html.H5(
                         "Performance Summary",
                         className="text-center mb-2",
                         style={"marginTop": "0.5rem", "paddingTop": "0.25rem"},
                     ),
                     html.Div(
-                        build_performance_summary_table(),
+                        build_admin_monthly_performance_table(),
+                        id="agm-admin-monthly-performance",
                         className="table-responsive mb-5",
-                        style={"overflowX": "auto",
+                        style={"display": "none", "overflowX": "auto",
+                               "pageBreakInside": "avoid"},
+                    ),
+                    html.Div(
+                        build_client_performance_summary_table(),
+                        id="agm-client-performance-summary",
+                        className="table-responsive mb-5",
+                        style={"display": "block", "overflowX": "auto",
                                "pageBreakInside": "avoid"},
                     ),
 
@@ -2486,52 +2727,20 @@ def serve_layout():
                                                     width=6,
                                                 ),
                                                 dbc.Col(
-                                                    dbc.Table(
-                                                        [
-                                                            html.Thead(html.Tr([
-                                                                html.Th("Account Stats"),
-                                                                html.Th("Current"),
-                                                            ])),
-                                                            html.Tbody([
-                                                                html.Tr([
-                                                                    html.Td("Starting Capital"),
-                                                                    html.Td(
-                                                                        _acct_stats_fmt.get("starting_capital", "—")
-                                                                    ),
-                                                                ]),
-                                                                html.Tr([
-                                                                    html.Td("Current NAV (after fees)"),
-                                                                    html.Td(
-                                                                        _acct_stats_fmt.get("current_nav_after_fees", "—")
-                                                                    ),
-                                                                ]),
-                                                                html.Tr([
-                                                                    html.Td("Total Net Gain"),
-                                                                    html.Td(
-                                                                        _acct_stats_fmt.get("total_net_gain", "—")
-                                                                    ),
-                                                                ]),
-                                                                html.Tr([
-                                                                    html.Td("Total Fees Paid"),
-                                                                    html.Td(
-                                                                        _acct_stats_fmt.get("total_fees_paid", "—")
-                                                                    ),
-                                                                ]),
-                                                                html.Tr([
-                                                                    html.Td("Inception Date"),
-                                                                    html.Td(inception_str),
-                                                                ]),
-                                                                html.Tr([
-                                                                    html.Td("Months trading (approx.)"),
-                                                                    html.Td(
-                                                                        _acct_stats_fmt.get("months_trading_approx", "—")
-                                                                    ),
-                                                                ]),
-                                                            ]),
-                                                        ],
-                                                        striped=False, bordered=True,
-                                                        hover=True, size="sm",
-                                                    ),
+                                                    [
+                                                        html.Div(
+                                                            build_admin_account_stats_table(
+                                                                _acct_stats_fmt, inception_str
+                                                            ),
+                                                            id="agm-admin-account-stats",
+                                                            style={"display": "none"},
+                                                        ),
+                                                        html.Div(
+                                                            build_program_account_stats_table(),
+                                                            id="agm-client-account-stats",
+                                                            style={"display": "block"},
+                                                        ),
+                                                    ],
                                                     width=6,
                                                 ),
                                             ])
@@ -2566,6 +2775,13 @@ def serve_layout():
                             "overflow": "visible",
                         },
                     ),
+
+                    # ── Drawdown semantics note (strategy-unit vs account/tranche)
+                    # Client (standard) sees the neutral note; admin (secret) sees
+                    # the explicit example + tranche TODO. Toggled by access-mode
+                    # in _toggle_admin_sections.
+                    build_client_drawdown_note(),
+                    build_admin_drawdown_note(),
 
                     # ── Client-facing daily table (collapsed by default) ────────
                     build_client_daily_table_section(),
@@ -2701,14 +2917,69 @@ def _gate_admin_portal_login(_portal_clicks, password):
     return "", False, "", ADMIN_PORTAL_PATH, True
 
 
+# ── Local-dev only: /admin/tearsheet renders the admin tearsheet directly.
+# Guarded by TEARSHEET_LOCAL_DIRECT_ADMIN=1 AND a loopback request; anywhere
+# else the callback no-ops and the URL shows the normal disclaimer gate. ──
+@app.callback(
+    Output("disclaimer-screen", "style", allow_duplicate=True),
+    Output("main-app", "style", allow_duplicate=True),
+    Output("access-mode", "data", allow_duplicate=True),
+    Input("url", "pathname"),
+    prevent_initial_call="initial_duplicate",
+)
+def _local_direct_admin_entry(pathname):
+    if not is_local_direct_admin_request(pathname):
+        return dash.no_update, dash.no_update, dash.no_update
+    agm_admin_auth_manager.grant_session(session)
+    return {"display": "none"}, {"display": "block"}, "secret"
+
+
 @app.callback(
     Output("agm-admin-fee-charts-container", "style"),
     Output("agm-admin-daily-container", "style"),
+    Output("agm-admin-monthly-performance", "style"),
+    Output("agm-client-performance-summary", "style"),
+    Output("agm-admin-account-stats", "style"),
+    Output("agm-client-account-stats", "style"),
+    Output("agm-admin-drawdown-note", "style"),
+    Output("agm-client-drawdown-note", "style"),
     Input("access-mode", "data"),
 )
 def _toggle_admin_sections(access_mode):
-    style = {"display": "block"} if access_mode == "secret" else {"display": "none"}
-    return style, style
+    is_admin = access_mode == "secret"
+    admin_style = {"display": "block"} if is_admin else {"display": "none"}
+    client_style = {"display": "none"} if is_admin else {"display": "block"}
+    admin_monthly_style = {
+        "display": "block" if is_admin else "none",
+        "overflowX": "auto",
+        "pageBreakInside": "avoid",
+    }
+    client_monthly_style = {
+        "display": "none" if is_admin else "block",
+        "overflowX": "auto",
+        "pageBreakInside": "avoid",
+    }
+    # Drawdown notes keep their own top/bottom spacing when visible.
+    admin_note_style = {
+        "display": "block" if is_admin else "none",
+        "marginTop": "-0.75rem",
+        "marginBottom": "1.5rem",
+    }
+    client_note_style = {
+        "display": "none" if is_admin else "block",
+        "marginTop": "-0.75rem",
+        "marginBottom": "1.5rem",
+    }
+    return (
+        admin_style,
+        admin_style,
+        admin_monthly_style,
+        client_monthly_style,
+        admin_style,
+        client_style,
+        admin_note_style,
+        client_note_style,
+    )
 
 
 def _render_admin_daily_content(access_mode):

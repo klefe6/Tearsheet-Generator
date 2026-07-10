@@ -152,6 +152,7 @@ from tcp_daily_values import (
     sort_rows_for_display,
 )
 from tcp_state import StatePaths
+from tearsheet_local_admin import is_local_direct_admin_request
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("tcp_ts_v2")
@@ -717,7 +718,14 @@ def _register_access_callbacks(
         Input("url", "pathname"),
         prevent_initial_call=False,
     )
-    def _bootstrap_gate_on_page_load(_pathname):
+    def _bootstrap_gate_on_page_load(pathname):
+        # Local-dev only: /admin/tearsheet skips the gate when the request is
+        # loopback AND TEARSHEET_LOCAL_DIRECT_ADMIN=1; production traffic
+        # (public Host header via the tunnel) always falls through to re-gate.
+        if is_local_direct_admin_request(pathname):
+            auth_manager.grant_session(session)
+            gate_style, main_style, daily_style = resolve_access_visibility(ui_mode=UI_MODE_ADMIN)
+            return gate_style, main_style, daily_style, UI_MODE_ADMIN
         auth_manager.logout(session)
         gate_style, main_style, daily_style = resolve_access_visibility(ui_mode=None)
         return gate_style, main_style, daily_style, None

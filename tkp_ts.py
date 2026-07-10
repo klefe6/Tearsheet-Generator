@@ -62,6 +62,7 @@ from tearsheet_header import (
     build_tearsheet_header_row,
 )
 from tearsheet_date_defaults import default_add_row_date_str
+from tearsheet_local_admin import is_local_direct_admin_request
 from flask import session, redirect, jsonify
 from collections import OrderedDict
 
@@ -1626,6 +1627,8 @@ max_dd_df = (
 
 # ==============================================================================
 # 12) Hard-coded “Additional Information”
+# Account Stats table: Proprietary | Client (no Total column — client bucket is
+# zero; totals are derivable via program_account_stats when both buckets exist).
 # ==============================================================================
 grouped_info = {
     "Account Stats": [
@@ -3318,6 +3321,23 @@ def _gate_admin_portal_login(_portal_clicks, password):
     if not ok:
         return INVALID_PASSWORD_MESSAGE, dash.no_update, "", dash.no_update, dash.no_update
     return "", False, "", ADMIN_PORTAL_PATH, True
+
+
+# ── Local-dev only: /admin/tearsheet renders the admin tearsheet directly.
+# Guarded by TEARSHEET_LOCAL_DIRECT_ADMIN=1 AND a loopback request; anywhere
+# else the callback no-ops and the URL shows the normal disclaimer gate. ──
+@app.callback(
+    Output("disclaimer-screen", "style", allow_duplicate=True),
+    Output("main-app", "style", allow_duplicate=True),
+    Output("access-mode", "data", allow_duplicate=True),
+    Input("url", "pathname"),
+    prevent_initial_call="initial_duplicate",
+)
+def _local_direct_admin_entry(pathname):
+    if not is_local_direct_admin_request(pathname):
+        return dash.no_update, dash.no_update, dash.no_update
+    tkp_admin_auth_manager.grant_session(session)
+    return {"display": "none"}, {"display": "block"}, "secret"
 
 
 @app.server.route("/admin")

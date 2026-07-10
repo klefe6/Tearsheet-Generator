@@ -1,10 +1,11 @@
 $ErrorActionPreference = 'Stop'
 Set-Location $PSScriptRoot
 $env:PYTHONIOENCODING = 'utf-8'
-$envFile = Join-Path $PSScriptRoot '.tkp_production.env'
-if (Test-Path $envFile) {
-    Get-Content $envFile | ForEach-Object {
-        # Batch format: set "NAME=value" (single quoted token, not set "NAME"=value)
+
+function Import-BatchEnvFile {
+    param([string]$Path)
+    if (-not (Test-Path $Path)) { return }
+    Get-Content $Path | ForEach-Object {
         if ($_ -match '^set "(.+)"$') {
             $pair = $matches[1]
             $eq = $pair.IndexOf('=')
@@ -16,5 +17,9 @@ if (Test-Path $envFile) {
         }
     }
 }
+
+Import-BatchEnvFile (Join-Path $PSScriptRoot '.local_dev.env')
+$envFile = Join-Path $PSScriptRoot '.tkp_production.env'
+if (Test-Path $envFile) { Import-BatchEnvFile $envFile }
 $python = Join-Path $PSScriptRoot '.venv310\Scripts\python.exe'
 & $python (Join-Path $PSScriptRoot 'tkp_ts.py')

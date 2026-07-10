@@ -53,6 +53,13 @@ SUMMARY_COLUMNS: List[str] = [
     "cumulative_net",
 ]
 
+# Client-facing Performance Summary calendar (TKP/TCP Year × month layout).
+MONTH_LABELS: List[str] = [
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+]
+CLIENT_CALENDAR_COLUMNS: List[str] = ["Year", *MONTH_LABELS, "Year Total"]
+
 
 @dataclass
 class AgmMonthlySummary:
@@ -185,3 +192,55 @@ def compute_agm_monthly_summary(
         "bot_net_dollar": totals["bot_net_pct"] * nominal,
     })
     return AgmMonthlySummary(table=table, totals=totals)
+
+
+def build_client_performance_calendar(
+    summary_df: pd.DataFrame,
+    *,
+    return_col: str = "bot_net_ret",
+    pct_decimals: int = 4,
+) -> pd.DataFrame:
+    """
+    Pivot derived monthly net returns into the client-facing calendar:
+
+        Year | Jan | Feb | ... | Dec | Year Total
+
+    Blank cells for months with no complete-month data. Year Total is the
+    simple (non-compounded) sum of that year's monthly returns — same
+    convention as TKP/TCP public Performance Summary tables.
+    """
+    empty = pd.DataFrame(columns=CLIENT_CALENDAR_COLUMNS)
+    if summary_df is None or summary_df.empty or return_col not in summary_df.columns:
+        return empty
+
+    df = summary_df.copy()
+    df["date"] = pd.to_datetime(df["date"])
+    df = df.dropna(subset=["date", return_col]).sort_values("date")
+    if df.empty:
+        return empty
+
+    years = sorted({int(ts.year) for ts in df["date"]})
+    by_period = {
+        pd.Timestamp(row["date"]).to_period("M"): float(row[return_col])
+        for _, row in df.iterrows()
+    }
+
+    def _fmt(pct_decimal: float) -> str:
+        return f"{pct_decimal * 100:.{pct_decimals}f}%"
+
+    rows: List[Dict[str, str]] = []
+    for year in years:
+        row: Dict[str, str] = {"Year": str(year)}
+        year_sum = 0.0
+        for month_idx, label in enumerate(MONTH_LABELS, start=1):
+            period = pd.Period(year=year, month=month_idx, freq="M")
+            if period in by_period:
+                val = by_period[period]
+                row[label] = _fmt(val)
+                year_sum += val
+            else:
+                row[label] = ""
+        row["Year Total"] = _fmt(year_sum)
+        rows.append(row)
+
+    return pd.DataFrame(rows, columns=CLIENT_CALENDAR_COLUMNS)

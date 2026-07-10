@@ -39,6 +39,9 @@ Thumbs.db
 .agm_production.env
 .algominds_production.env
 
+# Machine-local dev flags (copy from .local_dev.env.example)
+.local_dev.env
+
 # Runtime JSON state (TKP/AGM daily returns) — never commit
 daily_returns_secret_state.json
 daily_returns_secret_state.json.bak*

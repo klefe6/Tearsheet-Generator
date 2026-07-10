@@ -150,3 +150,41 @@ def test_mp_ts_account_stats_not_hardcoded_literals():
     assert computed.total_fees_paid == pytest.approx(
         float(mp_ts.net_totals["bot_fees_dollar"])
     )
+
+
+def test_compute_agm_program_account_stats_known_buckets():
+    """Client-facing Proprietary | Client table uses program-level bucket config."""
+    result = stats.compute_agm_program_account_stats()
+    assert result.proprietary.total_opened == 5
+    assert result.proprietary.currently_open == 5
+    assert result.proprietary.closed_profitably == 0
+    assert result.proprietary.closed_unprofitably == 0
+    assert result.proprietary.closed_return_range is None
+    assert result.proprietary.nominal_assets == pytest.approx(150_000.0)
+
+    assert result.client.total_opened == 7
+    assert result.client.currently_open == 6
+    assert result.client.closed_profitably == 1
+    assert result.client.closed_unprofitably == 0
+    assert result.client.closed_return_range == "0–1%"
+    assert result.client.nominal_assets == pytest.approx(210_000.0)
+
+
+def test_format_agm_program_account_stats_no_na_for_closed_counts():
+    result = stats.compute_agm_program_account_stats()
+    rows = stats.format_agm_program_account_stats(result)
+    by_label = {label: (total, client, prop) for label, total, client, prop in rows}
+    assert by_label["Accounts/Tranches Closed Profitably"] == ("1", "1", "0")
+    assert by_label["Accounts/Tranches Closed Unprofitably"] == ("0", "0", "0")
+    assert by_label["Range of Net Returns of Accounts/Tranches Closed"] == (
+        "0–1%",
+        "0–1%",
+        "N/A",
+    )
+    assert by_label["Nominal Assets Being Traded in the Program"] == (
+        "360k",
+        "210k",
+        "150k",
+    )
+    assert by_label["Total Accounts/Tranches Opened"] == ("12", "7", "5")
+    assert by_label["Accounts/Tranches Currently Open"] == ("11", "6", "5")
