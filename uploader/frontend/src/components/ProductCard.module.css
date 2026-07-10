@@ -54,13 +54,17 @@
   gap: 10px;
 }
 
-/* Reserve vertical space for the tallest card (4 fields) so action buttons align. */
+/* Reserve vertical space for the tallest card (4 fields) so action buttons
+   align. Every non-date row now reserves room for a stacked control column
+   (chip + Paste, 42px) rather than just the 34px input, since that's the
+   tallest a field row can get — a single Paste-only row still reserves the
+   same height (bottom-aligned) so every row across every card matches. */
 .fieldsRegion {
   display: flex;
   flex-direction: column;
   gap: 9px;
   min-height: calc(
-    var(--field-slots) * (1.3em + 4px + 34px) + (var(--field-slots) - 1) * 9px
+    var(--field-slots) * (1.3em + 4px + 42px) + (var(--field-slots) - 1) * 9px
   );
 }
 
@@ -70,24 +74,36 @@
   gap: 4px;
 }
 
-.fieldLabelRow {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 6px;
-  min-height: 18px;
-}
-
 .fieldLabel {
   font-size: 11.5px;
   font-weight: 600;
   color: var(--ink-secondary);
 }
 
-/* Copy-to-clipboard account-number chip beside the label. */
+/* Input row: currency input on the left, a compact vertical control column
+   (account chip + Paste) on the right. Date fields skip this entirely. */
+.inputRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 8px;
+}
+
+.controlStack {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-end;
+  gap: 4px;
+  min-width: 76px;
+  min-height: 42px;
+}
+
+/* Copy-to-clipboard account-number chip, stacked above Paste when present. */
 .accountChip {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 4px;
   height: 18px;
   padding: 0 7px;
@@ -117,6 +133,46 @@
 }
 
 .accountChipError {
+  background: #fef2f2;
+  border-color: #f4bcbc;
+  color: #b42318;
+}
+
+/* Paste-from-clipboard control, directly under the account chip (or alone,
+   bottom-aligned via .controlStack so it lines up with chip+Paste rows). */
+.pasteBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  height: 20px;
+  padding: 0 7px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+  background: #f8f9fb;
+  color: var(--ink-secondary);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1px;
+  line-height: 1;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+
+.pasteBtn:hover {
+  background: #eef1f5;
+  border-color: var(--ink-muted);
+  color: var(--ink);
+}
+
+.pasteBtnPasted {
+  background: #ecfdf3;
+  border-color: #a7e3c2;
+  color: #127a42;
+}
+
+.pasteBtnError {
   background: #fef2f2;
   border-color: #f4bcbc;
   color: #b42318;
@@ -288,4 +344,16 @@
   color: var(--ink-muted);
   padding: 16px 8px;
   font-style: italic;
+}
+
+@media (max-width: 720px) {
+  .controlStack {
+    min-width: 68px;
+  }
+
+  .accountChip,
+  .pasteBtn {
+    font-size: 9.5px;
+    padding: 0 5px;
+  }
 }

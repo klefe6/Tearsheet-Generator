@@ -1,12 +1,13 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { fetchProgramMetadata } from './api/client'
 import { ExportActionBar } from './components/ExportActionBar'
 import { PageHeader } from './components/PageHeader'
 import { PerformanceChart } from './components/PerformanceChart'
 import { ProductCard } from './components/ProductCard'
 import { Toast } from './components/Toast'
-import { PRODUCTS } from './config/products'
+import { applyProgramMetadata, PRODUCTS } from './config/products'
 import { INITIAL_ROWS } from './data/rows'
-import type { ExportUiState, ProductId, ProductRow } from './types'
+import type { ExportUiState, ProductConfig, ProductId, ProductRow } from './types'
 import styles from './App.module.css'
 
 const APP_ENV = import.meta.env.VITE_APP_ENV || import.meta.env.MODE || 'sandbox'
@@ -19,6 +20,9 @@ const INITIAL_EXPORT_STATE: ExportUiState = {
 }
 
 export default function App() {
+  // Product config renders immediately from the local mock; if the backend
+  // answers the one optional metadata GET, its account-chip data overlays it.
+  const [products, setProducts] = useState<ProductConfig[]>(PRODUCTS)
   const [rowsByProduct, setRowsByProduct] =
     useState<Record<ProductId, ProductRow[]>>(INITIAL_ROWS)
   const [exportState, setExportState] = useState<ExportUiState>(INITIAL_EXPORT_STATE)
@@ -30,6 +34,21 @@ export default function App() {
     setToast(message)
     window.clearTimeout(toastTimer.current)
     toastTimer.current = window.setTimeout(() => setToast(null), 4600)
+  }, [])
+
+  // Best-effort, read-only metadata load. On any failure (backend down,
+  // CORS, timeout) fetchProgramMetadata resolves null and the mock config
+  // stays — local preview never requires a running backend.
+  useEffect(() => {
+    let cancelled = false
+    fetchProgramMetadata().then((programs) => {
+      if (!cancelled && programs) {
+        setProducts((prev) => applyProgramMetadata(prev, programs))
+      }
+    })
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   // Local-state-only mutations. No backend calls — this is the frontend PR.
@@ -86,7 +105,7 @@ export default function App() {
       <PerformanceChart />
 
       <section className={styles.cardsRow} aria-label="Daily entry by product">
-        {PRODUCTS.map((config) => (
+        {products.map((config) => (
           <ProductCard
             key={config.id}
             config={config}

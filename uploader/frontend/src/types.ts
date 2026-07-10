@@ -15,6 +15,12 @@ export type CurrencyInputTint = 'purple' | 'pink'
 export interface ProductField {
   /** Row key this input writes to. */
   key: string
+  /**
+   * Backend field name for this input (snake_case, e.g. "stonex_nlv") —
+   * matches `fields[].name` in GET /api/programs so backend metadata can be
+   * merged onto this field. Omit for purely local fields.
+   */
+  apiName?: string
   /** Visible label in the entry form. */
   label: string
   type: FieldType
@@ -23,6 +29,8 @@ export interface ProductField {
   tint?: CurrencyInputTint
   /** Broker account number shown as a copy-to-clipboard chip next to the label. */
   accountNumber?: string
+  /** Broker name for the account chip (tooltip/aria only, e.g. "StoneX"). */
+  accountLabel?: string
 }
 
 /** How a table cell is rendered. */
