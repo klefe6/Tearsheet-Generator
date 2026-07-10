@@ -439,14 +439,18 @@ def test_extractor_parses_fixture_stores_read_only(tmp_repo_root):
     payload = build_payload(results, dry_run=True)
 
     by_program = {r.program: r for r in results}
-    # TKP: $-string parsing, blank Plus500 -> 0.0, Deposit -> cash_transfer.
+    # TKP: the equity-curve NAV column ($-string parsed) — NOT raw
+    # StoneX/Plus500 balances, and cash_transfer=0 by design (NAV is
+    # already cash-transfer-neutral; the Deposit ledger is incomplete).
     tkp = by_program["TKP"].rows
     assert [r["date"] for r in tkp] == ["2023-04-10", "2023-04-11"]
-    assert tkp[0]["stonex_nlv"] == 100000.0
-    assert tkp[0]["plus500_nlv"] == 0.0  # blank at inception
-    assert tkp[1]["plus500_nlv"] == 20000.0
-    assert tkp[1]["cash_transfer"] == 20000.0  # Deposit column
+    assert tkp[0]["stonex_nlv"] == 150000.0  # NAV, not StoneX 100,000
+    assert tkp[1]["stonex_nlv"] == 150200.0  # NAV, not StoneX+Plus500 120,250
+    assert all(r["plus500_nlv"] == 0.0 for r in tkp)
+    assert all(r["cash_transfer"] == 0.0 for r in tkp)  # Deposit 20k NOT emitted
     assert all(r["source"] == "tkp_state_json" for r in tkp)
+    assert "NAV" in tkp[0]["source_detail"]
+    assert "equity-curve" in tkp[0]["source_detail"]
 
     # TCP: the tearsheet-calculated nav-x1 (NOT raw NLV), cash_transfer=0
     # by design — nav-x1 is already cash-transfer-neutral, so the recorded
@@ -499,30 +503,36 @@ def test_extractor_output_imports_cleanly(backfill_client, tmp_repo_root):
     assert again["programs"]["TKP"]["unchanged"] == 2
 
 
-def test_extractor_synthesizes_unrecorded_plus500_funding(tmp_repo_root):
-    """The real store's 2025-03-11 case: Plus500 funded but Deposit blank —
-    the extractor must synthesize the cash transfer (and warn) so the funding
-    day is not counted as +82% performance. When Deposit DID record the
-    movement (the fixture's 2023-04-11 row), nothing is synthesized."""
+def test_tkp_withdrawals_do_not_dent_the_extracted_series(tmp_repo_root):
+    """The real store's 2026-03-05 case: both accounts dropped ~$25k each on a
+    withdrawal day, but the Deposit column recorded only -$25,000 — raw
+    balances can NEVER be reliably neutralized. The extractor must emit the
+    NAV equity-curve value (smooth through the withdrawal) and ignore raw
+    balances/Deposit entirely; a blank-NAV row is skipped with a warning."""
     from scripts.extract_tearsheet_history import extract_tkp
 
     repo_root, _files = tmp_repo_root
     state = [
-        {"Date": "2025-03-10", "StoneX": "$117,661.58", "Plus500": "", "Deposit": ""},
-        {"Date": "2025-03-11", "StoneX": "$114,855.95", "Plus500": "$100,000.00",
-         "Deposit": ""},
+        {"Date": "2026-03-04", "StoneX": "$102,497.67", "Plus500": "$104,891.29",
+         "Deposit": "", "NAV": "$188,557.18"},
+        # Withdrawal day: balances drop ~$50k combined, Deposit says only -25k,
+        # NAV barely moves (the true trading result).
+        {"Date": "2026-03-05", "StoneX": "$77,539.88", "Plus500": "$79,933.50",
+         "Deposit": "-$25,000.00", "NAV": "$188,599.39"},
+        {"Date": "2026-03-06", "StoneX": "$77,600.00", "Plus500": "$80,000.00",
+         "Deposit": "", "NAV": ""},  # blank NAV -> skipped
     ]
-    path = repo_root / "tkp_unfunded_case.json"
+    path = repo_root / "tkp_withdrawal_case.json"
     path.write_text(json.dumps(state), encoding="utf-8")
 
     res = extract_tkp(path)
-    assert res.rows[1]["cash_transfer"] == 100000.0
-    assert any("synthesized cash_transfer" in w for w in res.warnings)
-
-    # Counter-case from the shared fixture: recorded Deposit is left alone.
-    recorded = extract_tkp(repo_root / "daily_returns_secret_state.json")
-    assert recorded.rows[1]["cash_transfer"] == 20000.0
-    assert not any("synthesized" in w for w in recorded.warnings)
+    assert [r["date"] for r in res.rows] == ["2026-03-04", "2026-03-05"]
+    values = [r["stonex_nlv"] for r in res.rows]
+    assert values == [188557.18, 188599.39]  # NAV series, smooth through it
+    assert all(r["cash_transfer"] == 0.0 for r in res.rows)
+    # Under the uploader formula this day is now +0.02%, not a -12% fake drop.
+    assert abs(values[1] / values[0] - 1) < 0.001
+    assert any("blank NAV" in w for w in res.warnings)
 
 
 def test_extractor_refuses_stale_tcp_repo_seed(tmp_repo_root):

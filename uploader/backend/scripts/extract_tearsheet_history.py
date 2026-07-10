@@ -18,8 +18,22 @@ Safety contract (enforced by construction, tested in tests/test_backfill.py):
     retried on JSONDecodeError.
 
 Sources (per the 2026-07-10 field-level audit):
-  * TKP  — <repo>/daily_returns_secret_state.json (list of row dicts;
-           $-string money; columns Date / StoneX / Plus500 / Deposit).
+  * TKP  — <repo>/daily_returns_secret_state.json (list of row dicts,
+           $-string money). Extracted value = the ``NAV`` column: TKP's
+           equity-curve track, seeded at $150,000 and equal to
+           150000 x (1 + "Cumm Perc. Net") to the cent across the whole
+           series — cumulative NET performance, cash-transfer-neutral by
+           construction (verified smooth through every withdrawal date).
+           This matches what the TKP tearsheet graphs: tkp_ts.py plots the
+           workbook's NAV column (renamed nav-x1) and explicitly
+           adds withdrawals back / removes deposits via
+           _apply_cash_transfer_adjustment. Raw StoneX/Plus500 balances are
+           REJECTED for backfill: the state's ``Deposit`` ledger is
+           incomplete (e.g. 2026-03-05: both accounts dropped ~$25k each,
+           -$49,915 total, but Deposit recorded only -$25,000), so raw
+           balances cannot be reliably neutralized and chart withdrawals as
+           fake losses. Because NAV is already transfer-neutral, TKP rows
+           carry cash_transfer=0 and plus500_nlv=0.
   * TCP  — the LIVE state file resolved from TCP_V2_STATE_PATH in
            <repo>/.tcp_production.env (dict envelope with ``records``). The
            repo-root file of the same name is a stale bootstrap seed and is
@@ -145,7 +159,22 @@ class SourceResult:
 
 # --- TKP ---------------------------------------------------------------------
 
+TKP_SOURCE_DETAIL = (
+    "daily_returns_secret_state.json (field NAV, equity-curve, "
+    "cash-transfer-neutral)"
+)
+
+
 def extract_tkp(state_path: Path) -> SourceResult:
+    """Extract TKP using its tearsheet equity-curve value (the ``NAV`` column).
+
+    NAV = 150000 x (1 + "Cumm Perc. Net") — cumulative net performance,
+    already neutral to deposits/withdrawals (verified smooth through every
+    transfer date). Raw StoneX/Plus500 balances are deliberately NOT used:
+    the state's Deposit ledger is incomplete, so raw balances chart
+    withdrawals as fake losses. cash_transfer=0 by design (NAV is already
+    neutral; emitting recorded deposits would double-adjust).
+    """
     res = SourceResult("TKP", state_path)
     raw_rows = _read_json_with_retry(state_path)
     if not isinstance(raw_rows, list):
@@ -155,58 +184,32 @@ def extract_tkp(state_path: Path) -> SourceResult:
     for i, raw in enumerate(raw_rows):
         try:
             date = _iso_date(raw["Date"])
-            stonex = parse_money(raw.get("StoneX"))
-            plus500 = parse_money(raw.get("Plus500"))
-            deposit = parse_money(raw.get("Deposit"))
+            nav = parse_money(raw.get("NAV"))
         except (KeyError, ValueError) as exc:
             res.warnings.append(f"row {i}: skipped ({exc})")
             continue
-        if stonex is None:
-            res.warnings.append(f"row {i} ({date}): blank StoneX — skipped")
+        if nav is None:
+            res.warnings.append(f"row {i} ({date}): blank NAV — skipped")
             continue
         if date in by_date:
             res.warnings.append(f"duplicate date {date}: later row wins")
         by_date[date] = {
             "program": "TKP",
             "date": date,
-            "stonex_nlv": stonex,
-            # Blank Plus500 = the second account did not exist yet -> 0.0.
-            "plus500_nlv": plus500 if plus500 is not None else 0.0,
-            "cash_transfer": deposit if deposit is not None else 0.0,
+            "stonex_nlv": nav,
+            "plus500_nlv": 0.0,
+            "cash_transfer": 0.0,
             "source": SOURCE_LABELS["TKP"],
-            "source_detail": state_path.name,
+            "source_detail": TKP_SOURCE_DETAIL,
         }
+    res.warnings.append(
+        "TKP rows use the tearsheet equity-curve NAV column (seeded $150k, "
+        "= 150k x (1 + Cumm Perc. Net), cash-transfer-neutral); raw "
+        "StoneX/Plus500 balances are not used because the Deposit ledger is "
+        "incomplete. cash_transfer=0 by design."
+    )
     res.rows = [by_date[d] for d in sorted(by_date)]
-    _synthesize_unrecorded_plus500_transfers(res)
     return res
-
-
-def _synthesize_unrecorded_plus500_transfers(res: SourceResult) -> None:
-    """Neutralize Plus500 open/close funding the Deposit column never recorded.
-
-    Verified against the real store (2026-07-10): on 2025-03-11 Plus500 went
-    from blank to $100,000.00 with a blank Deposit cell — without a matching
-    cash_transfer the uploader's return formula would show that funding as a
-    fake +82.6% day. Narrow, deterministic rule: on the day Plus500 transitions
-    0 -> V (or V -> 0) with NO recorded deposit, treat the transition amount as
-    the day's cash transfer, and say so loudly in the audit output. Days where
-    the Deposit column DID record the movement are left exactly as recorded.
-    """
-    prev = None
-    for row in res.rows:
-        if prev is not None and row["cash_transfer"] == 0.0:
-            opened = prev["plus500_nlv"] == 0.0 and row["plus500_nlv"] > 0.0
-            closed = prev["plus500_nlv"] > 0.0 and row["plus500_nlv"] == 0.0
-            if opened or closed:
-                amount = row["plus500_nlv"] if opened else -prev["plus500_nlv"]
-                row["cash_transfer"] = amount
-                res.warnings.append(
-                    f"{row['date']}: Plus500 {'funding' if opened else 'defunding'} of "
-                    f"${abs(amount):,.2f} not recorded in the Deposit column — "
-                    "synthesized cash_transfer so the day is not counted as "
-                    "performance (verify against broker records)"
-                )
-        prev = row
 
 
 def _read_json_with_retry(path: Path, attempts: int = 3):

@@ -460,6 +460,17 @@ class Database:
         merged.sort(key=lambda r: r["date"])
         return merged
 
+    def get_display_rows(self, program: str, limit: int = 7) -> list[dict]:
+        """Latest ``limit`` merged rows for the bottom tables, newest first.
+
+        DISPLAY ONLY: includes backfilled historical rows (labeled by
+        ``row_source``) so the tables show the latest known values even when
+        Glenn has not typed anything yet. The export path is unaffected — it
+        reads exclusively daily_rows via get_unexported_rows().
+        """
+        merged = self.get_merged_rows(program)
+        return list(reversed(merged[-limit:]))
+
     def historical_summary(self) -> dict[str, dict]:
         """Per-program audit view of what has been backfilled."""
         with self.connect() as conn:

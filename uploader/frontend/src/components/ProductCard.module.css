@@ -358,3 +358,24 @@
     padding: 0 5px;
   }
 }
+
+/* Source badge for the display table (Manual vs Backfilled provenance). */
+.srcBadge {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.srcManual {
+  background: var(--brand-soft);
+  color: var(--brand);
+}
+
+.srcBackfilled {
+  background: #eef0f3;
+  color: #5b6472;
+}

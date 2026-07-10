@@ -46,6 +46,31 @@ export interface ApiRow {
   [fieldName: string]: string | number | boolean | null
 }
 
+/** One display row as served by GET /api/display-rows/{program} — the bottom
+ *  tables' data source. Unlike /api/rows (manual daily_rows only, export
+ *  semantics), display rows merge in backfilled history, labeled per row.
+ *  `value` is the same program value the performance graph uses. */
+export interface ApiDisplayRow {
+  date: string
+  value: number | null
+  row_source: string
+  source_label: 'Manual' | 'Backfilled'
+  source_detail?: string
+  fee?: number | null
+  [fieldName: string]: string | number | boolean | null | undefined
+}
+
+export interface ApiDisplayRowsResponse {
+  program: string
+  label: string
+  count: number
+  rows: ApiDisplayRow[]
+  display_note: string
+  export_note: string
+  /** Only for Y&Q with no rows: "No daily Y&Q source available." */
+  empty_reason?: string
+}
+
 /** One {x,y} point in a GET /api/performance series. */
 export interface ApiPerformancePoint {
   x: number | string
@@ -234,6 +259,35 @@ export async function fetchProgramRows(
     const body = (await response.json()) as { rows?: unknown }
     if (!Array.isArray(body.rows)) return null
     return { rows: body.rows as ApiRow[] }
+  } catch {
+    return null
+  } finally {
+    window.clearTimeout(timer)
+  }
+}
+
+/**
+ * Fetch a program's latest merged display rows for the bottom tables
+ * (manual + labeled backfilled history; best-effort, `null` on any failure
+ * so callers fall back to local manual rows).
+ */
+export async function fetchDisplayRows(
+  program: string,
+  limit = 7,
+): Promise<ApiDisplayRowsResponse | null> {
+  if (!API_BASE_URL) return null
+
+  const controller = new AbortController()
+  const timer = window.setTimeout(() => controller.abort(), READ_TIMEOUT_MS)
+  try {
+    const response = await fetch(
+      `${API_BASE_URL}/display-rows/${encodeURIComponent(program)}?limit=${limit}`,
+      { method: 'GET', headers: { Accept: 'application/json' }, signal: controller.signal },
+    )
+    if (!response.ok) return null
+    const body = (await response.json()) as { rows?: unknown }
+    if (!Array.isArray(body.rows)) return null
+    return body as unknown as ApiDisplayRowsResponse
   } catch {
     return null
   } finally {
