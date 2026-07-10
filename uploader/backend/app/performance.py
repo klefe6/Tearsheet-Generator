@@ -36,6 +36,11 @@ from .programs import PROGRAM_LABELS, PROGRAMS, normalize_program, program_nlv
 
 BASE_VALUE = 100_000.0
 
+# Exposed in every /api/performance response so the frontend can label series
+# truthfully without guessing.
+PROGRAM_DATA_SOURCE = "uploader_daily_rows"
+BENCHMARK_DATA_SOURCE_FIXTURE = "deterministic_fixture"
+
 
 def _rows_with_nlv(db, program: str) -> list[dict]:
     """This program's rows (oldest first), each annotated with its `_nlv`.
@@ -119,6 +124,8 @@ def build_combined(db) -> dict:
         "points": points,
         "last_updated_at": _last_updated_at(db),
         "warnings": warnings,
+        "program_data_source": PROGRAM_DATA_SOURCE,
+        "benchmark_data_source": None,
     }
 
 
@@ -141,6 +148,8 @@ def build_program(db, program: str, benchmark_symbols: list[str]) -> dict:
             "points": points,
             "last_updated_at": _last_updated_at(db),
             "warnings": warnings,
+            "program_data_source": PROGRAM_DATA_SOURCE,
+            "benchmark_data_source": None,
         }
 
     values = _normalized_values(rows)
@@ -193,4 +202,8 @@ def build_program(db, program: str, benchmark_symbols: list[str]) -> dict:
         "points": points,
         "last_updated_at": _last_updated_at(db),
         "warnings": warnings,
+        "program_data_source": PROGRAM_DATA_SOURCE,
+        "benchmark_data_source": (
+            BENCHMARK_DATA_SOURCE_FIXTURE if resolved_benchmarks else None
+        ),
     }

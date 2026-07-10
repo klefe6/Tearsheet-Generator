@@ -192,3 +192,25 @@ def test_performance_refreshes_after_export(sandbox_client):
 def test_last_updated_at_present_when_no_data(sandbox_client):
     body = sandbox_client.get("/api/performance?mode=combined").json()
     assert isinstance(body["last_updated_at"], str) and "T" in body["last_updated_at"]
+
+
+# --- data provenance (client-facing safety) ---------------------------------
+def test_combined_mode_declares_uploader_program_source(sandbox_client):
+    body = sandbox_client.get("/api/performance?mode=combined").json()
+    assert body["program_data_source"] == "uploader_daily_rows"
+    assert body["benchmark_data_source"] is None
+
+
+def test_program_mode_declares_fixture_benchmark_source(sandbox_client):
+    _post(sandbox_client, "TCP", _A_MONDAY.isoformat(), stonex_nlv=50000)
+    body = sandbox_client.get(
+        "/api/performance?mode=program&program=TCP&benchmarks=SPX,NDX"
+    ).json()
+    assert body["program_data_source"] == "uploader_daily_rows"
+    assert body["benchmark_data_source"] == "deterministic_fixture"
+
+
+def test_program_mode_without_benchmarks_has_null_benchmark_source(sandbox_client):
+    _post(sandbox_client, "TCP", _A_MONDAY.isoformat(), stonex_nlv=50000)
+    body = sandbox_client.get("/api/performance?mode=program&program=TCP").json()
+    assert body["benchmark_data_source"] is None
