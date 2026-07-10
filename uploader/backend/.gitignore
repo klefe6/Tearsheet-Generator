@@ -1,0 +1,23 @@
+# Local secrets & environment
+.env
+.env.*
+!.env.example
+
+# Local SQLite data (never commit real/production data)
+data/
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+
+# Virtual environments
+.venv/
+venv/
+
+# Test scratch
+tests/_tmp/
+
+# Python caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
