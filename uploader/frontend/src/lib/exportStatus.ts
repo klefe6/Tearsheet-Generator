@@ -26,9 +26,10 @@ function overallDownstreamStatus(
 
   if (hasFailure && hasSuccess) return 'partial_failure'
   if (hasFailure) return 'failed'
-  // No failures: either all succeeded, all had no rows, or (shouldn't happen)
-  // all skipped. Whichever it is, nothing failed — report the positive state.
-  return targetEnv === 'production' ? 'failed' : 'sandbox_success'
+  if (!hasSuccess) return 'saved' // nothing needed pushing (all no_rows/skipped)
+  // Real rows accepted downstream: "pushed" for the live tearsheet ingest
+  // target, "sandbox_success" for the local sandbox-file target.
+  return targetEnv === 'production' ? 'pushed' : 'sandbox_success'
 }
 
 /** Build the next ExportUiState from a successful POST /api/export/all response. */
@@ -53,8 +54,16 @@ export function deriveExportState(data: ApiExportResult, exportedAt: Date): Expo
     reason: firstReason(r),
   }))
 
+  const dryRunHadFailure = Object.entries(results).some(
+    ([program, r]) =>
+      program !== 'YQ' && (r.status === 'failure' || r.status === 'partial_failure'),
+  )
   const overallStatus: ExportOverallStatus = dryRun
-    ? 'dry_run'
+    ? dryRunHadFailure
+      ? 'partial_failure'
+      : targetEnv === 'production'
+        ? 'downstream_dry_run'
+        : 'dry_run'
     : overallDownstreamStatus(targetEnv, results)
 
   return {
@@ -81,6 +90,15 @@ export function exportToastMessage(data: ApiExportResult, appEnv: string): strin
   }
 
   const { target_env: targetEnv, dry_run: dryRun, results } = data.downstream
+  if (dryRun && targetEnv === 'production') {
+    const summary = Object.entries(results)
+      .map(([program, r]) => `${program} ${r.status}`)
+      .join(', ')
+    return (
+      `Downstream DRY-RUN validated by the tearsheet apps (no data changed): ${summary}. ` +
+      `${data.total_rows} row${data.total_rows === 1 ? '' : 's'} in this batch, ${appEnv}.`
+    )
+  }
   if (dryRun) {
     return (
       `Downstream export computed but not written (EXPORT_DRY_RUN) — target: ${targetEnv}. ` +

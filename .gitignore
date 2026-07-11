@@ -81,3 +81,4 @@ tests/_replay_step6.json
 /tests/_agm_preview_state/
 /tests/_algominds_preview_state/
 
+glenn_uploader_ingest_*_audit.jsonl

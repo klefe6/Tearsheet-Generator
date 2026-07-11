@@ -336,7 +336,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         if not settings.export_downstream_enabled:
             return response
 
-        downstream_results = run_downstream_export(
+        downstream_results, external_calls = run_downstream_export(
             db=db,
             settings=settings,
             actor=actor,
@@ -348,6 +348,11 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
             "dry_run": settings.export_dry_run,
             "results": downstream_results,
         }
+        # The real tearsheet-ingest transport exists for target "production";
+        # these fields now report what actually happened this batch.
+        if settings.export_target_env == "production":
+            response["transport_implemented"] = True
+        response["external_calls_made"] = external_calls
         return response
 
     # -- historical backfill (sandbox-only, BACKFILL_ENABLED-gated) ---------

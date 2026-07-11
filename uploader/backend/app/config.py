@@ -68,10 +68,12 @@ class Settings(BaseSettings):
     # nothing anywhere.
     export_dry_run: bool = True
     # "sandbox" (local files this backend owns) or "production" (the real
-    # TKP/TCP/AGM websites). Production transport is NOT IMPLEMENTED in this
-    # build — selecting it always yields a "failure" result per row, by
-    # construction, the same hard guarantee the original uploader-only
-    # export already relied on (`transport_implemented: false`).
+    # TKP/TCP/AGM tearsheet apps' authenticated ingest routes). With target
+    # "production": EXPORT_DRY_RUN=true POSTs dry_run:true payloads (the
+    # downstream app validates and classifies but mutates nothing);
+    # EXPORT_DRY_RUN=false performs the real mutation. A program whose
+    # *_INGEST_URL or token is missing yields a per-row failure WITHOUT any
+    # external call — never a silent success.
     export_target_env: Literal["sandbox", "production"] = "sandbox"
     # Forward-compatible flag for whenever Y&Q gets a real destination. Until
     # then Y&Q is always "skipped" no matter what this is set to.
@@ -79,9 +81,29 @@ class Settings(BaseSettings):
     # Directory (relative to the backend's cwd) holding the sandbox
     # destination files this backend owns and writes to directly.
     downstream_sandbox_dir: str = "data/downstream_sandbox"
-    # Bearer token this backend sends WHEN calling a real production
-    # downstream endpoint (does not exist yet). Never defaulted on.
+    # Bearer token this backend sends when calling the tearsheet ingest
+    # routes (their GLENN_UPLOADER_INGEST_TOKEN). Never defaulted on.
+    downstream_ingest_token: Optional[str] = None
+    # Per-app ingest URLs (each tearsheet app's POST
+    # /api/uploader/ingest-daily-row). Unset => that program's rows fail
+    # cleanly with "ingest URL not configured" and no call is made.
+    tkp_ingest_url: Optional[str] = None
+    tcp_ingest_url: Optional[str] = None
+    agm_ingest_url: Optional[str] = None
+    # Legacy name kept so an existing DOWNSTREAM_API_TOKEN env var is not
+    # silently ignored; downstream_ingest_token wins when both are set.
     downstream_api_token: Optional[str] = None
+
+    def ingest_url(self, program: str) -> Optional[str]:
+        return {
+            "TKP": self.tkp_ingest_url,
+            "TCP": self.tcp_ingest_url,
+            "AGM": self.agm_ingest_url,
+        }.get(program.upper())
+
+    @property
+    def ingest_token(self) -> Optional[str]:
+        return self.downstream_ingest_token or self.downstream_api_token
 
     # --- Historical backfill (sandbox-only) — see docs/historical_backfill.md
     # Master gate for ALL /api/backfill/* endpoints. Off by default everywhere;

@@ -94,7 +94,7 @@ def test_downstream_export_yq_always_skipped():
         downstream = r.json()["downstream"]
         assert downstream["results"]["YQ"]["status"] == "skipped"
         date_result = downstream["results"]["YQ"]["date_results"][0]
-        assert date_result["reason"] == "destination not configured"
+        assert date_result["reason"] == "Y&Q downstream export not implemented yet."
         # Never written to any sandbox file.
         assert not (client._downstream_dir / "yq_rows.json").exists()
         # Never marked exported (stays retry-able forever, matches "not failed").
@@ -139,16 +139,20 @@ def test_downstream_export_is_idempotent_on_reexport():
         client.close()
 
 
-def test_downstream_export_production_always_fails_by_construction():
-    """Selecting target_env=production can never silently succeed — the
-    transport simply isn't implemented, regardless of any other flag."""
-    client = _downstream_client(export_target_env="production")
+def test_downstream_export_production_fails_closed_without_ingest_config():
+    """target_env=production with no *_INGEST_URL / token configured can
+    never silently succeed — every row fails with a config error and NO
+    external call is made (fail-closed replaces the old
+    transport-not-implemented guarantee)."""
+    client = _downstream_client(export_target_env="production", export_dry_run=False)
     try:
         client.post("/api/rows/AGM", json=VALID_ROWS["AGM"])
         r = client.post("/api/export/all")
-        result = r.json()["downstream"]["results"]["AGM"]
+        body = r.json()
+        result = body["downstream"]["results"]["AGM"]
         assert result["status"] == "failure"
-        assert result["date_results"][0]["downstream_response"]["error_code"] == "transport_not_implemented"
+        assert "AGM_INGEST_URL is not configured" in result["date_results"][0]["reason"]
+        assert body["external_calls_made"] == 0
         # A failed row must NOT be marked exported -> stays retry-able.
         rows = client.get("/api/rows/AGM").json()["rows"]
         assert rows[0]["exported"] is False
