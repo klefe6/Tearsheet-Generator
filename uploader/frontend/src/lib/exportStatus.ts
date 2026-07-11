@@ -44,6 +44,8 @@ export function deriveExportState(data: ApiExportResult, exportedAt: Date): Expo
       canUndo: true,
       rowCount: data.total_rows,
       programStatuses: [],
+      eligibleCount: data.total_rows,
+      dryRun: data.dry_run,
     }
   }
 
@@ -73,6 +75,8 @@ export function deriveExportState(data: ApiExportResult, exportedAt: Date): Expo
     rowCount: data.total_rows,
     programStatuses,
     targetEnv,
+    eligibleCount: data.total_rows,
+    dryRun,
   }
 }
 

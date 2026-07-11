@@ -114,4 +114,12 @@ export interface ExportUiState {
   programStatuses: ExportProgramStatus[]
   /** "sandbox" | "production" when downstream results are present. */
   targetEnv?: string
+  /** Manual daily_rows found on the backend immediately before export. */
+  manualRowsByProgram?: Partial<Record<ProductId, number>>
+  /** Rows eligible for this export batch (unexported manual rows). */
+  eligibleCount?: number
+  /** Whether the export ran as dry-run (from backend response when present). */
+  dryRun?: boolean
+  /** Human-readable pre-export note (e.g. pending saves). */
+  preflightNote?: string
 }

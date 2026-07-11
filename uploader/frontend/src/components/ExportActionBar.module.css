@@ -183,6 +183,26 @@
 }
 
 /* Per-program breakdown (TKP/TCP/AGM exported/failed, Y&Q skipped). */
+.summaryBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0 0 8px;
+}
+
+.summaryLine {
+  margin: 0;
+  font-size: 12px;
+  color: var(--ink-secondary);
+}
+
+.summaryNote {
+  margin: 0;
+  font-size: 12px;
+  color: var(--ink);
+  font-weight: 600;
+}
+
 .programList {
   list-style: none;
   margin: 0;

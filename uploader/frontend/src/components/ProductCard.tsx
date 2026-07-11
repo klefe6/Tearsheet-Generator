@@ -2,8 +2,11 @@ import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from 
 import type { ApiDisplayRowsResponse } from '../api/client'
 import { MAX_PRODUCT_FIELD_COUNT } from '../config/products'
 import { displayColumnsFor, type DisplayColumn } from '../lib/displayColumns'
+import {
+  classifyPendingForm,
+  type FormState,
+} from '../lib/pendingRow'
 import type { ProductConfig, ProductId, ProductRow } from '../types'
-import { makeRowId } from '../data/rows'
 import { formatCurrency, formatShortDate } from '../lib/format'
 import styles from './ProductCard.module.css'
 
@@ -19,8 +22,13 @@ interface Props {
   /** Latest merged manual + backfilled rows (GET /api/display-rows). null =
    *  backend unreachable — the table falls back to the local manual rows. */
   displayData?: ApiDisplayRowsResponse | null
-  onAddRow: (productId: ProductId, row: ProductRow) => void
+  /** Persist one manual daily row. Resolves true only when the backend saved it. */
+  onAddRow: (productId: ProductId, row: ProductRow) => Promise<boolean>
   onDeleteLast: (productId: ProductId) => void
+  /** Reports in-progress form state so Export All can save pending rows first. */
+  onPendingChange: (productId: ProductId, form: FormState) => void
+  /** Bumped after Export All auto-saves pending forms — clears numeric inputs. */
+  pendingClearNonce: number
   /** Shifts this card's current date input by ±1 day; local form state only. */
   dateStepSignal: DateStepSignal
 }
@@ -34,8 +42,6 @@ function shiftIsoDate(iso: string, days: number): string {
   utc.setUTCDate(utc.getUTCDate() + days)
   return utc.toISOString().slice(0, 10)
 }
-
-type FormState = Record<string, string>
 
 /** Local date as YYYY-MM-DD, for the native date input default. */
 function todayISO(): string {
@@ -273,12 +279,41 @@ export function ProductCard({
   displayData = null,
   onAddRow,
   onDeleteLast,
+  onPendingChange,
+  pendingClearNonce,
   dateStepSignal,
 }: Props) {
   const [form, setForm] = useState<FormState>(() => initialForm(config))
+  const [saving, setSaving] = useState(false)
+  const [saveNote, setSaveNote] = useState<string | null>(null)
+  const [saveError, setSaveError] = useState<string | null>(null)
 
-  const update = (key: string, value: string) =>
+  const update = (key: string, value: string) => {
+    setSaveNote(null)
+    setSaveError(null)
     setForm((prev) => ({ ...prev, [key]: value }))
+  }
+
+  // Keep App aware of unsaved form values (typing alone is never a backend save).
+  useEffect(() => {
+    onPendingChange(config.id, form)
+  }, [config.id, form, onPendingChange])
+
+  // Export All auto-saved this card's pending values — clear numerics so they
+  // aren't treated as still-unsaved on the next export.
+  useEffect(() => {
+    if (pendingClearNonce === 0) return
+    setForm((prev) => {
+      const next = { ...prev }
+      for (const field of config.fields) {
+        if (field.type !== 'date') next[field.key] = ''
+      }
+      return next
+    })
+    setSaveNote(`Saved to backend via Export All · ${config.code}`)
+    setSaveError(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingClearNonce])
 
   // Global date stepper: shift this card's own current date field by ±1 day.
   // Skipped on mount (nonce 0) and whenever this card has no date field.
@@ -293,26 +328,49 @@ export function ProductCard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dateStepSignal])
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    const row: ProductRow = { id: makeRowId(config.id) }
-    for (const field of config.fields) {
-      if (field.type === 'date') {
-        row[field.key] = form[field.key] || todayISO()
-      } else {
-        const parsed = Number(form[field.key])
-        row[field.key] = Number.isFinite(parsed) ? parsed : 0
-      }
+    setSaveError(null)
+    setSaveNote(null)
+
+    const dateKey = config.fields.find((f) => f.type === 'date')?.key ?? 'date'
+    const formWithDate = { ...form, [dateKey]: form[dateKey] || todayISO() }
+    const classified = classifyPendingForm(config, formWithDate)
+
+    if (classified.status === 'empty') {
+      setSaveError('Enter at least one NLV value before saving.')
+      return
     }
-    onAddRow(config.id, row)
-    // Keep the date, clear the numeric inputs for the next entry.
-    setForm((prev) => {
-      const next = { ...prev }
-      for (const field of config.fields) {
-        if (field.type !== 'date') next[field.key] = ''
+    if (classified.status === 'incomplete') {
+      setSaveError(`Fill required fields before saving: ${classified.missing.join(', ')}.`)
+      return
+    }
+    if (classified.status === 'invalid') {
+      setSaveError(classified.message)
+      return
+    }
+
+    const row = classified.row
+    setSaving(true)
+    try {
+      const ok = await onAddRow(config.id, row)
+      if (!ok) {
+        // App already toasted the failure; keep values so Glenn can retry.
+        setSaveError('Save failed — values were NOT written to the backend.')
+        return
       }
-      return next
-    })
+      setSaveNote(`Saved to backend · ${config.code} · ${String(row.date)}`)
+      // Keep the date, clear the numeric inputs for the next entry.
+      setForm((prev) => {
+        const next = { ...prev }
+        for (const field of config.fields) {
+          if (field.type !== 'date') next[field.key] = ''
+        }
+        return next
+      })
+    } finally {
+      setSaving(false)
+    }
   }
 
   // Most recent 7 rows, newest first.
@@ -383,18 +441,28 @@ export function ProductCard({
         </div>
 
         <div className={styles.actions}>
-          <button type="submit" className={styles.enterBtn}>
-            Enter
+          <button type="submit" className={styles.enterBtn} disabled={saving}>
+            {saving ? 'Saving…' : 'Save Daily Row'}
           </button>
           <button
             type="button"
             className={styles.deleteBtn}
             onClick={() => onDeleteLast(config.id)}
-            disabled={rows.length === 0}
+            disabled={rows.length === 0 || saving}
           >
             Delete Last Row
           </button>
         </div>
+        {saveNote && (
+          <p className={styles.saveOk} role="status">
+            {saveNote}
+          </p>
+        )}
+        {saveError && (
+          <p className={styles.saveErr} role="alert">
+            {saveError}
+          </p>
+        )}
       </form>
 
       <div className={styles.tableWrap}>
