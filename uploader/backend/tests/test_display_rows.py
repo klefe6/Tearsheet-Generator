@@ -33,6 +33,25 @@ def _tkp_history(n=10, start_day=1):
     return rows
 
 
+def test_display_rows_show_tkp_plus500_when_backfilled(backfill_client):
+    rows = [
+        {
+            "program": "TKP",
+            "date": "2026-06-01",
+            "stonex_nlv": 130200.0,
+            "plus500_nlv": 20000.0,
+            "cash_transfer": 0.0,
+            "source": "tkp_state_json",
+            "source_detail": "NAV split",
+        }
+    ]
+    _seed_history(backfill_client, rows)
+    top = backfill_client.get("/api/display-rows/TKP").json()["rows"][0]
+    assert top["plus500_nlv"] == 20000.0
+    assert top["stonex_nlv"] == 130200.0
+    assert top["value"] == 150200.0
+
+
 def test_display_rows_include_latest_history_newest_first(backfill_client):
     _seed_history(backfill_client, _tkp_history(10))
     body = backfill_client.get("/api/display-rows/TKP").json()

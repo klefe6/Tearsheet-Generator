@@ -442,15 +442,15 @@ def test_extractor_parses_fixture_stores_read_only(tmp_repo_root):
     payload = build_payload(results, dry_run=True)
 
     by_program = {r.program: r for r in results}
-    # TKP: the equity-curve NAV column ($-string parsed) — NOT raw
-    # StoneX/Plus500 balances, and cash_transfer=0 by design (NAV is
-    # already cash-transfer-neutral; the Deposit ledger is incomplete).
+    # TKP: equity-curve NAV split into stonex + plus500 (NAV = stonex + plus500).
     tkp = by_program["TKP"].rows
     assert [r["date"] for r in tkp] == ["2023-04-10", "2023-04-11"]
-    assert tkp[0]["stonex_nlv"] == 150000.0  # NAV, not StoneX 100,000
-    assert tkp[1]["stonex_nlv"] == 150200.0  # NAV, not StoneX+Plus500 120,250
-    assert all(r["plus500_nlv"] == 0.0 for r in tkp)
-    assert all(r["cash_transfer"] == 0.0 for r in tkp)  # Deposit 20k NOT emitted
+    assert tkp[0]["stonex_nlv"] == 150000.0
+    assert tkp[0]["plus500_nlv"] == 0.0
+    assert tkp[1]["stonex_nlv"] == 130200.0  # NAV 150200 - Plus500 20000
+    assert tkp[1]["plus500_nlv"] == 20000.0
+    assert tkp[1]["stonex_nlv"] + tkp[1]["plus500_nlv"] == 150200.0
+    assert all(r["cash_transfer"] == 0.0 for r in tkp)
     assert all(r["source"] == "tkp_state_json" for r in tkp)
     assert "NAV" in tkp[0]["source_detail"]
     assert "equity-curve" in tkp[0]["source_detail"]
@@ -532,11 +532,11 @@ def test_tkp_withdrawals_do_not_dent_the_extracted_series(tmp_repo_root):
 
     res = extract_tkp(path)
     assert [r["date"] for r in res.rows] == ["2026-03-04", "2026-03-05"]
-    values = [r["stonex_nlv"] for r in res.rows]
-    assert values == [188557.18, 188599.39]  # NAV series, smooth through it
+    nav_values = [r["stonex_nlv"] + r["plus500_nlv"] for r in res.rows]
+    assert nav_values == [188557.18, 188599.39]  # NAV series, smooth through it
     assert all(r["cash_transfer"] == 0.0 for r in res.rows)
     # Under the uploader formula this day is now +0.02%, not a -12% fake drop.
-    assert abs(values[1] / values[0] - 1) < 0.001
+    assert abs(nav_values[1] / nav_values[0] - 1) < 0.001
     assert any("blank NAV" in w for w in res.warnings)
 
 

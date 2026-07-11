@@ -180,11 +180,11 @@ def extract_tkp(state_path: Path) -> SourceResult:
     """Extract TKP using its tearsheet equity-curve value (the ``NAV`` column).
 
     NAV = 150000 x (1 + "Cumm Perc. Net") — cumulative net performance,
-    already neutral to deposits/withdrawals (verified smooth through every
-    transfer date). Raw StoneX/Plus500 balances are deliberately NOT used:
-    the state's Deposit ledger is incomplete, so raw balances chart
-    withdrawals as fake losses. cash_transfer=0 by design (NAV is already
-    neutral; emitting recorded deposits would double-adjust).
+    already neutral to deposits/withdrawals. Plus500 NLV is taken from the
+    state's ``Plus500`` column when present; ``stonex_nlv`` is set to
+    ``NAV - plus500_nlv`` so ``program_nlv`` (stonex + plus500) still equals
+    NAV for the chart. Raw StoneX balances are deliberately NOT used: the
+    Deposit ledger is incomplete. cash_transfer=0 by design.
     """
     res = SourceResult("TKP", state_path)
     raw_rows = _read_json_with_retry(state_path)
@@ -196,28 +196,37 @@ def extract_tkp(state_path: Path) -> SourceResult:
         try:
             date = _iso_date(raw["Date"])
             nav = parse_money(raw.get("NAV"))
+            plus500 = parse_money(raw.get("Plus500")) or 0.0
         except (KeyError, ValueError) as exc:
             res.warnings.append(f"row {i}: skipped ({exc})")
             continue
         if nav is None:
             res.warnings.append(f"row {i} ({date}): blank NAV — skipped")
             continue
+        if plus500 > nav:
+            res.warnings.append(
+                f"row {i} ({date}): Plus500 ({plus500}) exceeds NAV ({nav}); "
+                "treating Plus500 as 0"
+            )
+            plus500 = 0.0
+        stonex = nav - plus500
         if date in by_date:
             res.warnings.append(f"duplicate date {date}: later row wins")
         by_date[date] = {
             "program": "TKP",
             "date": date,
-            "stonex_nlv": nav,
-            "plus500_nlv": 0.0,
+            "stonex_nlv": stonex,
+            "plus500_nlv": plus500,
             "cash_transfer": 0.0,
             "source": SOURCE_LABELS["TKP"],
             "source_detail": TKP_SOURCE_DETAIL,
         }
     res.warnings.append(
         "TKP rows use the tearsheet equity-curve NAV column (seeded $150k, "
-        "= 150k x (1 + Cumm Perc. Net), cash-transfer-neutral); raw "
-        "StoneX/Plus500 balances are not used because the Deposit ledger is "
-        "incomplete. cash_transfer=0 by design."
+        "= 150k x (1 + Cumm Perc. Net), cash-transfer-neutral). Plus500 NLV is "
+        "backfilled from the Plus500 column when present; stonex_nlv = NAV - "
+        "plus500 so the chart still compounds on NAV. Raw StoneX balances are "
+        "not used. cash_transfer=0 by design."
     )
     res.rows = [by_date[d] for d in sorted(by_date)]
     return res
