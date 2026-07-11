@@ -34,6 +34,12 @@ PROGRAMS = ("TKP", "TCP", "AGM")
 # this date, pass --probe-date with a later ISO date or see the runbook.
 DEFAULT_PROBE_DATE = "2099-01-01"
 
+# Cloudflare Bot Fight / Browser Integrity (error 1010) blocks the default
+# Python-urllib User-Agent against public *.hcresearch.ltd hostnames.
+_HTTP_USER_AGENT = (
+    "Mozilla/5.0 (compatible; GlennUploaderPreflight/1.0; +https://hcresearch.ltd)"
+)
+
 # Field names match tearsheet_uploader_ingest.py per-program contracts (TCP uses
 # stonex_nlv, not nlv — it maps to TCP Cash Balance / NLV in tcp_uploader_ingest).
 _PROBE_FIELD_TEMPLATES: dict[str, dict[str, Any]] = {
@@ -115,6 +121,16 @@ def classify_probe_response(
         return "unauthorized", message or "Missing or invalid ingest token (HTTP 401)."
 
     if http_status == 403:
+        # Cloudflare Bot Fight returns plain "error code: 1010" (not JSON).
+        raw_hint = message or (json.dumps(body) if body else "")
+        if "1010" in raw_hint or (isinstance(body, dict) and not body and not message):
+            # Empty body + 403 often means CF challenge; prefer explicit unreachable.
+            if "1010" in raw_hint:
+                return (
+                    "unreachable",
+                    "Cloudflare blocked this client (error 1010). "
+                    "Use a non-blocked User-Agent or probe via localhost.",
+                )
         lowered = message.lower()
         if "ingest is disabled" in lowered or "glenn_uploader_ingest_enabled" in lowered:
             return "ingest_disabled", message or "Ingest disabled on target app (HTTP 403)."
@@ -122,7 +138,7 @@ def classify_probe_response(
             return "ingest_disabled", message or "Dry-run probes disabled on target app (HTTP 403)."
         if "not configured" in lowered and "token" in lowered:
             return "ingest_disabled", message or "Target ingest token not configured (HTTP 403)."
-        return "ingest_disabled", message or f"Ingest refused (HTTP 403)."
+        return "ingest_disabled", message or "Ingest refused (HTTP 403)."
 
     if http_status == 422:
         return "rejected_validation", message or "Payload rejected by ingest validation (HTTP 422)."
@@ -158,6 +174,7 @@ def probe_ingest_url(
         headers={
             "Content-Type": "application/json",
             "Authorization": f"Bearer {token}",
+            "User-Agent": _HTTP_USER_AGENT,
         },
     )
     open_fn = opener or urllib.request.urlopen
@@ -178,7 +195,7 @@ def probe_ingest_url(
     try:
         body = json.loads(raw) if raw else {}
     except json.JSONDecodeError:
-        body = {}
+        body = {"message": raw.strip()} if raw.strip() else {}
 
     status, msg = classify_probe_response(http_status, body)
     action = body.get("action") if isinstance(body, dict) else None

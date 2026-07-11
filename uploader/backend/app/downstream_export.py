@@ -146,6 +146,8 @@ def export_row_to_production(
         "dry_run": dry_run,
         **{k: v for k, v in fields.items() if v is not None},
     }
+    # Cloudflare Bot Fight (error 1010) rejects Python-urllib's default UA
+    # against public tearsheet hostnames; send an explicit client identity.
     request = urllib.request.Request(
         url,
         data=json.dumps(payload).encode("utf-8"),
@@ -153,6 +155,7 @@ def export_row_to_production(
         headers={
             "Content-Type": "application/json",
             "Authorization": f"Bearer {token}",
+            "User-Agent": "Mozilla/5.0 (compatible; GlennUploaderExport/1.0; +https://hcresearch.ltd)",
         },
     )
     try:
