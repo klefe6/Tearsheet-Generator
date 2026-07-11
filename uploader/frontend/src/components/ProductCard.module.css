@@ -379,3 +379,17 @@
   background: #eef0f3;
   color: #5b6472;
 }
+
+.saveOk {
+  margin: 8px 0 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: #0f7a3f;
+}
+
+.saveErr {
+  margin: 8px 0 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: #b42318;
+}

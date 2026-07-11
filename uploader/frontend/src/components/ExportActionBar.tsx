@@ -95,9 +95,28 @@ function programStatusText(status: string, reason?: string): string {
 }
 
 export function ExportActionBar({ exportState, onExport, onUndo }: Props) {
-  const { lastExportAt, overallStatus, canUndo, rowCount, programStatuses, targetEnv } = exportState
+  const {
+    lastExportAt,
+    overallStatus,
+    canUndo,
+    rowCount,
+    programStatuses,
+    targetEnv,
+    manualRowsByProgram,
+    eligibleCount,
+    dryRun,
+    preflightNote,
+  } = exportState
   const showPending = overallStatus === 'pending'
   const badge = showPending || overallStatus === 'idle' ? null : STATUS_BADGE[overallStatus]
+
+  const manualSummary = manualRowsByProgram
+    ? (['TKP', 'TCP', 'AGM', 'YQ'] as const)
+        .map((p) => `${PROGRAM_LABEL[p] ?? p} ${manualRowsByProgram[p] ?? 0}`)
+        .join(' · ')
+    : null
+
+  const skipped = programStatuses.filter((p) => p.status === 'skipped' || p.status === 'no_rows')
 
   return (
     <section className={styles.section} aria-label="Export actions">
@@ -141,7 +160,13 @@ export function ExportActionBar({ exportState, onExport, onUndo }: Props) {
 
         {overallStatus === 'saved' && (
           <span className={styles.deliveredNote}>
-            {rowCount} row{rowCount === 1 ? '' : 's'} saved — downstream export not enabled
+            {rowCount} row{rowCount === 1 ? '' : 's'} eligible — downstream export not enabled
+          </span>
+        )}
+
+        {typeof dryRun === 'boolean' && overallStatus !== 'idle' && overallStatus !== 'pending' && (
+          <span className={styles.deliveredNote}>
+            {dryRun ? 'mode: dry-run (no target mutation)' : 'mode: real push'}
           </span>
         )}
 
@@ -149,6 +174,27 @@ export function ExportActionBar({ exportState, onExport, onUndo }: Props) {
           <span className={styles.deliveredNote}>target: {targetEnv}</span>
         )}
       </div>
+
+      {(manualSummary || typeof eligibleCount === 'number' || preflightNote) && (
+        <div className={styles.summaryBlock} aria-label="Export row summary">
+          {manualSummary && (
+            <p className={styles.summaryLine}>
+              Manual rows on backend: {manualSummary}
+            </p>
+          )}
+          {typeof eligibleCount === 'number' && (
+            <p className={styles.summaryLine}>
+              Eligible for this export: {eligibleCount}
+              {skipped.length > 0
+                ? ` · skipped: ${skipped
+                    .map((p) => `${PROGRAM_LABEL[p.program] ?? p.program}`)
+                    .join(', ')}`
+                : ''}
+            </p>
+          )}
+          {preflightNote && <p className={styles.summaryNote}>{preflightNote}</p>}
+        </div>
+      )}
 
       {programStatuses.length > 0 && (
         <ul className={styles.programList} aria-label="Per-program export result">
