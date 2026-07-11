@@ -62,7 +62,13 @@ const STATUS_BADGE: Record<
   offline_mock: { label: 'Backend Unreachable — Local Only', className: 'mutedBadge', icon: null },
   saved: { label: 'Saved to Uploader Backend', className: 'processedBadge', icon: 'check' },
   dry_run: { label: 'Dry Run — Nothing Written', className: 'dryRunBadge', icon: null },
+  downstream_dry_run: {
+    label: 'Downstream Dry-Run Validated',
+    className: 'dryRunBadge',
+    icon: 'check',
+  },
   sandbox_success: { label: 'Exported to Sandbox', className: 'processedBadge', icon: 'check' },
+  pushed: { label: 'Pushed to Tearsheet Sites', className: 'processedBadge', icon: 'check' },
   partial_failure: { label: 'Partial Failure', className: 'warnBadge', icon: 'warn' },
   failed: { label: 'Failed', className: 'failBadge', icon: 'warn' },
 }

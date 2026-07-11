@@ -50,6 +50,8 @@ from tcp_admin import (
 )
 from tearsheet_runtime_mode import apply_runtime_session_config, register_monthly_backup_404
 from tearsheet_portal import render_legacy_diagnostics_table, render_portal_page
+from tearsheet_uploader_ingest import register_uploader_ingest
+from tcp_uploader_ingest import build_tcp_ingest_config
 from tcp_config import (
     AdminAuthSettings,
     TCPConfig,
@@ -1195,6 +1197,20 @@ def create_app(
     )
     register_monthly_backup_404(app.server)
     _register_auth_routes(app, auth_manager, runtime_holder)
+    # Glenn Uploader ingest (POST /api/uploader/ingest-daily-row) — inert
+    # unless GLENN_UPLOADER_INGEST_ENABLED + _TOKEN are set in this process's
+    # env (read per request). Reuses simulate_add_row/persist_add_row, so an
+    # ingested row is computed and revision-guarded exactly like an admin
+    # Add Row. NOTE: TCP bakes its layout at startup — an ingested row reaches
+    # the live PAGE after a restart; the state file updates immediately.
+    register_uploader_ingest(
+        app.server,
+        build_tcp_ingest_config(
+            cfg,
+            paths,
+            audit_path=REPO_ROOT / "glenn_uploader_ingest_tcp_audit.jsonl",
+        ),
+    )
 
     if state.snapshot is not None:
         benchmark_result = _resolve_benchmark_result(runtime_holder)

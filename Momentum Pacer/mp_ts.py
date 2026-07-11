@@ -3270,6 +3270,110 @@ def agm_healthz():
     })
 
 
+# ─────────────────────────────────────────────────────────────
+# Glenn Uploader ingest (POST /api/uploader/ingest-daily-row)
+# Inert unless the operator sets GLENN_UPLOADER_INGEST_ENABLED=true and a
+# GLENN_UPLOADER_INGEST_TOKEN in this process's env (read per request).
+# Persists through the SAME manual-daily-rows mechanism the admin UI uses
+# (agm_add_manual_daily_row -> momentum_pacer_manual_daily_rows.json), which
+# re-runs the accepted accounting model. NOTE: manual rows surface in the
+# authenticated admin view; the public tearsheet stays CSV-driven.
+# ─────────────────────────────────────────────────────────────
+
+def _uploader_manual_row_view(row):
+    return {
+        "date": row.get("date"),
+        "tradestation_nlv": row.get("actual_nlv"),
+        "cash_transfer": row.get("deposit_withdrawal", 0.0),
+        "fee": row.get("incentive_fee_paid", 0.0),
+    }
+
+
+def _uploader_latest_known_date(manual_rows):
+    latest = pd.Timestamp(daily_balances_df["Date"].max())
+    if manual_rows:
+        latest = max(latest, max(pd.Timestamp(r["date"]) for r in manual_rows))
+    return latest
+
+
+def _uploader_ingest_apply_agm(payload, dry_run):
+    """Idempotent by date against AGM's manual daily rows: same date + same
+    values => unchanged; same date + new values => replace (newest manual row
+    only); strictly-newer date => created via agm_add_manual_daily_row (the
+    app's own validation + accounting recompute). TradeStation CSV rows are
+    never touched — exactly the admin UI's own rule."""
+    date = payload["date"]
+    nlv = payload["tradestation_nlv"]
+    deposit = payload["cash_transfer"]
+    fee_paid = payload["fee"]
+    if nlv <= 0:
+        raise _ingest.IngestRejected("tradestation_nlv must be positive.")
+    if fee_paid < 0:
+        raise _ingest.IngestRejected("fee must not be negative.")
+
+    manual = _load_agm_manual_daily_rows()
+    existing = next((r for r in manual if str(r.get("date")) == date), None)
+
+    if existing is not None:
+        before = _uploader_manual_row_view(existing)
+        same = (
+            abs(float(existing.get("actual_nlv", 0)) - nlv) < 0.005
+            and abs(float(existing.get("deposit_withdrawal", 0) or 0) - deposit) < 0.005
+            and abs(float(existing.get("incentive_fee_paid", 0) or 0) - fee_paid) < 0.005
+        )
+        if same:
+            return _ingest.IngestOutcome(
+                action="unchanged", before=before, after=before,
+                message=f"AGM {date} already has these values.",
+            )
+        newest = max(manual, key=lambda r: str(r.get("date")))
+        if existing is not newest:
+            raise _ingest.IngestRejected(
+                f"AGM manual row {date} is not the newest manual row — "
+                "ingest replaces the newest manual row only."
+            )
+        after = {"date": date, "tradestation_nlv": nlv, "cash_transfer": deposit, "fee": fee_paid}
+        if dry_run:
+            return _ingest.IngestOutcome(action="updated", before=before, after=after)
+        remaining = [r for r in manual if r is not existing]
+        _save_agm_manual_daily_rows(remaining)
+        ok, message, _table = agm_add_manual_daily_row(date, nlv, deposit, fee_paid)
+        if not ok:
+            _save_agm_manual_daily_rows(manual)  # restore — nothing lost
+            raise _ingest.IngestRejected(f"replace failed, original row restored: {message}")
+        return _ingest.IngestOutcome(action="updated", before=before, after=after)
+
+    latest_known = _uploader_latest_known_date(manual)
+    if pd.Timestamp(date) <= latest_known:
+        raise _ingest.IngestRejected(
+            f"Date must be after the latest existing AGM daily row "
+            f"({latest_known.strftime('%Y-%m-%d')}) — TradeStation CSV rows are "
+            "never overwritten by ingest."
+        )
+    after = {"date": date, "tradestation_nlv": nlv, "cash_transfer": deposit, "fee": fee_paid}
+    if dry_run:
+        return _ingest.IngestOutcome(action="created", before=None, after=after)
+    ok, message, _table = agm_add_manual_daily_row(date, nlv, deposit, fee_paid)
+    if not ok:
+        raise _ingest.IngestRejected(message)
+    return _ingest.IngestOutcome(action="created", before=None, after=after)
+
+
+import tearsheet_uploader_ingest as _ingest  # noqa: E402  (route framework)
+
+_ingest.register_uploader_ingest(
+    app.server,
+    _ingest.IngestConfig(
+        program="AGM",
+        required_fields=("tradestation_nlv",),
+        optional_fields=("cash_transfer", "fee"),
+        apply=_uploader_ingest_apply_agm,
+        audit_path=Path(__file__).resolve().parent
+        / "glenn_uploader_ingest_agm_audit.jsonl",
+    ),
+)
+
+
 # ==============================================================================
 if __name__ == "__main__":
     # Production (e.g. Cloudflare Tunnel): set MP_TS_PRODUCTION=1 to disable debug/reloader

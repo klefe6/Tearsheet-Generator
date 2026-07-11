@@ -4140,6 +4140,122 @@ def propagate_dashboard(canonical_nav_rows, secret_store_rows):
     )
 
 
+# ─────────────────────────────────────────────────────────────
+# Glenn Uploader ingest (POST /api/uploader/ingest-daily-row)
+# Inert unless the operator sets GLENN_UPLOADER_INGEST_ENABLED=true and a
+# GLENN_UPLOADER_INGEST_TOKEN in this process's env (read per request).
+# Reuses this app's OWN add-row derivation (_compute_new_row) and state
+# persistence, and adds the same-date idempotency the admin UI lacks.
+# ─────────────────────────────────────────────────────────────
+
+def _uploader_row_view(row: dict) -> dict:
+    return {
+        "date": row.get("Date"),
+        "stonex_nlv": _parse_money(row.get("StoneX")),
+        "plus500_nlv": _parse_money(row.get("Plus500")),
+        "cash_transfer": _parse_money(row.get("Deposit")),
+        "nav": _parse_money(row.get("NAV")),
+    }
+
+
+def _uploader_ingest_apply(payload, dry_run):
+    """(payload: {date, stonex_nlv, plus500_nlv, cash_transfer}, dry_run) ->
+    IngestOutcome. Idempotent by date against the latest stored row: same
+    date + same inputs => unchanged; same date + new inputs => replace the
+    latest row (recomputed from its predecessor); newer date => append.
+    Older/interior dates are rejected — interior edits stay admin-only,
+    because TKP's cumulative fee/HWM/Loss Carry chain is derived row-by-row
+    and this handler never rewrites history."""
+    rows = [dict(r) for r in (_load_fresh_secret_records() or [])]
+    dated = sorted(
+        (r for r in rows if r.get("Date")), key=lambda r: str(r.get("Date"))
+    )
+    if not dated:
+        raise _ingest.IngestRejected("TKP state has no rows; seed the table first.")
+    last = dated[-1]
+    last_view = _uploader_row_view(last)
+
+    date = payload["date"]
+    stonex = payload["stonex_nlv"]
+    plus500 = payload["plus500_nlv"]
+    deposit = payload["cash_transfer"]
+
+    if date < str(last["Date"]):
+        raise _ingest.IngestRejected(
+            f"date {date} is older than TKP's latest row {last['Date']} — "
+            "ingest appends or replaces the latest row only."
+        )
+
+    def _built_row(prev_row, base_row=None):
+        computed = _compute_new_row(prev_row, stonex, deposit)
+        new_row = {c: "" for c in secret_all_columns}
+        new_row.update(computed)
+        if base_row is not None:  # replace: keep identity of the replaced row
+            new_row["_row_id"] = base_row.get("_row_id")
+            new_row["#Day"] = base_row.get("#Day")
+        else:
+            new_row["_row_id"] = max((r.get("_row_id", 0) for r in rows), default=-1) + 1
+            max_day = max(
+                (int(r["#Day"]) for r in rows if str(r.get("#Day", "")).isdigit()),
+                default=0,
+            )
+            new_row["#Day"] = str(max_day + 1)
+        new_row["Date"] = date
+        new_row["Plus500"] = f"${plus500:,.2f}" if plus500 != 0 else ""
+        new_row["# Trades"] = ""
+        return new_row
+
+    if date == str(last["Date"]):
+        same = all(
+            abs((last_view[k] or 0.0) - v) < 0.005
+            for k, v in (
+                ("stonex_nlv", stonex),
+                ("plus500_nlv", plus500),
+                ("cash_transfer", deposit),
+            )
+        )
+        if same:
+            return _ingest.IngestOutcome(
+                action="unchanged", before=last_view, after=last_view,
+                message=f"TKP {date} already has these values.",
+            )
+        if len(dated) < 2:
+            raise _ingest.IngestRejected(
+                "cannot replace TKP's only row via ingest; use the admin UI."
+            )
+        prev = dated[-2]
+        replacement = _built_row(prev, base_row=last)
+        after = _uploader_row_view(replacement)
+        if not dry_run:
+            rows = [r for r in rows if r.get("_row_id") != last.get("_row_id")]
+            rows.append(replacement)
+            _save_secret_editor_state(rows)
+        return _ingest.IngestOutcome(action="updated", before=last_view, after=after)
+
+    new_row = _built_row(last)
+    after = _uploader_row_view(new_row)
+    if not dry_run:
+        rows.append(new_row)
+        _save_secret_editor_state(rows)
+    return _ingest.IngestOutcome(action="created", before=last_view, after=after)
+
+
+from pathlib import Path as _IngestPath  # noqa: E402
+import tearsheet_uploader_ingest as _ingest  # noqa: E402  (route framework)
+
+_ingest.register_uploader_ingest(
+    app.server,
+    _ingest.IngestConfig(
+        program="TKP",
+        required_fields=("stonex_nlv",),
+        optional_fields=("plus500_nlv", "cash_transfer"),
+        apply=_uploader_ingest_apply,
+        audit_path=_IngestPath(__file__).resolve().parent
+        / "glenn_uploader_ingest_tkp_audit.jsonl",
+    ),
+)
+
+
 if __name__ == "__main__":
     # Legacy keeps today's debug behavior; any explicit runtime mode (staff/
     # public/portal) runs with the Werkzeug debugger off.

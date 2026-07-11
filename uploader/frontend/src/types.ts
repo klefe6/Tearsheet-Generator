@@ -83,7 +83,9 @@ export type ExportOverallStatus =
   | 'offline_mock'
   | 'saved'
   | 'dry_run'
+  | 'downstream_dry_run'
   | 'sandbox_success'
+  | 'pushed'
   | 'partial_failure'
   | 'failed'
 

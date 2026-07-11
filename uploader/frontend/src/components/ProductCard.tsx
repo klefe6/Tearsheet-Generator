@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from 'react'
 import type { ApiDisplayRowsResponse } from '../api/client'
 import { MAX_PRODUCT_FIELD_COUNT } from '../config/products'
+import { displayColumnsFor, type DisplayColumn } from '../lib/displayColumns'
 import type { ProductConfig, ProductId, ProductRow } from '../types'
 import { makeRowId } from '../data/rows'
 import { formatCurrency, formatShortDate } from '../lib/format'
@@ -445,7 +446,9 @@ export function ProductCard({
 }
 
 /** Bottom table fed by GET /api/display-rows: latest merged values with a
- *  per-row source badge. Display-only — Export All never reads these rows. */
+ *  per-row source badge. Display-only — Export All never reads these rows.
+ *  Columns come from displayColumnsFor(): TKP is the only program with both
+ *  StoneX NLV and Plus500 NLV columns; AGM adds Fee (manual rows only). */
 function DisplayRowsTable({
   config,
   data,
@@ -453,47 +456,52 @@ function DisplayRowsTable({
   config: ProductConfig
   data: ApiDisplayRowsResponse
 }) {
-  const hasFee = config.fields.some((f) => f.key === 'fee')
-  const columnCount = hasFee ? 4 : 3
+  const columns = displayColumnsFor(config)
+
+  const cell = (row: ApiDisplayRowsResponse['rows'][number], col: DisplayColumn) => {
+    if (col.key === 'date') return formatShortDate(row.date)
+    if (col.key === 'source') {
+      return (
+        <span
+          className={`${styles.srcBadge} ${
+            row.source_label === 'Manual' ? styles.srcManual : styles.srcBackfilled
+          }`}
+          title={row.source_detail ?? row.source_label}
+        >
+          {row.source_label}
+        </span>
+      )
+    }
+    const value = row[col.key]
+    return value == null ? '—' : formatCurrency(value as number)
+  }
+
   return (
     <table className={styles.table}>
       <thead>
         <tr>
-          <th>Date</th>
-          <th className={styles.num}>Value</th>
-          {hasFee && <th className={styles.num}>Fee</th>}
-          <th>Source</th>
+          {columns.map((col) => (
+            <th key={col.key} className={col.numeric ? styles.num : undefined}>
+              {col.label}
+            </th>
+          ))}
         </tr>
       </thead>
       <tbody>
         {data.rows.length === 0 ? (
           <tr>
-            <td className={styles.empty} colSpan={columnCount}>
+            <td className={styles.empty} colSpan={columns.length}>
               {data.empty_reason ?? 'No rows yet'}
             </td>
           </tr>
         ) : (
           data.rows.map((row) => (
             <tr key={row.date}>
-              <td>{formatShortDate(row.date)}</td>
-              <td className={styles.num}>
-                {row.value == null ? '—' : formatCurrency(row.value)}
-              </td>
-              {hasFee && (
-                <td className={styles.num}>
-                  {row.fee == null ? '—' : formatCurrency(row.fee)}
+              {columns.map((col) => (
+                <td key={col.key} className={col.numeric ? styles.num : undefined}>
+                  {cell(row, col)}
                 </td>
-              )}
-              <td>
-                <span
-                  className={`${styles.srcBadge} ${
-                    row.source_label === 'Manual' ? styles.srcManual : styles.srcBackfilled
-                  }`}
-                  title={row.source_detail ?? row.source_label}
-                >
-                  {row.source_label}
-                </span>
-              </td>
+              ))}
             </tr>
           ))
         )}
