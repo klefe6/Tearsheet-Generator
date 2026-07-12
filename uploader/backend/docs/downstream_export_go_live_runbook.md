@@ -7,6 +7,31 @@ document is tooling and process only — it does not enable production by itself
 
 ---
 
+## URLs (Glenn Uploader)
+
+| Purpose | URL |
+|---------|-----|
+| **Glenn-facing (professional)** | https://uploader.hcresearch.ltd |
+| **Internal / sandbox** | https://uploader-sandbox.hcresearch.ltd |
+
+Both hostnames point at the **same** Fly app (`glenn-uploader-sandbox`). The
+sandbox URL stays live — do not disable it.
+
+**DNS + cert setup for `uploader.hcresearch.ltd`** (Cloudflare zone `hcresearch.ltd`,
+records **DNS-only / grey-cloud**, matching the sandbox host):
+
+| Type | Name | Value |
+|------|------|-------|
+| A | `uploader.hcresearch.ltd` | `66.241.124.107` |
+| AAAA | `uploader.hcresearch.ltd` | `2a09:8280:1::147:9ad8:0` |
+
+The Fly certificate is added via `fly certs add uploader.hcresearch.ltd -a glenn-uploader-sandbox`.
+After the two DNS records exist, check issuance with
+`fly certs check uploader.hcresearch.ltd -a glenn-uploader-sandbox` (Status → `Issued`).
+Adding the domain/DNS/cert does **not** change export flags, tokens, or logic.
+
+---
+
 ## A. Current state
 
 - **Export code is merged** (PR #38: downstream export; PR #39: TKP Plus500 display/backfill).
