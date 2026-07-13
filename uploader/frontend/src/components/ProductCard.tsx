@@ -31,6 +31,8 @@ interface Props {
   pendingClearNonce: number
   /** Shifts this card's current date input by ±1 day; local form state only. */
   dateStepSignal: DateStepSignal
+  /** Backend last completed trading session (NYSE, America/New_York). */
+  defaultEntryDate: string | null
 }
 
 /** Shift a YYYY-MM-DD string by `days`, safely across month/year boundaries (UTC-anchored to dodge local-timezone DST edge cases). Invalid input is returned unchanged. */
@@ -43,17 +45,11 @@ function shiftIsoDate(iso: string, days: number): string {
   return utc.toISOString().slice(0, 10)
 }
 
-/** Local date as YYYY-MM-DD, for the native date input default. */
-function todayISO(): string {
-  const now = new Date()
-  const local = new Date(now.getTime() - now.getTimezoneOffset() * 60_000)
-  return local.toISOString().slice(0, 10)
-}
-
-function initialForm(config: ProductConfig): FormState {
+/** Empty form; date field uses backend last trading date when available. */
+function initialForm(config: ProductConfig, entryDate: string | null): FormState {
   const state: FormState = {}
   for (const field of config.fields) {
-    state[field.key] = field.type === 'date' ? todayISO() : ''
+    state[field.key] = field.type === 'date' ? (entryDate ?? '') : ''
   }
   return state
 }
@@ -282,8 +278,9 @@ export function ProductCard({
   onPendingChange,
   pendingClearNonce,
   dateStepSignal,
+  defaultEntryDate,
 }: Props) {
-  const [form, setForm] = useState<FormState>(() => initialForm(config))
+  const [form, setForm] = useState<FormState>(() => initialForm(config, defaultEntryDate))
   const [saving, setSaving] = useState(false)
   const [saveNote, setSaveNote] = useState<string | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
@@ -298,6 +295,17 @@ export function ProductCard({
   useEffect(() => {
     onPendingChange(config.id, form)
   }, [config.id, form, onPendingChange])
+
+  // When backend trading-date status arrives, seed the date field once.
+  useEffect(() => {
+    if (!defaultEntryDate) return
+    const dateField = config.fields.find((field) => field.type === 'date')
+    if (!dateField) return
+    setForm((prev) => {
+      if (prev[dateField.key]) return prev
+      return { ...prev, [dateField.key]: defaultEntryDate }
+    })
+  }, [defaultEntryDate, config.fields])
 
   // Export All auto-saved this card's pending values — clear numerics so they
   // aren't treated as still-unsaved on the next export.
@@ -334,7 +342,12 @@ export function ProductCard({
     setSaveNote(null)
 
     const dateKey = config.fields.find((f) => f.type === 'date')?.key ?? 'date'
-    const formWithDate = { ...form, [dateKey]: form[dateKey] || todayISO() }
+    const resolvedDate = form[dateKey] || defaultEntryDate
+    if (!resolvedDate) {
+      setSaveError('Trading calendar unavailable — enter a date manually or retry.')
+      return
+    }
+    const formWithDate = { ...form, [dateKey]: resolvedDate }
     const classified = classifyPendingForm(config, formWithDate)
 
     if (classified.status === 'empty') {

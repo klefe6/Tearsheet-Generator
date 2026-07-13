@@ -42,6 +42,7 @@ from .programs import (
     public_row,
 )
 from .security import require_actor
+from .trading_calendar import get_trading_date_status
 from .validation import RowValidationError, validate_row
 
 
@@ -130,6 +131,11 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     @app.get("/api/programs", tags=["programs"])
     def get_programs() -> dict:
         return {"programs": program_metadata()}
+
+    @app.get("/api/trading-date-status", tags=["meta"])
+    def trading_date_status() -> dict:
+        """Authoritative NYSE session dates for the uploader UI (America/New_York)."""
+        return get_trading_date_status()
 
     @app.get("/api/performance", tags=["performance"])
     def get_performance(
