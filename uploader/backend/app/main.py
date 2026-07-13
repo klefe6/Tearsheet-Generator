@@ -27,8 +27,17 @@ from .backfill import (
 )
 from .benchmark_store import BenchmarkStore, _default_yfinance_fetch
 from .benchmarks import configure_store
+from . import rollback as rollback_mod
 from .config import Settings
-from .db import Database, SchemaError
+from .db import (
+    BATCH_COMMITTED,
+    BATCH_DRY_RUN,
+    BATCH_LEGACY,
+    BATCH_NO_MUTATION,
+    BATCH_PARTIALLY_FAILED,
+    Database,
+    SchemaError,
+)
 from .downstream_export import run_downstream_export
 from .frontend_static import mount_frontend
 from .performance import build_combined, build_program
@@ -41,7 +50,8 @@ from .programs import (
     program_nlv,
     public_row,
 )
-from .security import require_actor
+from .security import require_actor, require_admin_actor
+from .trading_calendar import get_trading_date_status
 from .validation import RowValidationError, validate_row
 
 
@@ -130,6 +140,11 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     @app.get("/api/programs", tags=["programs"])
     def get_programs() -> dict:
         return {"programs": program_metadata()}
+
+    @app.get("/api/trading-date-status", tags=["meta"])
+    def trading_date_status() -> dict:
+        """Authoritative NYSE session dates for the uploader UI (America/New_York)."""
+        return get_trading_date_status()
 
     @app.get("/api/performance", tags=["performance"])
     def get_performance(
@@ -296,12 +311,24 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         would_export = settings.export_enabled and not settings.is_sandbox
         dry_run = not would_export
 
+        # A batch only becomes a rollback candidate if it actually commits a
+        # downstream write; anything else is recorded with a status that keeps
+        # it out of "roll back the last export" by construction.
+        will_mutate_downstream = (
+            settings.export_downstream_enabled and not settings.export_dry_run
+        )
         batch_id = db.add_export_batch(
             app_env=settings.app_env,
             export_enabled=settings.export_enabled,
             dry_run=dry_run,
             row_count=len(rows),
             payload=programs_payload,
+            # Provisional and deliberately un-reversible. Promoted to
+            # committed/partially_failed below ONLY if a real write lands.
+            status=BATCH_DRY_RUN if settings.export_dry_run else BATCH_NO_MUTATION,
+            actor=actor,
+            target_env=settings.export_target_env,
+            downstream_enabled=settings.export_downstream_enabled,
         )
         db.add_audit(
             action="export_dry_run" if dry_run else "export_enabled_noop",
@@ -336,13 +363,39 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         if not settings.export_downstream_enabled:
             return response
 
-        downstream_results, external_calls = run_downstream_export(
-            db=db,
-            settings=settings,
-            actor=actor,
-            batch_id=batch_id,
-            rows=rows,
-        )
+        # A real downstream write takes the same lock a rollback takes, so an
+        # export can never interleave with a rollback of an earlier batch.
+        if will_mutate_downstream and not db.acquire_lock(f"export:{actor}"):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="An export or rollback is already in progress; try again shortly.",
+            )
+        try:
+            downstream_results, external_calls = run_downstream_export(
+                db=db,
+                settings=settings,
+                actor=actor,
+                batch_id=batch_id,
+                rows=rows,
+            )
+        finally:
+            if will_mutate_downstream:
+                db.release_lock()
+
+        if will_mutate_downstream:
+            statuses = {
+                r["status"]
+                for prog in downstream_results.values()
+                for r in prog["date_results"]
+            }
+            if "success" in statuses:
+                db.set_batch_status(
+                    batch_id,
+                    BATCH_PARTIALLY_FAILED if "failure" in statuses else BATCH_COMMITTED,
+                )
+            else:
+                db.set_batch_status(batch_id, BATCH_NO_MUTATION)
+
         response["downstream"] = {
             "target_env": settings.export_target_env,
             "dry_run": settings.export_dry_run,
@@ -354,6 +407,76 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
             response["transport_implemented"] = True
         response["external_calls_made"] = external_calls
         return response
+
+    # -- export rollback ---------------------------------------------------
+    # Reverses the most recent COMMITTED downstream batch. Always requires a
+    # valid ADMIN_API_TOKEN (require_admin_actor), in every environment.
+    def _blocked(exc: rollback_mod.RollbackBlocked, batch_id: Optional[int] = None) -> JSONResponse:
+        """A blocked rollback is a 200 with reversible:false, not an error — the
+        UI needs to render the reasons, and 'you cannot roll this back' is a
+        successful answer to 'can I roll this back?'."""
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "ok": True,
+                "reversible": False,
+                "batch_id": batch_id,
+                "programs": [],
+                "blocking_reasons": exc.reasons,
+                "warnings": [],
+                "confirmation_token": None,
+                "expires_at": None,
+            },
+        )
+
+    @app.get("/api/export/rollback/capability", tags=["export"])
+    def rollback_capability() -> dict:
+        """Unauthenticated capability probe so the UI can hide/disable the button."""
+        return rollback_mod.capability(settings)
+
+    @app.post("/api/export/batches/latest/rollback/preview", tags=["export"])
+    def rollback_preview_latest(actor: str = Depends(require_admin_actor)) -> Any:
+        try:
+            return rollback_mod.preview(db, settings, actor)
+        except rollback_mod.RollbackBlocked as exc:
+            return _blocked(exc)
+
+    @app.post("/api/export/batches/{batch_id}/rollback/preview", tags=["export"])
+    def rollback_preview_batch(
+        batch_id: int, actor: str = Depends(require_admin_actor)
+    ) -> Any:
+        try:
+            return rollback_mod.preview(db, settings, actor, batch_id=batch_id)
+        except rollback_mod.RollbackBlocked as exc:
+            return _blocked(exc, batch_id)
+
+    @app.post("/api/export/batches/{batch_id}/rollback/confirm", tags=["export"])
+    def rollback_confirm(
+        batch_id: int,
+        payload: dict = Body(...),
+        actor: str = Depends(require_admin_actor),
+    ) -> Any:
+        try:
+            return rollback_mod.confirm(
+                db,
+                settings,
+                actor,
+                batch_id,
+                confirmation_token=str(payload.get("confirmation_token") or ""),
+                reason=str(payload.get("reason") or ""),
+            )
+        except rollback_mod.RollbackBlocked as exc:
+            # A refused EXECUTION is a 409 — unlike preview, the caller asked us
+            # to mutate and we did not.
+            return JSONResponse(
+                status_code=status.HTTP_409_CONFLICT,
+                content={
+                    "ok": False,
+                    "batch_id": batch_id,
+                    "status": "blocked",
+                    "blocking_reasons": exc.reasons,
+                },
+            )
 
     # -- historical backfill (sandbox-only, BACKFILL_ENABLED-gated) ---------
     def _require_backfill_enabled() -> None:

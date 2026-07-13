@@ -26,8 +26,8 @@ from program_account_stats import (
     format_program_account_stats_rows,
 )
 
-# Public NAV chart title — must not claim compounded / annualized / audited.
-NAV_SINCE_INCEPTION_CHART_TITLE = "<u>NAV Since Inception</u>"
+# Public NAV chart title — matches TKP wording; not annualized / audited.
+NAV_SINCE_INCEPTION_CHART_TITLE = "<u>Non-Compounded NAV Since Inception</u>"
 
 DAYS_PER_MONTH_APPROX = 365.25 / 12.0
 

@@ -63,3 +63,39 @@ def require_actor(
             headers={"WWW-Authenticate": "Bearer"},
         )
     return "admin"
+
+
+def require_admin_actor(
+    request: Request,
+    authorization: Optional[str] = Header(default=None),
+    x_api_token: Optional[str] = Header(default=None, alias="X-API-Token"),
+) -> str:
+    """Stricter dependency for destructive endpoints (export rollback).
+
+    Unlike :func:`require_actor`, a valid ADMIN_API_TOKEN is required in EVERY
+    environment — the relaxed sandbox path does not apply. The deployed
+    "sandbox" app is reachable at a public hostname, so an unauthenticated
+    endpoint that can reverse a financial export would be a real exposure, not
+    a local-dev convenience.
+
+    Returns the actor label, which is bound into the confirmation token so a
+    token issued to one operator cannot be redeemed by another.
+    """
+    settings = request.app.state.settings
+    expected = settings.admin_api_token
+    if not expected:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "ADMIN_API_TOKEN is not configured; refusing export rollback "
+                "(fail-closed). Rollback always requires an authenticated operator."
+            ),
+        )
+    token = _extract_token(authorization, x_api_token)
+    if not token or not secrets.compare_digest(token, expected):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing or invalid admin API token.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return "admin"

@@ -135,6 +135,19 @@ export interface ApiExportResult {
   downstream?: ApiDownstreamResult
 }
 
+/** Authoritative NYSE session dates from GET /api/trading-date-status. */
+export interface ApiTradingDateStatus {
+  today: string
+  last_trading_date: string | null
+  timezone: string
+  market_status: string
+  calculated_at: string
+  error?: string
+  is_trading_day?: boolean
+  session_close?: string | null
+  is_early_close?: boolean
+}
+
 const RAW_BASE: string = import.meta.env.VITE_API_BASE_URL || ''
 
 /** Backend base URL (e.g. "https://uploader-sandbox.hcresearch.ltd/api"). */
@@ -183,6 +196,38 @@ export async function fetchProgramMetadata(): Promise<ApiProgram[] | null> {
     const programs = (body as { programs?: unknown } | null)?.programs
     if (!Array.isArray(programs) || !programs.every(isApiProgram)) return null
     return programs
+  } catch {
+    return null
+  } finally {
+    window.clearTimeout(timer)
+  }
+}
+
+function isApiTradingDateStatus(value: unknown): value is ApiTradingDateStatus {
+  if (typeof value !== 'object' || value === null) return false
+  const body = value as Record<string, unknown>
+  return typeof body.today === 'string' && typeof body.timezone === 'string'
+}
+
+/**
+ * Fetch NYSE trading-date context from the backend.
+ * Returns `null` on network failure; callers must not treat browser-local today
+ * as the last trading date when this fails.
+ */
+export async function fetchTradingDateStatus(): Promise<ApiTradingDateStatus | null> {
+  if (!API_BASE_URL) return null
+
+  const controller = new AbortController()
+  const timer = window.setTimeout(() => controller.abort(), READ_TIMEOUT_MS)
+  try {
+    const response = await fetch(`${API_BASE_URL}/trading-date-status`, {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+      signal: controller.signal,
+    })
+    if (!response.ok) return null
+    const body: unknown = await response.json()
+    return isApiTradingDateStatus(body) ? body : null
   } catch {
     return null
   } finally {

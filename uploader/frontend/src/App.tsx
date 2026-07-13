@@ -4,9 +4,11 @@ import {
   fetchDisplayRows,
   fetchProgramMetadata,
   fetchProgramRows,
+  fetchTradingDateStatus,
   postExportAll,
   postRow,
   type ApiDisplayRowsResponse,
+  type ApiTradingDateStatus,
 } from './api/client'
 import { ExportActionBar } from './components/ExportActionBar'
 import { PageHeader } from './components/PageHeader'
@@ -65,6 +67,7 @@ export default function App() {
   // Product config renders immediately from the local mock; if the backend
   // answers the one optional metadata GET, its account-chip data overlays it.
   const [products, setProducts] = useState<ProductConfig[]>(PRODUCTS)
+  const [tradingDates, setTradingDates] = useState<ApiTradingDateStatus | null>(null)
   // Manual daily_rows only — start empty so mock seed never looks "saved".
   const [rowsByProduct, setRowsByProduct] =
     useState<Record<ProductId, ProductRow[]>>(EMPTY_ROWS)
@@ -109,6 +112,9 @@ export default function App() {
       if (!cancelled && programs) {
         setProducts((prev) => applyProgramMetadata(prev, programs))
       }
+    })
+    fetchTradingDateStatus().then((body) => {
+      if (!cancelled && body) setTradingDates(body)
     })
     return () => {
       cancelled = true
@@ -393,9 +399,11 @@ export default function App() {
     setDateStepSignal((prev) => ({ delta, nonce: prev.nonce + 1 }))
   }, [])
 
+  const defaultEntryDate = tradingDates?.last_trading_date ?? null
+
   return (
     <div className={styles.page}>
-      <PageHeader env={APP_ENV} />
+      <PageHeader env={APP_ENV} tradingDates={tradingDates} />
 
       <PerformanceChart refreshToken={perfRefreshToken} />
 
@@ -422,6 +430,7 @@ export default function App() {
               onPendingChange={handlePendingChange}
               pendingClearNonce={pendingClearByProduct[config.id]}
               dateStepSignal={dateStepSignal}
+              defaultEntryDate={defaultEntryDate}
             />
           ))}
         </section>

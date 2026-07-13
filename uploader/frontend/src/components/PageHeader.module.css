@@ -45,3 +45,33 @@
   color: #0b7a43;
   border: 1px solid #bfe6d0;
 }
+
+.dateStatus {
+  margin: 10px 0 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 20px;
+}
+
+.dateLine {
+  margin: 0;
+  font-size: 13.5px;
+  color: var(--ink-secondary);
+}
+
+.dateLabel {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.dateMuted {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ink-muted);
+}
+
+.dateError {
+  margin: 0;
+  font-size: 13px;
+  color: #9b1c1c;
+}

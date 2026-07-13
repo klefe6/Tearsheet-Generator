@@ -94,6 +94,15 @@ class Settings(BaseSettings):
     # silently ignored; downstream_ingest_token wins when both are set.
     downstream_api_token: Optional[str] = None
 
+    # --- Export rollback (reverse the last committed downstream batch) ------
+    # Off everywhere by default. Preview AND confirm both refuse while this is
+    # false, and both ALWAYS require a valid ADMIN_API_TOKEN regardless of
+    # APP_ENV — the relaxed sandbox auth path deliberately does not apply to a
+    # destructive, financially-material endpoint on a public domain.
+    export_rollback_enabled: bool = False
+    # Where destination files are copied before a rollback mutates them.
+    rollback_backup_dir: str = "data/rollback_backups"
+
     def ingest_url(self, program: str) -> Optional[str]:
         return {
             "TKP": self.tkp_ingest_url,

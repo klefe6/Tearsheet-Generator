@@ -24,7 +24,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterator, Optional
 
@@ -44,6 +44,7 @@ _REQUIRED_SCHEMA: dict[str, set[str]] = {
         "cash_transfer",
         "fee",
         "exported",
+        "exported_batch_id",
         "created_at",
         "updated_at",
     },
@@ -71,7 +72,46 @@ _REQUIRED_SCHEMA: dict[str, set[str]] = {
         "dry_run",
         "row_count",
         "payload",
+        "status",
+        "actor",
+        "target_env",
+        "downstream_enabled",
     },
+    "export_batch_items": {
+        "id",
+        "batch_id",
+        "source_row_id",
+        "program",
+        "date",
+        "export_id",
+        "target_env",
+        "operation",
+        "downstream_target",
+        "downstream_identifier",
+        "before_state",
+        "after_state",
+        "before_checksum",
+        "after_checksum",
+        "export_result",
+        "rollback_result",
+        "error",
+        "created_at",
+        "rolled_back_at",
+    },
+    "export_rollbacks": {
+        "id",
+        "batch_id",
+        "actor",
+        "reason",
+        "status",
+        "started_at",
+        "completed_at",
+        "programs",
+        "backups",
+        "verification",
+        "error",
+    },
+    "export_locks": {"name", "holder", "acquired_at", "expires_at"},
     "backfill_batches": {
         "id",
         "ts",
@@ -156,7 +196,85 @@ CREATE TABLE IF NOT EXISTS export_batches (
     row_count      INTEGER NOT NULL,
     payload        TEXT    NOT NULL
 );
+
+-- One row per (batch, program, date) downstream write ATTEMPT. This is the
+-- batch -> downstream-record mapping that makes a batch reversible: it carries
+-- the stable export id, the exact before/after states and their checksums, and
+-- the per-item rollback outcome. Never deleted — rolling back sets
+-- rollback_result, it does not remove the audit of the original export.
+CREATE TABLE IF NOT EXISTS export_batch_items (
+    id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+    batch_id              INTEGER NOT NULL,
+    source_row_id         INTEGER,
+    program               TEXT    NOT NULL,
+    date                  TEXT    NOT NULL,
+    export_id             TEXT    NOT NULL,
+    target_env            TEXT    NOT NULL,
+    operation             TEXT    NOT NULL,
+    downstream_target     TEXT,
+    downstream_identifier TEXT,
+    before_state          TEXT,
+    after_state           TEXT,
+    before_checksum       TEXT,
+    after_checksum        TEXT,
+    export_result         TEXT    NOT NULL,
+    rollback_result       TEXT,
+    error                 TEXT,
+    created_at            TEXT    NOT NULL,
+    rolled_back_at        TEXT,
+    UNIQUE (batch_id, program, date)
+);
+
+CREATE INDEX IF NOT EXISTS idx_export_batch_items_batch
+    ON export_batch_items (batch_id);
+
+-- Immutable audit of every rollback ATTEMPT (including failures).
+CREATE TABLE IF NOT EXISTS export_rollbacks (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    batch_id     INTEGER NOT NULL,
+    actor        TEXT    NOT NULL,
+    reason       TEXT    NOT NULL,
+    status       TEXT    NOT NULL,
+    started_at   TEXT    NOT NULL,
+    completed_at TEXT,
+    programs     TEXT,
+    backups      TEXT,
+    verification TEXT,
+    error        TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_export_rollbacks_batch
+    ON export_rollbacks (batch_id);
+
+-- Cross-process mutual exclusion for export and rollback. A single named lock
+-- ("export") guards BOTH, so an export can never race a rollback. Rows carry an
+-- expiry so a crashed holder cannot wedge the system permanently.
+CREATE TABLE IF NOT EXISTS export_locks (
+    name        TEXT PRIMARY KEY,
+    holder      TEXT NOT NULL,
+    acquired_at TEXT NOT NULL,
+    expires_at  TEXT NOT NULL
+);
 """
+
+# --- export batch lifecycle -------------------------------------------------
+BATCH_LEGACY = "legacy"  # pre-dates export_batch_items; never auto-reversible
+BATCH_DRY_RUN = "dry_run"
+BATCH_COMMITTED = "committed"
+BATCH_PARTIALLY_FAILED = "partially_failed"
+BATCH_NO_MUTATION = "no_mutation"  # ran, but wrote nothing downstream
+BATCH_ROLLBACK_IN_PROGRESS = "rollback_in_progress"
+BATCH_ROLLED_BACK = "rolled_back"
+BATCH_ROLLBACK_FAILED = "rollback_failed"
+
+# Batch statuses that represent a real, committed downstream mutation.
+REVERSIBLE_BATCH_STATUSES = frozenset({BATCH_COMMITTED, BATCH_PARTIALLY_FAILED})
+
+ROLLBACK_IN_PROGRESS = "rollback_in_progress"
+ROLLBACK_DONE = "rolled_back"
+ROLLBACK_FAILED = "rollback_failed"
+
+EXPORT_LOCK = "export"
 
 
 def _utcnow() -> str:
@@ -185,6 +303,39 @@ class Database:
     def init_schema(self) -> None:
         with self.connect() as conn:
             conn.executescript(_SCHEMA)
+            self._migrate(conn)
+
+    @staticmethod
+    def _migrate(conn: sqlite3.Connection) -> None:
+        """Additive column migrations for databases created by an older build.
+
+        ``CREATE TABLE IF NOT EXISTS`` cannot add a column to a table that
+        already exists, so every column introduced after a table's first
+        release has to be ALTERed in. Each is nullable or carries a DEFAULT, so
+        existing rows stay valid.
+
+        Batches that pre-date the rollback feature are backfilled to status
+        'legacy': they have no export_batch_items and therefore no snapshots,
+        so they are never automatically reversible (see rollback.py).
+        """
+        added: dict[str, list[tuple[str, str]]] = {
+            "export_batches": [
+                ("status", f"TEXT NOT NULL DEFAULT '{BATCH_LEGACY}'"),
+                ("actor", "TEXT"),
+                ("target_env", "TEXT"),
+                ("downstream_enabled", "INTEGER NOT NULL DEFAULT 0"),
+            ],
+            "daily_rows": [
+                ("exported_batch_id", "INTEGER"),
+            ],
+        }
+        for table, columns in added.items():
+            existing = {
+                r["name"] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()
+            }
+            for name, ddl in columns:
+                if name not in existing:
+                    conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
 
     def verify_schema(self) -> None:
         """Ensure every required table exists with the expected columns.
@@ -333,18 +484,41 @@ class Database:
             ).fetchall()
         return [dict(r) for r in rows]
 
-    def mark_exported(self, program: str, date: str) -> None:
+    def mark_exported(
+        self, program: str, date: str, batch_id: Optional[int] = None
+    ) -> None:
         """Flip `exported` to 1 for one (program, date) row.
 
         Called ONLY after a downstream export attempt for that row succeeds —
         a failed or skipped row is deliberately left `exported=0` so the next
         export batch naturally retries it (it stays in get_unexported_rows()).
+
+        ``batch_id`` records WHICH batch owns this row's exported state. Rollback
+        only ever un-exports rows still owned by the batch being rolled back, so
+        a row already re-exported by a newer batch is never wrongly freed.
         """
         with self.connect() as conn:
             conn.execute(
-                "UPDATE daily_rows SET exported = 1 WHERE program = ? AND date = ?",
-                (program, date),
+                "UPDATE daily_rows SET exported = 1, exported_batch_id = ? "
+                "WHERE program = ? AND date = ?",
+                (batch_id, program, date),
             )
+
+    def unmark_exported(self, program: str, date: str, batch_id: int) -> bool:
+        """Reverse of mark_exported, guarded by batch ownership.
+
+        Returns True if the row was freed. A row whose ``exported_batch_id`` is
+        no longer ``batch_id`` (because a newer batch re-exported it) is left
+        alone and False is returned — the caller surfaces that as a warning
+        rather than silently clobbering the newer export's state.
+        """
+        with self.connect() as conn:
+            cur = conn.execute(
+                "UPDATE daily_rows SET exported = 0, exported_batch_id = NULL "
+                "WHERE program = ? AND date = ? AND exported_batch_id = ?",
+                (program, date, batch_id),
+            )
+            return cur.rowcount > 0
 
     # --- historical (backfill) rows ----------------------------------------
     def upsert_historical_row(
@@ -607,12 +781,17 @@ class Database:
         dry_run: bool,
         row_count: int,
         payload: Any,
+        status: str = BATCH_LEGACY,
+        actor: Optional[str] = None,
+        target_env: Optional[str] = None,
+        downstream_enabled: bool = False,
     ) -> int:
         with self.connect() as conn:
             cur = conn.execute(
                 "INSERT INTO export_batches "
-                "(ts, app_env, export_enabled, dry_run, row_count, payload) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
+                "(ts, app_env, export_enabled, dry_run, row_count, payload, "
+                " status, actor, target_env, downstream_enabled) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     _utcnow(),
                     app_env,
@@ -620,6 +799,208 @@ class Database:
                     int(dry_run),
                     row_count,
                     json.dumps(payload),
+                    status,
+                    actor,
+                    target_env,
+                    int(downstream_enabled),
                 ),
             )
             return int(cur.lastrowid)
+
+    def set_batch_status(self, batch_id: int, status: str) -> None:
+        with self.connect() as conn:
+            conn.execute(
+                "UPDATE export_batches SET status = ? WHERE id = ?", (status, batch_id)
+            )
+
+    def get_export_batch(self, batch_id: int) -> Optional[dict]:
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM export_batches WHERE id = ?", (batch_id,)
+            ).fetchone()
+        return dict(row) if row else None
+
+    def get_latest_mutating_batch(self) -> Optional[dict]:
+        """The newest batch that actually committed a downstream mutation.
+
+        Dry-run, no-mutation and legacy batches are skipped: they are not
+        rollback candidates, and a dry run sitting on top of a real export must
+        not hide the real export from "roll back the last export".
+        """
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM export_batches WHERE status IN (?, ?, ?, ?, ?) "
+                "ORDER BY id DESC LIMIT 1",
+                (
+                    BATCH_COMMITTED,
+                    BATCH_PARTIALLY_FAILED,
+                    BATCH_ROLLED_BACK,
+                    BATCH_ROLLBACK_IN_PROGRESS,
+                    BATCH_ROLLBACK_FAILED,
+                ),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def has_newer_mutating_batch(self, batch_id: int) -> bool:
+        """True if a batch newer than `batch_id` committed a downstream write.
+
+        Such a batch may have overwritten the same (program, date) keys, so the
+        older batch is no longer the tail and cannot be safely reversed.
+        """
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT 1 FROM export_batches WHERE id > ? AND status IN (?, ?) LIMIT 1",
+                (batch_id, BATCH_COMMITTED, BATCH_PARTIALLY_FAILED),
+            ).fetchone()
+        return row is not None
+
+    # --- export batch items (batch -> downstream record mapping) -----------
+    def add_batch_item(self, **item: Any) -> int:
+        cols = (
+            "batch_id",
+            "source_row_id",
+            "program",
+            "date",
+            "export_id",
+            "target_env",
+            "operation",
+            "downstream_target",
+            "downstream_identifier",
+            "before_state",
+            "after_state",
+            "before_checksum",
+            "after_checksum",
+            "export_result",
+            "error",
+        )
+        values = [item.get(c) for c in cols]
+        for key in ("before_state", "after_state"):
+            idx = cols.index(key)
+            if values[idx] is not None and not isinstance(values[idx], str):
+                values[idx] = json.dumps(values[idx], sort_keys=True)
+        placeholders = ", ".join("?" for _ in cols)
+        with self.connect() as conn:
+            cur = conn.execute(
+                f"INSERT INTO export_batch_items ({', '.join(cols)}, created_at) "
+                f"VALUES ({placeholders}, ?)",
+                (*values, _utcnow()),
+            )
+            return int(cur.lastrowid)
+
+    def get_batch_items(self, batch_id: int) -> list[dict]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM export_batch_items WHERE batch_id = ? "
+                "ORDER BY program, date, id",
+                (batch_id,),
+            ).fetchall()
+        out = []
+        for r in rows:
+            d = dict(r)
+            for key in ("before_state", "after_state"):
+                if d.get(key):
+                    try:
+                        d[key] = json.loads(d[key])
+                    except (ValueError, TypeError):
+                        pass
+            out.append(d)
+        return out
+
+    def set_item_rollback_result(
+        self, item_id: int, result: str, error: Optional[str] = None
+    ) -> None:
+        with self.connect() as conn:
+            conn.execute(
+                "UPDATE export_batch_items SET rollback_result = ?, "
+                "rolled_back_at = ?, error = COALESCE(?, error) WHERE id = ?",
+                (result, _utcnow(), error, item_id),
+            )
+
+    # --- rollback audit ----------------------------------------------------
+    def start_rollback(self, batch_id: int, actor: str, reason: str) -> int:
+        with self.connect() as conn:
+            cur = conn.execute(
+                "INSERT INTO export_rollbacks "
+                "(batch_id, actor, reason, status, started_at) VALUES (?, ?, ?, ?, ?)",
+                (batch_id, actor, reason, ROLLBACK_IN_PROGRESS, _utcnow()),
+            )
+            return int(cur.lastrowid)
+
+    def finish_rollback(
+        self,
+        rollback_id: int,
+        status: str,
+        programs: Any = None,
+        backups: Any = None,
+        verification: Any = None,
+        error: Optional[str] = None,
+    ) -> None:
+        with self.connect() as conn:
+            conn.execute(
+                "UPDATE export_rollbacks SET status = ?, completed_at = ?, "
+                "programs = ?, backups = ?, verification = ?, error = ? WHERE id = ?",
+                (
+                    status,
+                    _utcnow(),
+                    json.dumps(programs) if programs is not None else None,
+                    json.dumps(backups) if backups is not None else None,
+                    json.dumps(verification) if verification is not None else None,
+                    error,
+                    rollback_id,
+                ),
+            )
+
+    def get_rollback_for_batch(self, batch_id: int) -> Optional[dict]:
+        """The most recent rollback attempt for `batch_id`, if any."""
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM export_rollbacks WHERE batch_id = ? "
+                "ORDER BY id DESC LIMIT 1",
+                (batch_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        d = dict(row)
+        for key in ("programs", "backups", "verification"):
+            if d.get(key):
+                try:
+                    d[key] = json.loads(d[key])
+                except (ValueError, TypeError):
+                    pass
+        return d
+
+    # --- export/rollback lock ----------------------------------------------
+    def acquire_lock(self, holder: str, ttl_seconds: int = 300) -> bool:
+        """Take the single named export/rollback lock. False if already held.
+
+        Cross-process (SQLite row, not an in-process mutex) because export and
+        rollback must never interleave even across workers. An expired lock —
+        a crashed holder — is stolen rather than wedging the system forever.
+        """
+        now = datetime.now(timezone.utc)
+        expires = (now + timedelta(seconds=ttl_seconds)).isoformat()
+        with self.connect() as conn:
+            conn.execute(
+                "DELETE FROM export_locks WHERE name = ? AND expires_at < ?",
+                (EXPORT_LOCK, now.isoformat()),
+            )
+            try:
+                conn.execute(
+                    "INSERT INTO export_locks (name, holder, acquired_at, expires_at) "
+                    "VALUES (?, ?, ?, ?)",
+                    (EXPORT_LOCK, holder, now.isoformat(), expires),
+                )
+            except sqlite3.IntegrityError:
+                return False
+        return True
+
+    def release_lock(self) -> None:
+        with self.connect() as conn:
+            conn.execute("DELETE FROM export_locks WHERE name = ?", (EXPORT_LOCK,))
+
+    def get_lock(self) -> Optional[dict]:
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM export_locks WHERE name = ?", (EXPORT_LOCK,)
+            ).fetchone()
+        return dict(row) if row else None

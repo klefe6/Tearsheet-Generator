@@ -36,10 +36,21 @@ from .programs import PROGRAM_FIELDS, PROGRAMS
 NO_DESTINATION_PROGRAMS = {"YQ"}
 
 
-def payload_hash(payload: dict[str, Any]) -> str:
-    """sha256 of the canonical (sorted-key) JSON payload, for audit comparison."""
+def payload_hash(payload: Optional[dict[str, Any]]) -> Optional[str]:
+    """sha256 of the canonical (sorted-key) JSON payload, for audit comparison.
+
+    ``None`` in, ``None`` out — a downstream record that does not exist has no
+    checksum, and that absence is itself the "before" state of a created row.
+    """
+    if payload is None:
+        return None
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     return "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def make_export_id(batch_id: int, source_row_id: Any, program: str) -> str:
+    """Stable idempotency/export identifier for one exported row."""
+    return f"{batch_id}:{source_row_id}:{program}"
 
 
 def _export_fields_for(program: str, row: dict[str, Any]) -> dict[str, Any]:
@@ -81,6 +92,26 @@ def _read_json(path: Path) -> dict[str, Any]:
         return {}
 
 
+def sandbox_path(sandbox_dir: Path, program: str) -> Path:
+    """The one file this backend owns as `program`'s sandbox destination."""
+    return sandbox_dir / f"{program.lower()}_rows.json"
+
+
+def read_sandbox_row(
+    sandbox_dir: Path, program: str, date: str
+) -> Optional[dict[str, Any]]:
+    """Current stored fields for (program, date) downstream, or None if absent.
+
+    This is the canonical read used to re-derive a destination's checksum during
+    rollback preview/confirm, so a record changed since export is detected
+    instead of silently overwritten.
+    """
+    doc = _read_json(sandbox_path(sandbox_dir, program))
+    rows = doc.get("rows") or {}
+    value = rows.get(date)
+    return dict(value) if isinstance(value, dict) else None
+
+
 def export_row_to_sandbox(
     sandbox_dir: Path, program: str, date: str, fields: dict[str, Any]
 ) -> dict[str, Any]:
@@ -88,13 +119,45 @@ def export_row_to_sandbox(
     `program`, keyed by `date`. Atomic (temp file + os.replace), so a crash
     mid-write never corrupts the existing sandbox file.
 
-    Returns {"action": "created"|"updated"}.
+    Returns {"action", "before", "after"} — ``before`` is the exact record this
+    write replaced (None when it created a new one), which is what makes the
+    write reversible. Capturing it HERE, inside the only code path that mutates
+    the destination, is what guarantees a snapshot can never go missing for a
+    row that was actually written.
     """
-    path = sandbox_dir / f"{program.lower()}_rows.json"
+    path = sandbox_path(sandbox_dir, program)
     doc = _read_json(path)
     rows: dict[str, Any] = doc.setdefault("rows", {})
+    previous = rows.get(date)
+    before = dict(previous) if isinstance(previous, dict) else None
     action = "updated" if date in rows else "created"
     rows[date] = fields
+    doc["program"] = program
+    _atomic_write_json(path, doc)
+    return {"action": action, "before": before, "after": dict(fields)}
+
+
+def rollback_sandbox_row(
+    sandbox_dir: Path, program: str, date: str, before: Optional[dict[str, Any]]
+) -> dict[str, Any]:
+    """Compensating operation for one sandbox write.
+
+    ``before is None`` (the export CREATED the record) -> remove the key.
+    Otherwise (the export REPLACED a record) -> restore the exact prior record.
+
+    This is a logical, key-scoped compensation, not a whole-file restore: any
+    OTHER date written to the same file after the export is deliberately left
+    untouched. Atomic, like the forward write.
+    """
+    path = sandbox_path(sandbox_dir, program)
+    doc = _read_json(path)
+    rows: dict[str, Any] = doc.setdefault("rows", {})
+    if before is None:
+        removed = rows.pop(date, None)
+        action = "deleted_created_row" if removed is not None else "already_absent"
+    else:
+        rows[date] = dict(before)
+        action = "restored_prior_row"
     doc["program"] = program
     _atomic_write_json(path, doc)
     return {"action": action}
@@ -290,7 +353,24 @@ def run_downstream_export(
                             },
                         )
                     else:
-                        db.mark_exported(program, date)
+                        resp = push.get("response") or {}
+                        db.add_batch_item(
+                            batch_id=batch_id,
+                            source_row_id=row.get("id"),
+                            program=program,
+                            date=date,
+                            export_id=make_export_id(batch_id, row.get("id"), program),
+                            target_env="production",
+                            operation=push.get("action") or "unknown",
+                            downstream_target=settings.ingest_url(program),
+                            downstream_identifier=f"{program}:{date}",
+                            before_state=resp.get("before"),
+                            after_state=resp.get("after"),
+                            before_checksum=payload_hash(resp.get("before")),
+                            after_checksum=payload_hash(resp.get("after")),
+                            export_result="success",
+                        )
+                        db.mark_exported(program, date, batch_id)
                         any_success = True
                         date_results.append(
                             {
@@ -355,9 +435,28 @@ def run_downstream_export(
                 )
                 continue
 
-            downstream_response = export_row_to_sandbox(sandbox_dir, program, date, fields)
-            db.mark_exported(program, date)
+            written = export_row_to_sandbox(sandbox_dir, program, date, fields)
+            before = written["before"]
+            after = written["after"]
+            db.add_batch_item(
+                batch_id=batch_id,
+                source_row_id=row.get("id"),
+                program=program,
+                date=date,
+                export_id=make_export_id(batch_id, row.get("id"), program),
+                target_env="sandbox",
+                operation=written["action"],  # "created" | "updated"
+                downstream_target=str(sandbox_path(sandbox_dir, program)),
+                downstream_identifier=f"{program.lower()}_rows.json#rows.{date}",
+                before_state=before,
+                after_state=after,
+                before_checksum=payload_hash(before),
+                after_checksum=payload_hash(after),
+                export_result="success",
+            )
+            db.mark_exported(program, date, batch_id)
             any_success = True
+            downstream_response = {"action": written["action"]}
             date_results.append(
                 {"date": date, "status": "success", "payload_hash": hash_, "downstream_response": downstream_response}
             )
