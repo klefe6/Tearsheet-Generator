@@ -2,6 +2,13 @@ $ErrorActionPreference = 'Stop'
 Set-Location $PSScriptRoot
 $env:PYTHONIOENCODING = 'utf-8'
 
+$dirtyRoot = [System.IO.Path]::GetFullPath('C:\Coding Projects\Tearsheet Generator')
+$here = [System.IO.Path]::GetFullPath($PSScriptRoot)
+if ($here -eq $dirtyRoot) {
+    Write-Error "Refusing to start TCP staff from the dirty Tearsheet Generator checkout: $here"
+    exit 1
+}
+
 function Import-BatchEnvFile {
     param([string]$Path)
     if (-not (Test-Path $Path)) { return }
@@ -21,7 +28,11 @@ function Import-BatchEnvFile {
 Import-BatchEnvFile (Join-Path $PSScriptRoot '.local_dev.env')
 $envFile = Join-Path $PSScriptRoot '.tcp_production.env'
 if (Test-Path $envFile) { Import-BatchEnvFile $envFile }
-Import-BatchEnvFile (Join-Path $PSScriptRoot '.staff.env')
+$staffEnv = Join-Path $PSScriptRoot '.staff.env'
+if (-not (Test-Path $staffEnv)) {
+    $staffEnv = 'C:\Coding Projects\Tearsheet Generator\.staff.env'
+}
+Import-BatchEnvFile $staffEnv
 
 # Staff/admin runtime — forced AFTER env imports so .tcp_production.env's
 # TCP_V2_BIND_PORT=8302 (and anything else) cannot override the staff port.
