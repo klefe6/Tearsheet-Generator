@@ -322,44 +322,63 @@
 
 /* Table */
 .tableWrap {
-  padding: 12px 16px 16px;
-  overflow-x: auto;
+  padding: 10px 12px 14px;
+  overflow-x: visible;
 }
 
 .table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 12px;
+  font-size: 11px;
+  table-layout: fixed;
 }
 
 .table th {
   text-align: left;
-  font-size: 10.5px;
+  font-size: 9.5px;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.3px;
+  letter-spacing: 0.25px;
   color: var(--ink-muted);
-  padding: 6px 8px;
+  padding: 5px 4px;
   background: var(--brand-soft);
-  white-space: nowrap;
+  white-space: normal;
+  line-height: 1.25;
+  vertical-align: bottom;
+  word-break: break-word;
+}
+
+.table th.num {
+  text-align: right;
 }
 
 .table th:first-child {
   border-top-left-radius: 8px;
   border-bottom-left-radius: 8px;
+  width: 18%;
 }
 
 .table th:last-child {
   border-top-right-radius: 8px;
   border-bottom-right-radius: 8px;
+  width: 30%;
 }
 
 .table td {
-  padding: 7px 8px;
+  padding: 6px 4px;
   color: var(--ink);
   border-bottom: 1px solid var(--grid);
-  white-space: nowrap;
+  white-space: normal;
+  line-height: 1.3;
   font-variant-numeric: tabular-nums;
+  vertical-align: top;
+  word-break: break-word;
+}
+
+.table td.num {
+  white-space: nowrap;
+  font-size: 10.5px;
+  text-align: right;
 }
 
 .table tbody tr:last-child td {
@@ -368,6 +387,12 @@
 
 .num {
   text-align: right;
+}
+
+@media (max-width: 1200px) {
+  .tableWrap {
+    overflow-x: auto;
+  }
 }
 
 .empty {
@@ -392,12 +417,14 @@
 /* Source badge for the display table (Manual vs Backfilled provenance). */
 .srcBadge {
   display: inline-block;
-  padding: 1px 7px;
+  padding: 1px 6px;
   border-radius: 999px;
-  font-size: 10px;
+  font-size: 9.5px;
   font-weight: 600;
   letter-spacing: 0.02em;
-  white-space: nowrap;
+  white-space: normal;
+  line-height: 1.2;
+  max-width: 100%;
 }
 
 .srcManual {
@@ -412,20 +439,25 @@
 
 .dateWithBadge,
 .sourceCell {
-  display: inline-flex;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
   flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
+  gap: 4px;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .historicalBadge {
   display: inline-block;
-  padding: 1px 7px;
+  padding: 1px 6px;
   border-radius: 999px;
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 600;
   letter-spacing: 0.01em;
-  white-space: nowrap;
+  white-space: normal;
+  line-height: 1.2;
+  max-width: 100%;
   background: #f3f0ea;
   color: #6b5c45;
   border: 1px solid rgba(107, 92, 69, 0.18);
@@ -433,12 +465,14 @@
 
 .exportedBadge {
   display: inline-block;
-  padding: 1px 7px;
+  padding: 1px 6px;
   border-radius: 999px;
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 600;
   letter-spacing: 0.01em;
-  white-space: nowrap;
+  white-space: normal;
+  line-height: 1.2;
+  max-width: 100%;
   background: #e8f6ee;
   color: #127a42;
 }
