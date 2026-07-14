@@ -12,9 +12,9 @@ Two modes:
     $100,000 as of the program's first available date.
 
 Accounting:
-  * Program NLV per row comes from `programs.program_nlv` (TKP=StoneX+Plus500,
-    TCP/YQ=StoneX, AGM=TradeStation — AGM's `fee` is a documented exclusion,
-    see that function's docstring).
+  * Program NLV per row comes from `programs.program_nlv` (TKP=StoneX only,
+    Plus500 informational; TCP/YQ=StoneX, AGM=TradeStation — AGM's `fee` is a
+    documented exclusion, see that function's docstring).
   * Cash transfers are neutralized so deposits/withdrawals never show up as
     performance:
         daily_return = (ending_nlv - cash_transfer) / prior_ending_nlv - 1

@@ -215,10 +215,11 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         daily_rows, and GET /api/rows/{program} stays manual-only.
 
         Each row carries ``value`` — the same program value the performance
-        graph uses (``program_nlv``): TKP equity-curve NAV for backfilled
-        rows (StoneX+Plus500 for manual ones), TCP nav-x1, AGM TradeStation
-        NLV. AGM ``fee`` is reported only on manual rows — the historical
-        source never provided one, so none is invented.
+        graph uses (``program_nlv``): TKP StoneX-only performance balance,
+        TCP nav-x1, AGM TradeStation NLV. Plus500 is shown in the table but
+        does not enter TKP ``value`` or the chart. AGM ``fee`` is reported only
+        on manual rows — the historical source never provided one, so none is
+        invented.
         """
         code = _resolve_program_or_404(program)
         exclusions = db.get_active_exclusions_map()

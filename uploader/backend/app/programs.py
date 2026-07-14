@@ -145,9 +145,9 @@ def program_metadata() -> list[dict]:
 
 
 def program_nlv(program: str, row: dict) -> Optional[float]:
-    """Total NLV for one stored row, per program's accounting rule:
+    """Performance balance for one stored row, per program accounting rule:
 
-      * TKP = stonex_nlv + plus500_nlv
+      * TKP = stonex_nlv only (Plus500 is informational, never summed in)
       * TCP = stonex_nlv
       * AGM = tradestation_nlv
       * YQ  = stonex_nlv
@@ -165,10 +165,7 @@ def program_nlv(program: str, row: dict) -> Optional[float]:
     code = program.upper()
     if code == "TKP":
         stonex = row.get("stonex_nlv")
-        plus500 = row.get("plus500_nlv")
-        if stonex is None or plus500 is None:
-            return None
-        return float(stonex) + float(plus500)
+        return float(stonex) if stonex is not None else None
     if code in ("TCP", "YQ"):
         stonex = row.get("stonex_nlv")
         return float(stonex) if stonex is not None else None
