@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from 'react'
+﻿import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from 'react'
 import type { ApiDisplayRowsResponse } from '../api/client'
 import { MAX_PRODUCT_FIELD_COUNT } from '../config/products'
 import { displayColumnsFor, type DisplayColumn } from '../lib/displayColumns'
@@ -7,7 +7,7 @@ import {
   type FormState,
 } from '../lib/pendingRow'
 import type { ProductConfig, ProductId, ProductRow } from '../types'
-import { formatCurrency, formatCurrencyInput, formatShortDate } from '../lib/format'
+import { formatCurrency, formatShortDate } from '../lib/format'
 import styles from './ProductCard.module.css'
 
 /** One shift request from the global date-step buttons ("nonce" makes repeat clicks re-fire the effect even when `delta` repeats). */
@@ -20,19 +20,17 @@ interface Props {
   config: ProductConfig
   rows: ProductRow[]
   /** Latest merged manual + backfilled rows (GET /api/display-rows). null =
-   *  backend unreachable — the table falls back to the local manual rows. */
+   *  backend unreachable ΓÇö the table falls back to the local manual rows. */
   displayData?: ApiDisplayRowsResponse | null
   /** Persist one manual daily row. Resolves true only when the backend saved it. */
   onAddRow: (productId: ProductId, row: ProductRow) => Promise<boolean>
   onDeleteLast: (productId: ProductId) => void
   /** Reports in-progress form state so Export All can save pending rows first. */
   onPendingChange: (productId: ProductId, form: FormState) => void
-  /** Bumped after Export All auto-saves pending forms — clears numeric inputs. */
+  /** Bumped after Export All auto-saves pending forms ΓÇö clears numeric inputs. */
   pendingClearNonce: number
-  /** Shifts this card's current date input by ±1 day; local form state only. */
+  /** Shifts this card's current date input by ┬▒1 day; local form state only. */
   dateStepSignal: DateStepSignal
-  /** Backend last completed trading session (NYSE, America/New_York). */
-  defaultEntryDate: string | null
 }
 
 /** Shift a YYYY-MM-DD string by `days`, safely across month/year boundaries (UTC-anchored to dodge local-timezone DST edge cases). Invalid input is returned unchanged. */
@@ -45,11 +43,17 @@ function shiftIsoDate(iso: string, days: number): string {
   return utc.toISOString().slice(0, 10)
 }
 
-/** Empty form; date field uses backend last trading date when available. */
-function initialForm(config: ProductConfig, entryDate: string | null): FormState {
+/** Local date as YYYY-MM-DD, for the native date input default. */
+function todayISO(): string {
+  const now = new Date()
+  const local = new Date(now.getTime() - now.getTimezoneOffset() * 60_000)
+  return local.toISOString().slice(0, 10)
+}
+
+function initialForm(config: ProductConfig): FormState {
   const state: FormState = {}
   for (const field of config.fields) {
-    state[field.key] = field.type === 'date' ? (entryDate ?? '') : ''
+    state[field.key] = field.type === 'date' ? todayISO() : ''
   }
   return state
 }
@@ -85,7 +89,7 @@ function parsePastedCurrency(raw: string): string | null {
   cleaned = rest.length > 0 ? `${whole}.${rest.join('')}` : whole
   if (!cleaned || cleaned === '.') return null
   const value = Number(`${negative ? '-' : ''}${cleaned}`)
-  return Number.isFinite(value) ? formatCurrencyInput(String(value)) : null
+  return Number.isFinite(value) ? String(value) : null
 }
 
 /**
@@ -93,7 +97,7 @@ function parsePastedCurrency(raw: string): string | null {
  * Click copies ONLY the account number; brief "Copied" / "Copy failed"
  * feedback replaces the chip text, then it reverts. `label` (broker name,
  * from backend account_label or the mock config) only enriches the
- * tooltip/aria text — the visible chip stays just the number.
+ * tooltip/aria text ΓÇö the visible chip stays just the number.
  */
 function AccountChip({ account, label }: { account: string; label?: string }) {
   const [state, setState] = useState<'idle' | 'copied' | 'error'>('idle')
@@ -176,12 +180,11 @@ function AccountChip({ account, label }: { account: string; label?: string }) {
  * formatting; if the clipboard doesn't hold a usable number, the input is
  * left untouched and a brief "Invalid" state shows instead.
  */
-function PasteButton({ onPaste, disabled = false }: { onPaste: (value: string) => void; disabled?: boolean }) {
+function PasteButton({ onPaste }: { onPaste: (value: string) => void }) {
   const [state, setState] = useState<'idle' | 'pasted' | 'error'>('idle')
   const timer = useRef<number | undefined>(undefined)
 
   const handlePaste = async (event: React.MouseEvent<HTMLButtonElement>) => {
-    if (disabled) return
     // The button sits inside the field <label>; don't focus/activate the input.
     event.preventDefault()
     event.stopPropagation()
@@ -204,11 +207,10 @@ function PasteButton({ onPaste, disabled = false }: { onPaste: (value: string) =
       type="button"
       className={`${styles.pasteBtn} ${state === 'pasted' ? styles.pasteBtnPasted : ''} ${
         state === 'error' ? styles.pasteBtnError : ''
-      } ${disabled ? styles.pasteBtnDisabled : ''}`}
+      }`}
       onClick={handlePaste}
-      disabled={disabled}
-      title={disabled ? 'Entry not enabled for Y&Q' : 'Paste value from clipboard'}
-      aria-label={disabled ? 'Paste disabled for Y&Q' : 'Paste value from clipboard'}
+      title="Paste value from clipboard"
+      aria-label="Paste value from clipboard"
     >
       {state === 'pasted' ? (
         <>
@@ -280,9 +282,8 @@ export function ProductCard({
   onPendingChange,
   pendingClearNonce,
   dateStepSignal,
-  defaultEntryDate,
 }: Props) {
-  const [form, setForm] = useState<FormState>(() => initialForm(config, defaultEntryDate))
+  const [form, setForm] = useState<FormState>(() => initialForm(config))
   const [saving, setSaving] = useState(false)
   const [saveNote, setSaveNote] = useState<string | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
@@ -298,18 +299,7 @@ export function ProductCard({
     onPendingChange(config.id, form)
   }, [config.id, form, onPendingChange])
 
-  // When backend trading-date status arrives, seed the date field once.
-  useEffect(() => {
-    if (!defaultEntryDate) return
-    const dateField = config.fields.find((field) => field.type === 'date')
-    if (!dateField) return
-    setForm((prev) => {
-      if (prev[dateField.key]) return prev
-      return { ...prev, [dateField.key]: defaultEntryDate }
-    })
-  }, [defaultEntryDate, config.fields])
-
-  // Export All auto-saved this card's pending values — clear numerics so they
+  // Export All auto-saved this card's pending values ΓÇö clear numerics so they
   // aren't treated as still-unsaved on the next export.
   useEffect(() => {
     if (pendingClearNonce === 0) return
@@ -320,12 +310,12 @@ export function ProductCard({
       }
       return next
     })
-    setSaveNote(`Saved to backend via Export All · ${config.code}`)
+    setSaveNote(`Saved to backend via Export All ┬╖ ${config.code}`)
     setSaveError(null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingClearNonce])
 
-  // Global date stepper: shift this card's own current date field by ±1 day.
+  // Global date stepper: shift this card's own current date field by ┬▒1 day.
   // Skipped on mount (nonce 0) and whenever this card has no date field.
   useEffect(() => {
     if (dateStepSignal.nonce === 0) return
@@ -344,12 +334,7 @@ export function ProductCard({
     setSaveNote(null)
 
     const dateKey = config.fields.find((f) => f.type === 'date')?.key ?? 'date'
-    const resolvedDate = form[dateKey] || defaultEntryDate
-    if (!resolvedDate) {
-      setSaveError('Trading calendar unavailable — enter a date manually or retry.')
-      return
-    }
-    const formWithDate = { ...form, [dateKey]: resolvedDate }
+    const formWithDate = { ...form, [dateKey]: form[dateKey] || todayISO() }
     const classified = classifyPendingForm(config, formWithDate)
 
     if (classified.status === 'empty') {
@@ -371,10 +356,10 @@ export function ProductCard({
       const ok = await onAddRow(config.id, row)
       if (!ok) {
         // App already toasted the failure; keep values so Glenn can retry.
-        setSaveError('Save failed — values were NOT written to the backend.')
+        setSaveError('Save failed ΓÇö values were NOT written to the backend.')
         return
       }
-      setSaveNote(`Saved to backend · ${config.code} · ${String(row.date)}`)
+      setSaveNote(`Saved to backend ┬╖ ${config.code} ┬╖ ${String(row.date)}`)
       // Keep the date, clear the numeric inputs for the next entry.
       setForm((prev) => {
         const next = { ...prev }
@@ -390,9 +375,6 @@ export function ProductCard({
 
   // Most recent 7 rows, newest first.
   const visibleRows = [...rows].slice(-7).reverse()
-
-  // Y&Q has no downstream export path yet — currency entry stays disabled/grey.
-  const currencyEntryDisabled = config.id === 'YQ'
 
   const brandStyle = {
     '--brand': config.color,
@@ -429,14 +411,8 @@ export function ProductCard({
                 <span className={styles.inputRow}>
                   <span
                     className={`${styles.currencyWrap} ${
-                      currencyEntryDisabled
-                        ? styles.wrapDisabled
-                        : field.tint === 'yellow'
-                          ? styles.wrapYellow
-                          : field.tint === 'pink'
-                            ? styles.wrapPink
-                            : ''
-                    }`}
+                      field.tint === 'yellow' ? styles.wrapYellow : ''
+                    } ${field.tint === 'pink' ? styles.wrapPink : ''}`}
                   >
                     <span className={styles.currencyPrefix}>$</span>
                     <input
@@ -447,14 +423,6 @@ export function ProductCard({
                       placeholder={field.placeholder}
                       value={form[field.key]}
                       onChange={(e) => update(field.key, e.target.value)}
-                      onBlur={(e) => {
-                        const next = formatCurrencyInput(e.target.value)
-                        if (next !== e.target.value) update(field.key, next)
-                      }}
-                      disabled={currencyEntryDisabled}
-                      readOnly={currencyEntryDisabled}
-                      tabIndex={currencyEntryDisabled ? -1 : undefined}
-                      aria-disabled={currencyEntryDisabled}
                     />
                   </span>
                   <span className={styles.controlStack}>
@@ -464,10 +432,7 @@ export function ProductCard({
                         label={field.accountLabel}
                       />
                     )}
-                    <PasteButton
-                      onPaste={(value) => update(field.key, value)}
-                      disabled={currencyEntryDisabled}
-                    />
+                    <PasteButton onPaste={(value) => update(field.key, value)} />
                   </span>
                 </span>
               )}
@@ -476,13 +441,8 @@ export function ProductCard({
         </div>
 
         <div className={styles.actions}>
-          <button
-            type="submit"
-            className={styles.enterBtn}
-            disabled={saving || currencyEntryDisabled}
-            title={currencyEntryDisabled ? 'Y&Q daily entry is not enabled yet' : undefined}
-          >
-            {saving ? 'Saving…' : 'Save Daily Row'}
+          <button type="submit" className={styles.enterBtn} disabled={saving}>
+            {saving ? 'SavingΓÇª' : 'Save Daily Row'}
           </button>
           <button
             type="button"
@@ -554,7 +514,7 @@ export function ProductCard({
 }
 
 /** Bottom table fed by GET /api/display-rows: latest merged values with a
- *  per-row source badge. Display-only — Export All never reads these rows.
+ *  per-row source badge. Display-only ΓÇö Export All never reads these rows.
  *  Columns come from displayColumnsFor(): TKP is the only program with both
  *  StoneX NLV and Plus500 NLV columns; AGM adds Fee (manual rows only). */
 function DisplayRowsTable({
@@ -581,7 +541,7 @@ function DisplayRowsTable({
       )
     }
     const value = row[col.key]
-    return value == null ? '—' : formatCurrency(value as number)
+    return value == null ? 'ΓÇö' : formatCurrency(value as number)
   }
 
   return (
