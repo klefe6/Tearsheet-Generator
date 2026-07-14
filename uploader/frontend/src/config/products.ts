@@ -120,7 +120,10 @@ export function toApiRowPayload(
   const payload: Record<string, string | number> = {}
   for (const field of config.fields) {
     if (!field.apiName) continue
-    payload[field.apiName] = row[field.key]
+    const value = row[field.key]
+    if (typeof value === 'string' || typeof value === 'number') {
+      payload[field.apiName] = value
+    }
   }
   return payload
 }

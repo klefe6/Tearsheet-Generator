@@ -60,14 +60,14 @@ export interface ProductConfig {
   columns: ProductColumn[]
 }
 
-/** One data row. `id` is a local, client-only key; the rest are field values. */
+/** One data row. `id` is a local, client-only key; field values are string|number. */
 export interface ProductRow {
   id: string
   /** Backend daily_rows.id when known. */
   sourceRowId?: number
   exportState?: 'exported' | 'eligible' | 'excluded'
   excludedReason?: string | null
-  [key: string]: string | number | boolean | null | undefined
+  [key: string]: string | number | undefined | null
 }
 
 /**
