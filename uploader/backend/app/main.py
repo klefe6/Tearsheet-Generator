@@ -104,6 +104,9 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
             "status": "ok",
             "app_env": settings.app_env,
             "export_enabled": settings.export_enabled,
+            "export_downstream_enabled": settings.export_downstream_enabled,
+            "export_dry_run": settings.export_dry_run,
+            "export_target_env": settings.export_target_env,
             "version": __version__,
             "serve_frontend": settings.serve_frontend,
         }

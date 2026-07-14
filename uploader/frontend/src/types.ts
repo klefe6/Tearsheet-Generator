@@ -73,7 +73,9 @@ export interface ProductRow {
  *  - offline_mock    backend unreachable -> purely local simulation, nothing sent anywhere
  *  - saved           backend reached, saved as an uploader-only preview (downstream export not enabled)
  *  - dry_run         downstream export enabled but EXPORT_DRY_RUN=true -> computed, nothing written
- *  - sandbox_success downstream export ran for real; every non-skipped program succeeded
+ *  - sandbox_success downstream export ran for real to sandbox; every non-skipped program succeeded
+ *  - live_success    downstream export ran for real to production; every non-skipped program succeeded
+ *  - no_rows         downstream export ran but nothing was eligible (all already exported)
  *  - partial_failure downstream export ran for real; some programs failed, others succeeded
  *  - failed          downstream export ran for real; every non-skipped program failed
  */
@@ -84,6 +86,8 @@ export type ExportOverallStatus =
   | 'saved'
   | 'dry_run'
   | 'sandbox_success'
+  | 'live_success'
+  | 'no_rows'
   | 'partial_failure'
   | 'failed'
 

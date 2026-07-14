@@ -96,6 +96,18 @@ export interface ApiDownstreamResult {
   results: Record<string, ApiDownstreamProgramResult>
 }
 
+/** Non-secret export mode flags from GET /health (no tokens or ingest URLs). */
+export interface ApiHealthResponse {
+  status: string
+  app_env: string
+  export_enabled: boolean
+  export_downstream_enabled: boolean
+  export_dry_run: boolean
+  export_target_env: string
+  version: string
+  serve_frontend: boolean
+}
+
 export interface ApiExportResult {
   dry_run: boolean
   app_env: string
@@ -114,6 +126,13 @@ const RAW_BASE: string = import.meta.env.VITE_API_BASE_URL || ''
 
 /** Backend base URL (e.g. "https://uploader-sandbox.hcresearch.ltd/api"). */
 export const API_BASE_URL = RAW_BASE.replace(/\/+$/, '')
+
+/** Map `/api` base to sibling `/health` on the same host (single-host Fly deploy). */
+export function resolveHealthUrl(apiBase: string): string {
+  const trimmed = apiBase.replace(/\/+$/, '')
+  if (trimmed.endsWith('/api')) return `${trimmed.slice(0, -4)}/health`
+  return `${trimmed}/health`
+}
 
 /** Give read-only fetches a short leash so a dead backend never stalls the UI. */
 const READ_TIMEOUT_MS = 4000
@@ -158,6 +177,42 @@ export async function fetchProgramMetadata(): Promise<ApiProgram[] | null> {
     const programs = (body as { programs?: unknown } | null)?.programs
     if (!Array.isArray(programs) || !programs.every(isApiProgram)) return null
     return programs
+  } catch {
+    return null
+  } finally {
+    window.clearTimeout(timer)
+  }
+}
+
+function isApiHealthResponse(value: unknown): value is ApiHealthResponse {
+  if (typeof value !== 'object' || value === null) return false
+  const body = value as Record<string, unknown>
+  return (
+    body.status === 'ok' &&
+    typeof body.export_downstream_enabled === 'boolean' &&
+    typeof body.export_dry_run === 'boolean' &&
+    typeof body.export_target_env === 'string'
+  )
+}
+
+/**
+ * Fetch non-secret export mode flags from GET /health.
+ * Returns `null` on any failure so the UI can omit the banner.
+ */
+export async function fetchHealth(): Promise<ApiHealthResponse | null> {
+  if (!API_BASE_URL) return null
+
+  const controller = new AbortController()
+  const timer = window.setTimeout(() => controller.abort(), READ_TIMEOUT_MS)
+  try {
+    const response = await fetch(resolveHealthUrl(API_BASE_URL), {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+      signal: controller.signal,
+    })
+    if (!response.ok) return null
+    const body: unknown = await response.json()
+    return isApiHealthResponse(body) ? body : null
   } catch {
     return null
   } finally {

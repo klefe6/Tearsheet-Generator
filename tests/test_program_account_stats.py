@@ -33,7 +33,7 @@ def test_agm_totals_derived_from_buckets():
             opened=7,
             open_now=6,
             closed_p=1,
-            range_str="0–1%",
+            range_str="+0.57%",
         ),
     )
     total = stats.total
@@ -42,7 +42,7 @@ def test_agm_totals_derived_from_buckets():
     assert total.currently_open == 11
     assert total.closed_profitably == 1
     assert total.closed_unprofitably == 0
-    assert total.closed_return_range == "0–1%"
+    assert total.closed_return_range == "+0.57%"
 
 
 def test_format_agm_rows_include_total_column():
@@ -53,7 +53,7 @@ def test_format_agm_rows_include_total_column():
             opened=7,
             open_now=6,
             closed_p=1,
-            range_str="0–1%",
+            range_str="+0.57%",
         ),
     )
     rows = pas.format_program_account_stats_rows(stats, include_total=True)
@@ -65,8 +65,8 @@ def test_format_agm_rows_include_total_column():
     )
     assert by_label["Total Accounts/Tranches Opened"] == ("12", "7", "5")
     assert by_label["Range of Net Returns of Accounts/Tranches Closed"] == (
-        "0–1%",
-        "0–1%",
+        "+0.57%",
+        "+0.57%",
         "N/A",
     )
 

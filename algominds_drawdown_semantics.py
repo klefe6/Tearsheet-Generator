@@ -11,7 +11,7 @@ recent NAV peak.
   * Standard peak-relative drawdown would be $5k / $50k = 10%.
 
 This module is the single source of truth for AGM drawdown labels, the daily
-drawdown series, worst-episode profile rows, and admin explanatory copy.
+drawdown series, and worst-episode profile rows.
 """
 from __future__ import annotations
 
@@ -46,18 +46,6 @@ SPX_INCEPTION_COLUMN = "S&P 500 (Inception)"
 AGM_DRAWDOWN_FOOTNOTE = (
     "Drawdown depth is peak-to-valley decline expressed as a percentage of the "
     "$30,000 initial strategy capital (not peak NAV)."
-)
-
-
-# ── Admin-only copy (NOT for the client page) ───────────────────────────────
-ADMIN_DRAWDOWN_EXAMPLE_NOTE = (
-    "A $5k decline from a $50k peak after starting at $30k is reported as "
-    "16.7% drawdown (% of initial capital). Standard peak-relative drawdown "
-    "would be 10% ($5k / $50k)."
-)
-ADMIN_PEAK_RELATIVE_NOTE = (
-    "Internal reference: peak-relative drawdown percentages differ from the "
-    "client-facing % of initial capital convention shown above."
 )
 
 

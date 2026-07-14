@@ -15,6 +15,9 @@ def test_health(sandbox_client):
     assert body["status"] == "ok"
     assert body["app_env"] == "sandbox"
     assert body["export_enabled"] is False
+    assert body["export_downstream_enabled"] is False
+    assert body["export_dry_run"] is True
+    assert body["export_target_env"] == "sandbox"
     assert "version" in body
 
 

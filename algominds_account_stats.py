@@ -72,7 +72,7 @@ AGM_PROGRAM_BUCKET_CONFIG: Dict[str, AgmProgramBucketConfig] = {
         tranches_currently_open=6,
         closed_profitably=1,
         closed_unprofitably=0,
-        closed_return_range="0–1%",
+        closed_return_range="+0.57%",
     ),
 }
 

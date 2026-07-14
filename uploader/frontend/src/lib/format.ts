@@ -1,16 +1,25 @@
 // Small display formatters shared across the UI.
 
-/** Whole-dollar currency with thousands separators. Zero renders as an em dash
- *  to keep financial tables uncluttered. */
+/** Currency with thousands separators and two decimal places. Zero renders as
+ *  an em dash to keep financial tables uncluttered. */
 export function formatCurrency(value: string | number): string {
   const n = typeof value === 'number' ? value : Number(value)
   if (!Number.isFinite(n)) return '—'
   if (n === 0) return '—'
   const abs = Math.abs(n).toLocaleString('en-US', {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
   })
   return n < 0 ? `-$${abs}` : `$${abs}`
+}
+
+/** Normalize a currency input string to two decimal places (blur/paste). */
+export function formatCurrencyInput(raw: string): string {
+  const trimmed = raw.trim()
+  if (!trimmed) return ''
+  const n = Number(trimmed)
+  if (!Number.isFinite(n)) return raw
+  return n.toFixed(2)
 }
 
 /** Compact axis label, e.g. 120000 -> "$120k". */
@@ -18,9 +27,12 @@ export function formatAxisCurrency(value: number): string {
   return `$${Math.round(value / 1000)}k`
 }
 
-/** Full-precision currency for tooltips, e.g. "$118,240". */
+/** Full-precision currency for tooltips, e.g. "$118,240.50". */
 export function formatTooltipCurrency(value: number): string {
-  return `$${Math.round(value).toLocaleString('en-US')}`
+  return `$${value.toLocaleString('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`
 }
 
 /** ISO date (YYYY-MM-DD) -> compact "MM/DD/YY" for narrow tables. */

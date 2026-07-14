@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   deleteLastRow,
+  fetchHealth,
   fetchProgramMetadata,
   fetchProgramRows,
   postExportAll,
@@ -14,6 +15,7 @@ import { Toast } from './components/Toast'
 import { applyProgramMetadata, fromApiRow, PRODUCTS, toApiRowPayload } from './config/products'
 import { INITIAL_ROWS } from './data/rows'
 import { deriveExportState, exportToastMessage, offlineMockExportState } from './lib/exportStatus'
+import type { ApiHealthResponse } from './api/client'
 import type { ExportUiState, ProductConfig, ProductId, ProductRow } from './types'
 import styles from './App.module.css'
 
@@ -35,6 +37,7 @@ export default function App() {
   // Product config renders immediately from the local mock; if the backend
   // answers the one optional metadata GET, its account-chip data overlays it.
   const [products, setProducts] = useState<ProductConfig[]>(PRODUCTS)
+  const [health, setHealth] = useState<ApiHealthResponse | null>(null)
   const [rowsByProduct, setRowsByProduct] =
     useState<Record<ProductId, ProductRow[]>>(INITIAL_ROWS)
   const [exportState, setExportState] = useState<ExportUiState>(INITIAL_EXPORT_STATE)
@@ -64,6 +67,9 @@ export default function App() {
       if (!cancelled && programs) {
         setProducts((prev) => applyProgramMetadata(prev, programs))
       }
+    })
+    fetchHealth().then((body) => {
+      if (!cancelled && body) setHealth(body)
     })
     return () => {
       cancelled = true
@@ -207,7 +213,7 @@ export default function App() {
 
   return (
     <div className={styles.page}>
-      <PageHeader env={APP_ENV} />
+      <PageHeader env={APP_ENV} health={health} />
 
       <PerformanceChart refreshToken={perfRefreshToken} />
 

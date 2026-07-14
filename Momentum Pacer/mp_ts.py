@@ -1821,15 +1821,7 @@ def build_admin_drawdown_note():
                     html.Span("  |  max: ", className="fw-semibold"),
                     html.Span(max_dd),
                 ],
-                className="small mb-1",
-            ),
-            html.P(
-                agm_drawdown.ADMIN_DRAWDOWN_EXAMPLE_NOTE,
-                className="small text-muted mb-1",
-            ),
-            html.P(
-                agm_drawdown.ADMIN_PEAK_RELATIVE_NOTE,
-                className="small text-muted fst-italic mb-0",
+                className="small mb-0",
             ),
         ],
         id="agm-admin-drawdown-note",

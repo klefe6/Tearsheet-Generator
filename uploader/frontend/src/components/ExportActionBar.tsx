@@ -63,6 +63,8 @@ const STATUS_BADGE: Record<
   saved: { label: 'Saved to Uploader Backend', className: 'processedBadge', icon: 'check' },
   dry_run: { label: 'Dry Run — Nothing Written', className: 'dryRunBadge', icon: null },
   sandbox_success: { label: 'Exported to Sandbox', className: 'processedBadge', icon: 'check' },
+  live_success: { label: 'Live Export — Pushed to TKP/TCP/AGM', className: 'liveBadge', icon: 'check' },
+  no_rows: { label: 'No Rows to Export', className: 'mutedBadge', icon: null },
   partial_failure: { label: 'Partial Failure', className: 'warnBadge', icon: 'warn' },
   failed: { label: 'Failed', className: 'failBadge', icon: 'warn' },
 }
@@ -139,7 +141,10 @@ export function ExportActionBar({ exportState, onExport, onUndo }: Props) {
           </span>
         )}
 
-        {targetEnv && overallStatus !== 'dry_run' && (
+        {targetEnv &&
+          overallStatus !== 'dry_run' &&
+          overallStatus !== 'no_rows' &&
+          overallStatus !== 'saved' && (
           <span className={styles.deliveredNote}>target: {targetEnv}</span>
         )}
       </div>

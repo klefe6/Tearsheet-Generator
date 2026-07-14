@@ -23,12 +23,14 @@ function overallDownstreamStatus(
 
   const hasFailure = relevant.some((s) => s === 'failure' || s === 'partial_failure')
   const hasSuccess = relevant.some((s) => s === 'success')
+  const allNoRows =
+    relevant.length > 0 && relevant.every((s) => s === 'no_rows' || s === 'skipped')
 
   if (hasFailure && hasSuccess) return 'partial_failure'
   if (hasFailure) return 'failed'
-  // No failures: either all succeeded, all had no rows, or (shouldn't happen)
-  // all skipped. Whichever it is, nothing failed — report the positive state.
-  return targetEnv === 'production' ? 'failed' : 'sandbox_success'
+  if (allNoRows) return 'no_rows'
+  if (hasSuccess) return targetEnv === 'production' ? 'live_success' : 'sandbox_success'
+  return 'no_rows'
 }
 
 /** Build the next ExportUiState from a successful POST /api/export/all response. */

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from 
 import { MAX_PRODUCT_FIELD_COUNT } from '../config/products'
 import type { ProductConfig, ProductId, ProductRow } from '../types'
 import { makeRowId } from '../data/rows'
-import { formatCurrency, formatShortDate } from '../lib/format'
+import { formatCurrency, formatCurrencyInput, formatShortDate } from '../lib/format'
 import styles from './ProductCard.module.css'
 
 /** One shift request from the global date-step buttons ("nonce" makes repeat clicks re-fire the effect even when `delta` repeats). */
@@ -78,7 +78,7 @@ function parsePastedCurrency(raw: string): string | null {
   cleaned = rest.length > 0 ? `${whole}.${rest.join('')}` : whole
   if (!cleaned || cleaned === '.') return null
   const value = Number(`${negative ? '-' : ''}${cleaned}`)
-  return Number.isFinite(value) ? String(value) : null
+  return Number.isFinite(value) ? formatCurrencyInput(String(value)) : null
 }
 
 /**
@@ -353,6 +353,10 @@ export function ProductCard({ config, rows, onAddRow, onDeleteLast, dateStepSign
                       placeholder={field.placeholder}
                       value={form[field.key]}
                       onChange={(e) => update(field.key, e.target.value)}
+                      onBlur={(e) => {
+                        const next = formatCurrencyInput(e.target.value)
+                        if (next !== e.target.value) update(field.key, next)
+                      }}
                     />
                   </span>
                   <span className={styles.controlStack}>

@@ -187,7 +187,7 @@ def test_compute_agm_program_account_stats_known_buckets():
     assert result.client.currently_open == 6
     assert result.client.closed_profitably == 1
     assert result.client.closed_unprofitably == 0
-    assert result.client.closed_return_range == "0–1%"
+    assert result.client.closed_return_range == "+0.57%"
     assert result.client.nominal_assets == pytest.approx(210_000.0)
 
 
@@ -198,8 +198,8 @@ def test_format_agm_program_account_stats_no_na_for_closed_counts():
     assert by_label["Accounts/Tranches Closed Profitably"] == ("1", "1", "0")
     assert by_label["Accounts/Tranches Closed Unprofitably"] == ("0", "0", "0")
     assert by_label["Range of Net Returns of Accounts/Tranches Closed"] == (
-        "0–1%",
-        "0–1%",
+        "+0.57%",
+        "+0.57%",
         "N/A",
     )
     assert by_label["Nominal Assets Being Traded in the Program"] == (
