@@ -40,9 +40,9 @@ def _sample_net_totals() -> dict:
 INCEPTION = datetime(2025, 11, 13)
 
 
-def test_nav_chart_title_has_no_compounded():
-    assert "Compounded" not in stats.NAV_SINCE_INCEPTION_CHART_TITLE
-    assert "NAV Since Inception" in stats.NAV_SINCE_INCEPTION_CHART_TITLE
+def test_nav_chart_title_matches_tkp_wording():
+    assert "Non-Compounded NAV Since Inception" in stats.NAV_SINCE_INCEPTION_CHART_TITLE
+    assert stats.NAV_SINCE_INCEPTION_CHART_TITLE == "<u>Non-Compounded NAV Since Inception</u>"
 
 
 def test_compute_agm_account_stats_from_summary():
@@ -105,7 +105,7 @@ def test_compute_returns_none_when_empty():
 
 
 def test_mp_ts_nav_figure_title():
-    """Integration: live mp_ts chart must not expose 'Compounded' in the title."""
+    """Integration: live mp_ts NAV chart title matches TKP wording."""
     import sys
     from pathlib import Path
 
@@ -116,12 +116,12 @@ def test_mp_ts_nav_figure_title():
 
     fig = mp_ts.build_nav_figure()
     title_text = fig.layout.title.text or ""
-    assert "Compounded" not in title_text
-    assert "NAV Since Inception" in title_text
+    assert "Non-Compounded NAV Since Inception" in title_text
+    assert "<u>Compounded NAV Since Inception</u>" not in title_text
 
 
 def test_mp_ts_account_stats_not_hardcoded_literals():
-    """Account Stats values in layout must match the helper, not inline literals."""
+    """Program Account Stats in layout must match the helper, not inline literals."""
     import sys
     from pathlib import Path
 
@@ -130,26 +130,47 @@ def test_mp_ts_account_stats_not_hardcoded_literals():
         sys.path.insert(0, str(mp_dir))
     import mp_ts
 
-    computed = stats.compute_agm_account_stats(
-        mp_ts._display_summary_df, mp_ts.net_totals, mp_ts.PROGRAM_INCEPTION
-    )
-    assert computed is not None
-    expected = stats.format_agm_account_stats(computed)
+    program_stats = stats.compute_agm_program_account_stats()
+    rows = stats.format_agm_program_account_stats(program_stats)
+    by_label = {label: (total, client, prop) for label, total, client, prop in rows}
 
     layout = mp_ts.serve_layout()
     layout_str = str(layout)
-    assert expected["current_nav_after_fees"] in layout_str
-    assert expected["total_net_gain"] in layout_str
-    assert expected["total_fees_paid"] in layout_str
-    assert expected["months_trading_approx"] in layout_str
-    assert "Compounded NAV Since Inception" not in layout_str
+    assert by_label["Total Accounts/Tranches Opened"] == ("12", "7", "5")
+    assert by_label["Nominal Assets Being Traded in the Program"] == (
+        "360k",
+        "210k",
+        "150k",
+    )
+    for total, client, prop in by_label.values():
+        assert total in layout_str
+        assert client in layout_str
+        assert prop in layout_str
+    assert "Current NAV (after fees)" not in layout_str
+    assert "<u>Compounded NAV Since Inception</u>" not in layout_str
 
-    assert computed.current_nav_after_fees == pytest.approx(
-        float(mp_ts._display_summary_df["bot_end_after_fees"].iloc[-1])
-    )
-    assert computed.total_fees_paid == pytest.approx(
-        float(mp_ts.net_totals["bot_fees_dollar"])
-    )
+
+def test_mp_ts_risk_management_matches_tkp_pattern():
+    """Strategy Overview uses TKP Risk Management block; HWM stays in fee terms only."""
+    import sys
+    from pathlib import Path
+
+    mp_dir = Path(__file__).resolve().parent.parent / "Momentum Pacer"
+    if str(mp_dir) not in sys.path:
+        sys.path.insert(0, str(mp_dir))
+    import mp_ts
+
+    layout_str = str(mp_ts.serve_layout())
+    assert "Risk Management" in layout_str
+    assert "Average Margin Usage" in layout_str
+    assert "Exchange Margin Ratios" in layout_str
+    assert "VaR Considerations" in layout_str
+    assert "Position Offsets (Hedges)" in layout_str
+    # Old AGM client-facing risk card rows removed.
+    assert "✓ High-Water Mark" not in layout_str
+    assert "✓ Position Sizing" not in layout_str
+    # Fee / investor terms may still mention HWM.
+    assert "High Water Mark" in layout_str
 
 
 def test_compute_agm_program_account_stats_known_buckets():

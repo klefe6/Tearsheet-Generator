@@ -2062,45 +2062,125 @@ def build_client_performance_summary_table():
     )
 
 
-def build_admin_account_stats_table(acct_stats_fmt: dict, inception_str: str) -> dbc.Table:
-    """Admin Account Stats | Current (NAV / fees / inception diagnostics)."""
-    return dbc.Table(
-        [
-            html.Thead(html.Tr([
-                html.Th("Account Stats"),
-                html.Th("Current"),
-            ])),
-            html.Tbody([
+def _agm_exchange_margin_ratio_grid() -> html.Div:
+    """TKP-style ratio grid; N/A until a daily margin series exists."""
+    # TODO(agm-risk): populate margin-ratio buckets from daily margin usage when available.
+    ratio_rows = [
+        (True, "0-10 %", "N/A"),
+        (True, "10-25 %", "N/A"),
+        (False, "25-50 %", "-- %"),
+        (False, "50 %+", "-- %"),
+    ]
+    children: list = [
+        html.Div("Ranges", className="ratio-header"),
+        html.Div("% time in range (daily)", className="ratio-header"),
+    ]
+    for checked, range_label, pct in ratio_rows:
+        color = PRIMARY_COLOR if checked else SECONDARY_COLOR
+        symbol = "✓" if checked else "✗"
+        children.extend([
+            html.Div(
+                html.Span(f"{symbol} {range_label}", style={"color": color, "marginRight": "0.5rem"}),
+                className="ratio-cell",
+            ),
+            html.Div(
+                html.Span(pct, style={"color": color, "marginRight": "0.5rem"}),
+                className="ratio-cell",
+            ),
+        ])
+    return html.Div(children, className="ratio-grid")
+
+
+def _agm_risk_management_section() -> list:
+    """TKP-aligned Risk Management block for the Strategy Overview table."""
+    # TODO(agm-risk): wire Average Margin Usage from a daily margin series when available.
+    return [
+        html.Tr([html.Td("", colSpan=3, style={"height": LEFT_TABLE_GAPS})]),
+        html.Tr([
+            html.Th("Risk Management", colSpan=3, className=HEADER_ROW_CLASS),
+        ]),
+        html.Tr([
+            html.Td("Average Margin Usage"),
+            html.Td("N/A"),
+            html.Td(),
+        ]),
+        html.Tr([
+            html.Td([
+                html.Div("Exchange Margin Ratios"),
+                html.Small(
+                    "This is not cost-bearing, but is a measure of the exchange-required "
+                    "minimum funds to be in the account versus the Nominal Trade Size",
+                    style={
+                        "fontSize": "0.75rem",
+                        "color": "#6c757d",
+                        "marginTop": "0.25rem",
+                        "display": "block",
+                    },
+                ),
+            ]),
+            html.Td(_agm_exchange_margin_ratio_grid(), colSpan=2),
+        ]),
+        html.Tr([
+            html.Td("Risk Controls", id="agm-risk-controls"),
+            html.Td([
                 html.Tr([
-                    html.Td("Starting Capital"),
-                    html.Td(acct_stats_fmt.get("starting_capital", "—")),
+                    html.Td(html.Span(
+                        "✗ Stop Losses",
+                        style={"color": SECONDARY_COLOR, "marginRight": "0.5rem"},
+                        id="agm-stop-losses",
+                    )),
                 ]),
                 html.Tr([
-                    html.Td("Current NAV (after fees)"),
-                    html.Td(acct_stats_fmt.get("current_nav_after_fees", "—")),
-                ]),
-                html.Tr([
-                    html.Td("Total Net Gain"),
-                    html.Td(acct_stats_fmt.get("total_net_gain", "—")),
-                ]),
-                html.Tr([
-                    html.Td("Total Fees Paid"),
-                    html.Td(acct_stats_fmt.get("total_fees_paid", "—")),
-                ]),
-                html.Tr([
-                    html.Td("Inception Date"),
-                    html.Td(inception_str),
-                ]),
-                html.Tr([
-                    html.Td("Months trading (approx.)"),
-                    html.Td(acct_stats_fmt.get("months_trading_approx", "—")),
+                    html.Td(html.Span(
+                        "✓ VaR Considerations",
+                        style={"color": PRIMARY_COLOR, "marginRight": "0.5rem"},
+                        id="agm-var-considerations",
+                    )),
                 ]),
             ]),
-        ],
-        striped=False, bordered=True,
-        hover=True, size="sm",
-        id="agm-admin-account-stats-table",
-    )
+            html.Td([
+                html.Tr([
+                    html.Td(html.Span(
+                        "✗ Position Reductions",
+                        style={"color": SECONDARY_COLOR, "marginRight": "0.5rem"},
+                        id="agm-position-reductions",
+                    )),
+                ]),
+                html.Tr([
+                    html.Td(html.Span(
+                        "✓ Position Offsets (Hedges)",
+                        style={"color": PRIMARY_COLOR, "marginRight": "0.5rem"},
+                        id="agm-position-hedges",
+                    )),
+                ]),
+            ]),
+        ]),
+        dbc.Tooltip(
+            "Mechanisms to limit potential losses in volatile markets.",
+            target="agm-risk-controls",
+            placement="top",
+        ),
+        dbc.Tooltip(
+            "Orders that close a position at a predefined price to cap losses.",
+            target="agm-stop-losses",
+            placement="top",
+        ),
+        dbc.Tooltip(
+            "Statistical estimate of potential loss over a given period at a chosen confidence level.",
+            target="agm-var-considerations",
+            placement="top",
+        ),
+        dbc.Tooltip(
+            "Gradual decrease in position size to reduce exposure as risk increases.",
+            target="agm-position-reductions",
+            placement="top",
+        ),
+        dbc.Tooltip(
+            "Taking opposite or correlated positions to hedge against adverse moves.",
+            target="agm-position-hedges",
+            placement="top",
+        ),
+    ]
 
 
 def build_program_account_stats_table() -> dbc.Table:
@@ -2439,7 +2519,7 @@ def serve_layout():
                                "pageBreakInside": "avoid"},
                     ),
 
-                    # ── Strategy Overview  +  Risk & Controls  ─────────────────
+                    # ── Strategy Overview  +  Fee Structure  ─────────────────
                     # (same 2-column card layout as Y&Q)
                     dbc.Row(
                         [
@@ -2550,18 +2630,7 @@ def serve_layout():
                                                         ]),
                                                         html.Tr([html.Td("", colSpan=3,
                                                                           style={"height": LEFT_TABLE_GAPS})]),
-                                                        html.Tr([
-                                                            html.Th("Risk Controls", colSpan=3,
-                                                                     className="bg-light"),
-                                                        ]),
-                                                        html.Tr([
-                                                            html.Td(html.Span("✓ Stop Losses",
-                                                                               style={"color": ACCENT_GREEN})),
-                                                            html.Td(html.Span("✓ Position Sizing",
-                                                                               style={"color": ACCENT_GREEN})),
-                                                            html.Td(html.Span("✓ High-Water Mark",
-                                                                               style={"color": ACCENT_GREEN})),
-                                                        ]),
+                                                        *_agm_risk_management_section(),
                                                     ]),
                                                 ],
                                                 striped=False, bordered=True,
@@ -2750,20 +2819,7 @@ def serve_layout():
                                                     width=6,
                                                 ),
                                                 dbc.Col(
-                                                    [
-                                                        html.Div(
-                                                            build_admin_account_stats_table(
-                                                                _acct_stats_fmt, inception_str
-                                                            ),
-                                                            id="agm-admin-account-stats",
-                                                            style={"display": "none"},
-                                                        ),
-                                                        html.Div(
-                                                            build_program_account_stats_table(),
-                                                            id="agm-client-account-stats",
-                                                            style={"display": "block"},
-                                                        ),
-                                                    ],
+                                                    build_program_account_stats_table(),
                                                     width=6,
                                                 ),
                                             ])
@@ -2963,8 +3019,6 @@ def _local_direct_admin_entry(pathname):
     Output("agm-admin-daily-container", "style"),
     Output("agm-admin-monthly-performance", "style"),
     Output("agm-client-performance-summary", "style"),
-    Output("agm-admin-account-stats", "style"),
-    Output("agm-client-account-stats", "style"),
     Output("agm-admin-drawdown-note", "style"),
     Input("access-mode", "data"),
 )
@@ -2992,8 +3046,6 @@ def _toggle_admin_sections(access_mode):
         admin_style,
         admin_monthly_style,
         client_monthly_style,
-        admin_style,
-        client_style,
         admin_note_style,
     )
 

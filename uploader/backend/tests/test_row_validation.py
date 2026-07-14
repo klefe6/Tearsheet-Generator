@@ -31,6 +31,27 @@ def test_agm_accepts_tradestation_and_fee(sandbox_client):
     assert row["fee"] == 125.50
 
 
+def test_nlv_cents_preserved_in_api_round_trip(sandbox_client):
+    """Storage/API must keep fractional NLV — display formatting is frontend-only."""
+    payload = {
+        "date": "2026-07-14",
+        "stonex_nlv": 192875.99,
+        "plus500_nlv": 0.0,
+        "cash_transfer": 0.0,
+    }
+    created = sandbox_client.post("/api/rows/TKP", json=payload)
+    assert created.status_code == 200, created.text
+    row = created.json()["row"]
+    assert row["stonex_nlv"] == 192875.99
+    assert row["stonex_nlv"] != 192876
+
+    listed = sandbox_client.get("/api/rows/TKP").json()["rows"][-1]
+    assert listed["stonex_nlv"] == 192875.99
+
+    display = sandbox_client.get("/api/display-rows/TKP").json()["rows"][0]
+    assert display["stonex_nlv"] == 192875.99
+
+
 def test_yq_accepts_stonex_only(sandbox_client):
     r = sandbox_client.post("/api/rows/YQ", json=VALID_ROWS["YQ"])
     assert r.status_code == 200, r.text
