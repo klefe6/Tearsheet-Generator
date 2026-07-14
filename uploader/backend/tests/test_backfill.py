@@ -256,10 +256,9 @@ def test_manual_row_supersedes_imported_row_in_performance(backfill_client):
     assert series["point_count"] == 2
     assert series["backfilled_point_count"] == 1
     assert series["manual_point_count"] == 1
-    # The 06-30 anchor must be the MANUAL value (125,000 = 105k+20k), which
-    # differs from the imported 164,600 — verify via the normalized level:
-    # base 100k at 06-29 (164k raw), manual 125k on 06-30 => big drop, not ~flat.
-    assert points[1]["y"] < points[0]["y"]
+    # The 06-30 anchor must be the MANUAL StoneX (105,000), not the imported
+    # historical StoneX (80,500) — chart compounds on StoneX only.
+    assert points[1]["y"] == round(100_000 * (105_000 / 80_000), 4)
 
 
 def test_glenn_rows_endpoint_shows_manual_entries_only(backfill_client):
@@ -442,18 +441,17 @@ def test_extractor_parses_fixture_stores_read_only(tmp_repo_root):
     payload = build_payload(results, dry_run=True)
 
     by_program = {r.program: r for r in results}
-    # TKP: equity-curve NAV split into stonex + plus500 (NAV = stonex + plus500).
+    # TKP: authoritative StoneX + Plus500; Deposit -> cash_transfer.
     tkp = by_program["TKP"].rows
     assert [r["date"] for r in tkp] == ["2023-04-10", "2023-04-11"]
-    assert tkp[0]["stonex_nlv"] == 150000.0
+    assert tkp[0]["stonex_nlv"] == 100000.0
     assert tkp[0]["plus500_nlv"] == 0.0
-    assert tkp[1]["stonex_nlv"] == 130200.0  # NAV 150200 - Plus500 20000
+    assert tkp[0]["cash_transfer"] == 0.0
+    assert tkp[1]["stonex_nlv"] == 100250.0
     assert tkp[1]["plus500_nlv"] == 20000.0
-    assert tkp[1]["stonex_nlv"] + tkp[1]["plus500_nlv"] == 150200.0
-    assert all(r["cash_transfer"] == 0.0 for r in tkp)
+    assert tkp[1]["cash_transfer"] == 20000.0
     assert all(r["source"] == "tkp_state_json" for r in tkp)
-    assert "NAV" in tkp[0]["source_detail"]
-    assert "equity-curve" in tkp[0]["source_detail"]
+    assert "StoneX" in tkp[0]["source_detail"]
 
     # TCP: the tearsheet-calculated nav-x1 (NOT raw NLV), cash_transfer=0
     # by design — nav-x1 is already cash-transfer-neutral, so the recorded
@@ -508,36 +506,51 @@ def test_extractor_output_imports_cleanly(backfill_client, tmp_repo_root):
     assert again["programs"]["TKP"]["unchanged"] == 2
 
 
-def test_tkp_withdrawals_do_not_dent_the_extracted_series(tmp_repo_root):
-    """The real store's 2026-03-05 case: both accounts dropped ~$25k each on a
-    withdrawal day, but the Deposit column recorded only -$25,000 — raw
-    balances can NEVER be reliably neutralized. The extractor must emit the
-    NAV equity-curve value (smooth through the withdrawal) and ignore raw
-    balances/Deposit entirely; a blank-NAV row is skipped with a warning."""
+def test_tkp_deposit_neutralizes_stonex_withdrawal_on_chart(tmp_repo_root):
+    """StoneX-only performance with Deposit mapped to cash_transfer neutralizes
+    withdrawal days instead of using the tearsheet NAV equity curve."""
     from scripts.extract_tearsheet_history import extract_tkp
 
     repo_root, _files = tmp_repo_root
     state = [
         {"Date": "2026-03-04", "StoneX": "$102,497.67", "Plus500": "$104,891.29",
          "Deposit": "", "NAV": "$188,557.18"},
-        # Withdrawal day: balances drop ~$50k combined, Deposit says only -25k,
-        # NAV barely moves (the true trading result).
         {"Date": "2026-03-05", "StoneX": "$77,539.88", "Plus500": "$79,933.50",
          "Deposit": "-$25,000.00", "NAV": "$188,599.39"},
         {"Date": "2026-03-06", "StoneX": "$77,600.00", "Plus500": "$80,000.00",
-         "Deposit": "", "NAV": ""},  # blank NAV -> skipped
+         "Deposit": "", "NAV": ""},
     ]
     path = repo_root / "tkp_withdrawal_case.json"
     path.write_text(json.dumps(state), encoding="utf-8")
 
     res = extract_tkp(path)
-    assert [r["date"] for r in res.rows] == ["2026-03-04", "2026-03-05"]
-    nav_values = [r["stonex_nlv"] + r["plus500_nlv"] for r in res.rows]
-    assert nav_values == [188557.18, 188599.39]  # NAV series, smooth through it
-    assert all(r["cash_transfer"] == 0.0 for r in res.rows)
-    # Under the uploader formula this day is now +0.02%, not a -12% fake drop.
-    assert abs(nav_values[1] / nav_values[0] - 1) < 0.001
-    assert any("blank NAV" in w for w in res.warnings)
+    assert [r["date"] for r in res.rows] == ["2026-03-04", "2026-03-05", "2026-03-06"]
+    assert res.rows[0]["stonex_nlv"] == 102497.67
+    assert res.rows[1]["stonex_nlv"] == 77539.88
+    assert res.rows[1]["cash_transfer"] == -25000.0
+    assert res.rows[1]["plus500_nlv"] == 79933.5
+    # Performance uses StoneX only — not NAV and not stonex+plus500.
+    from app.programs import program_nlv
+
+    assert program_nlv("TKP", res.rows[0]) == 102497.67
+    assert program_nlv("TKP", res.rows[1]) == 77539.88
+
+
+def test_tkp_blank_stonex_skipped_not_replaced_with_nav(tmp_repo_root):
+    from scripts.extract_tearsheet_history import extract_tkp
+
+    repo_root, _files = tmp_repo_root
+    state = [
+        {"Date": "2026-03-04", "StoneX": "$100.00", "Plus500": "", "Deposit": "", "NAV": "$999.00"},
+        {"Date": "2026-03-05", "StoneX": "", "Plus500": "$50.00", "Deposit": "", "NAV": "$888.00"},
+    ]
+    path = repo_root / "tkp_blank_stonex.json"
+    path.write_text(json.dumps(state), encoding="utf-8")
+
+    res = extract_tkp(path)
+    assert [r["date"] for r in res.rows] == ["2026-03-04"]
+    assert res.rows[0]["stonex_nlv"] == 100.0
+    assert any("blank StoneX" in w for w in res.warnings)
 
 
 def test_agm_pre_inception_rows_are_skipped_with_count(tmp_repo_root):
