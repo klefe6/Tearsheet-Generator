@@ -7,10 +7,10 @@ $dirtyRoot = [System.IO.Path]::GetFullPath('C:\Coding Projects\Tearsheet Generat
 $here = [System.IO.Path]::GetFullPath($PSScriptRoot)
 if ($here -eq $dirtyRoot) {
     Write-Error @"
-Refusing to start production TCP from the dirty Tearsheet Generator checkout:
+Refusing to start production AGM from the dirty Tearsheet Generator checkout:
   $here
 Use the canonical runtime:
-  C:\Coding Projects\Tearsheet Generator\.worktrees\live-deploy-main\reboot_tcp_ts.bat
+  C:\Coding Projects\Tearsheet Generator\.worktrees\live-deploy-main\reboot_mp_ts.bat
 Configured via: C:\Coding Projects\Manager\tearsheet_fleet_runtime.json
 "@
     exit 1
@@ -19,7 +19,7 @@ Configured via: C:\Coding Projects\Manager\tearsheet_fleet_runtime.json
 function Import-BatchEnvFile {
     param([string]$Path)
     if (-not (Test-Path $Path)) { return }
-    Get-Content $Path | ForEach-Object {
+    Get-Content -LiteralPath $Path | ForEach-Object {
         if ($_ -match '^set "(.+)"$') {
             $pair = $matches[1]
             $eq = $pair.IndexOf('=')
@@ -33,7 +33,8 @@ function Import-BatchEnvFile {
 }
 
 Import-BatchEnvFile (Join-Path $PSScriptRoot '.local_dev.env')
-$envFile = Join-Path $PSScriptRoot '.tcp_production.env'
-if (Test-Path $envFile) { Import-BatchEnvFile $envFile }
+$env:MP_TS_PRODUCTION = '1'
+
+Set-Location (Join-Path $PSScriptRoot 'Momentum Pacer')
 $python = Join-Path $PSScriptRoot '.venv310\Scripts\python.exe'
-& $python (Join-Path $PSScriptRoot 'tcp_ts_v2.py')
+& $python (Join-Path $PSScriptRoot 'Momentum Pacer\mp_ts.py')
