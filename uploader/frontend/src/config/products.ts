@@ -139,6 +139,12 @@ export function fromApiRow(config: ProductConfig, apiRow: ApiRow): ProductRow {
     row[field.key] =
       field.type === 'date' ? String(value ?? '') : Number(value ?? 0)
   }
+  if (typeof apiRow.id === 'number') row.sourceRowId = apiRow.id
+  if (apiRow.export_state) row.exportState = apiRow.export_state
+  else if (apiRow.exported) row.exportState = 'exported'
+  else if (apiRow.excluded) row.exportState = 'excluded'
+  else row.exportState = 'eligible'
+  row.excludedReason = apiRow.excluded_reason ?? null
   return row
 }
 

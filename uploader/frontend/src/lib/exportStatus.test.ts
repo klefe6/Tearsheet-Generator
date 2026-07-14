@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ApiExportResult } from '../api/client'
-import { deriveExportState, exportToastMessage } from './exportStatus'
+import { deriveExportState, exportToastMessage, exportStatusIcon } from './exportStatus'
 
 const NOW = new Date('2026-07-10T12:00:00Z')
 
@@ -37,6 +37,12 @@ describe('deriveExportState — downstream push statuses', () => {
     expect(deriveExportState(result({}), NOW).overallStatus).toBe('saved')
   })
 
+  it('backend-only with zero eligible rows is no_eligible', () => {
+    expect(
+      deriveExportState(result({ total_rows: 0, eligible_count: 0 }), NOW).overallStatus,
+    ).toBe('no_eligible')
+  })
+
   it('production dry-run that validates downstream is "downstream_dry_run"', () => {
     const data = result({
       downstream: downstream('production', true, {
@@ -56,6 +62,8 @@ describe('deriveExportState — downstream push statuses', () => {
   it('real production push with all success is "pushed"', () => {
     const data = result({
       dry_run: false,
+      total_rows: 3,
+      eligible_count: 3,
       downstream: downstream('production', false, {
         TKP: 'success', TCP: 'success', AGM: 'success', YQ: 'skipped',
       }),
@@ -77,6 +85,38 @@ describe('deriveExportState — downstream push statuses', () => {
       }),
     })
     expect(deriveExportState(partial, NOW).overallStatus).toBe('partial_failure')
+  })
+
+  it('program-level partial_failure is overall partial_failure, never green success', () => {
+    const data = result({
+      dry_run: false,
+      total_rows: 9,
+      eligible_count: 9,
+      downstream: downstream('production', false, {
+        TKP: 'no_rows',
+        TCP: 'partial_failure',
+        AGM: 'failure',
+        YQ: 'skipped',
+      }),
+    })
+    const state = deriveExportState(data, NOW)
+    expect(state.overallStatus).toBe('partial_failure')
+    expect(exportStatusIcon(state.overallStatus)).toBe('warn')
+    expect(exportStatusIcon(state.overallStatus)).not.toBe('check')
+  })
+
+  it('all no_rows is neutral no_eligible, not a green success', () => {
+    const data = result({
+      dry_run: false,
+      total_rows: 0,
+      eligible_count: 0,
+      downstream: downstream('production', false, {
+        TKP: 'no_rows', TCP: 'no_rows', AGM: 'no_rows', YQ: 'skipped',
+      }),
+    })
+    const state = deriveExportState(data, NOW)
+    expect(state.overallStatus).toBe('no_eligible')
+    expect(exportStatusIcon(state.overallStatus)).toBeNull()
   })
 
   it('dry-run with a config failure surfaces as partial_failure, not a green badge', () => {

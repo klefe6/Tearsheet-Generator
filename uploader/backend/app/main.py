@@ -187,11 +187,19 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         GET /api/display-rows/{program} instead."""
         code = _resolve_program_or_404(program)
         rows = db.get_last_rows(code, limit)
+        exclusions = db.get_active_exclusions_map()
         return {
             "program": code,
             "label": PROGRAM_LABELS[code],
             "count": len(rows),
-            "rows": [public_row(code, r) for r in rows],
+            "rows": [
+                public_row(
+                    code,
+                    r,
+                    exclusion=exclusions.get((code, int(r["id"]))),
+                )
+                for r in rows
+            ],
         }
 
     @app.get("/api/display-rows/{program}", tags=["rows"])
@@ -213,6 +221,11 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         source never provided one, so none is invented.
         """
         code = _resolve_program_or_404(program)
+        exclusions = db.get_active_exclusions_map()
+        # Map date -> daily_rows id for manual rows so we can attach export_state.
+        manual_by_date = {
+            r["date"]: r for r in db.get_last_rows(code, limit=max(limit, 60))
+        }
         out = []
         for r in db.get_display_rows(code, limit):
             manual = r.get("row_source") == "manual"
@@ -231,6 +244,16 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
                 item[f.name] = value
             if not manual and r.get("source_detail"):
                 item["source_detail"] = r["source_detail"]
+            if manual:
+                raw = manual_by_date.get(r["date"])
+                if raw is not None:
+                    excl = exclusions.get((code, int(raw["id"])))
+                    projected = public_row(code, raw, exclusion=excl)
+                    item["id"] = projected.get("id")
+                    item["exported"] = projected["exported"]
+                    item["export_state"] = projected["export_state"]
+                    item["excluded"] = projected["excluded"]
+                    item["excluded_reason"] = projected["excluded_reason"]
             out.append(item)
 
         resp: dict[str, Any] = {
@@ -298,10 +321,20 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         UNCHANGED from before this feature existed.
         """
         rows = db.get_unexported_rows()
+        counts = db.export_row_counts()
+        exclusions = db.get_active_exclusions_map()
 
         programs_payload: dict[str, dict] = {}
         for code in PROGRAMS:
-            code_rows = [public_row(code, r) for r in rows if r["program"] == code]
+            code_rows = [
+                public_row(
+                    code,
+                    r,
+                    exclusion=exclusions.get((code, int(r["id"]))),
+                )
+                for r in rows
+                if r["program"] == code
+            ]
             programs_payload[code] = {
                 "target_url": settings.export_url(code),  # future; not called
                 "row_count": len(code_rows),
@@ -356,6 +389,10 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
             "external_calls_made": 0,
             "batch_id": batch_id,
             "total_rows": len(rows),
+            "eligible_count": counts["eligible"],
+            "excluded_count": counts["excluded"],
+            "exported_count": counts["exported"],
+            "manual_total": counts["manual_total"],
             "programs": programs_payload,
             "message": message,
         }
@@ -407,6 +444,97 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
             response["transport_implemented"] = True
         response["external_calls_made"] = external_calls
         return response
+
+    @app.get("/api/export/eligibility", tags=["export"])
+    def export_eligibility() -> dict:
+        """Manual-row tallies for the export summary strip (read-only)."""
+        counts = db.export_row_counts()
+        return {
+            "manual_total": counts["manual_total"],
+            "exported": counts["exported"],
+            "excluded": counts["excluded"],
+            "eligible": counts["eligible"],
+        }
+
+    @app.post("/api/export/exclusions", tags=["export"])
+    def create_export_exclusion(
+        payload: dict[str, Any] = Body(...),
+        actor: str = Depends(require_admin_actor),
+    ) -> dict:
+        """Exclude one daily_rows record from Export All without marking it exported."""
+        program = normalize_program(str(payload.get("program", "")))
+        if program is None:
+            raise HTTPException(status_code=404, detail="Unknown program")
+        try:
+            source_row_id = int(payload["source_row_id"])
+        except (KeyError, TypeError, ValueError):
+            raise HTTPException(
+                status_code=422, detail="'source_row_id' must be an integer"
+            )
+        reason = str(payload.get("reason") or "").strip()
+        if not reason:
+            raise HTTPException(status_code=422, detail="'reason' is required")
+
+        row = db.get_daily_row_by_id(program, source_row_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="Row not found")
+        if bool(row.get("exported", 0)):
+            raise HTTPException(
+                status_code=409,
+                detail="Cannot exclude an already-exported row",
+            )
+
+        exclusion = db.add_export_exclusion(program, source_row_id, reason, actor)
+        db.add_audit(
+            action="export_exclusion_created",
+            actor=actor,
+            program=program,
+            date=row["date"],
+            detail={
+                "source_row_id": source_row_id,
+                "exclusion_id": exclusion["id"],
+                "reason": reason,
+            },
+        )
+        return {
+            "ok": True,
+            "exclusion": dict(exclusion),
+            "row": public_row(program, row, exclusion=exclusion),
+        }
+
+    @app.delete(
+        "/api/export/exclusions/{program}/{source_row_id}",
+        tags=["export"],
+    )
+    def restore_export_exclusion(
+        program: str,
+        source_row_id: int,
+        actor: str = Depends(require_admin_actor),
+    ) -> dict:
+        """Restore an excluded row to the export queue (deactivate exclusion)."""
+        code = _resolve_program_or_404(program)
+        row = db.get_daily_row_by_id(code, source_row_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="Row not found")
+        removed = db.remove_export_exclusion(code, source_row_id, actor)
+        if removed is None:
+            raise HTTPException(status_code=404, detail="No active exclusion")
+        db.add_audit(
+            action="export_exclusion_removed",
+            actor=actor,
+            program=code,
+            date=row["date"],
+            detail={
+                "source_row_id": source_row_id,
+                "exclusion_id": removed["id"],
+                "reason": removed.get("reason"),
+            },
+        )
+        return {
+            "ok": True,
+            "exclusion": removed,
+            "row": public_row(code, row, exclusion=None),
+        }
 
     # -- export rollback ---------------------------------------------------
     # Reverses the most recent COMMITTED downstream batch. Always requires a

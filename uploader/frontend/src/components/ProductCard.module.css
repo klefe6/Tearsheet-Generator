@@ -410,6 +410,39 @@
   color: #5b6472;
 }
 
+.dateWithBadge,
+.sourceCell {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.historicalBadge {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  background: #f3f0ea;
+  color: #6b5c45;
+  border: 1px solid rgba(107, 92, 69, 0.18);
+}
+
+.exportedBadge {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  background: #e8f6ee;
+  color: #127a42;
+}
+
 .saveOk {
   margin: 8px 0 0;
   font-size: 12px;
