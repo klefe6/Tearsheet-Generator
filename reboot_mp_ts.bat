@@ -1,5 +1,7 @@
 @echo off
-cd /d "%~dp0Momentum Pacer"
-if exist "%~dp0.local_dev.env" call "%~dp0.local_dev.env"
-set MP_TS_PRODUCTION=1
-"%~dp0.venv310\Scripts\python.exe" mp_ts.py
+setlocal
+echo Refusing to start production AGM from the dirty Tearsheet Generator checkout.
+echo Use the canonical runtime launcher instead:
+echo   "C:\Coding Projects\Tearsheet Generator\.worktrees\live-deploy-main\reboot_mp_ts.bat"
+echo Configured via: C:\Coding Projects\Manager\tearsheet_fleet_runtime.json
+exit /b 1

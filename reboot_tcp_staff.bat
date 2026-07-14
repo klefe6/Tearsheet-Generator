@@ -1,4 +1,4 @@
-@echo on
-setlocal
-cd /d "%~dp0"
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0reboot_tcp_staff.ps1"
+@echo off
+echo Refusing to start TCP staff from the dirty Tearsheet Generator checkout.
+echo Use: "C:\Coding Projects\Tearsheet Generator\.worktrees\live-deploy-main\reboot_tcp_staff.bat"
+exit /b 1
