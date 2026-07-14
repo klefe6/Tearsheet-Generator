@@ -245,6 +245,36 @@
   color: rgba(112, 26, 26, 0.7);
 }
 
+/* Disabled / read-only currency fields (Y&Q — no downstream export yet). */
+.wrapDisabled .currencyInput {
+  background: #eceef1;
+  border-color: #d5d9e0;
+  color: var(--ink-muted);
+  cursor: not-allowed;
+}
+
+.wrapDisabled .currencyInput::placeholder {
+  color: #9aa3b0;
+}
+
+.wrapDisabled .currencyPrefix {
+  color: #9aa3b0;
+}
+
+.pasteBtnDisabled,
+.pasteBtnDisabled:hover {
+  opacity: 0.45;
+  cursor: not-allowed;
+  background: #f3f4f6;
+  color: var(--ink-muted);
+}
+
+.enterBtn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  filter: none;
+}
+
 /* Buttons */
 .actions {
   display: flex;

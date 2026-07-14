@@ -27,6 +27,18 @@ describe('manual export payload contract', () => {
     )
   })
 
+  it('preserves cent precision in export payloads (no whole-dollar rounding)', () => {
+    const row = buildRowFromForm(PRODUCTS[0], {
+      date: '2026-07-14',
+      stonexNlv: '192875.99',
+      plus500Nlv: '0',
+      cash: '0',
+    })
+    const payload = toApiRowPayload(PRODUCTS[0], row)
+    expect(payload.stonex_nlv).toBe(192875.99)
+    expect(payload.stonex_nlv).not.toBe(192876)
+  })
+
   it('never includes historical/display provenance fields', () => {
     for (const config of PRODUCTS) {
       const blanks: Record<string, string> = {}
