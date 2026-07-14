@@ -63,7 +63,11 @@ export interface ProductConfig {
 /** One data row. `id` is a local, client-only key; the rest are field values. */
 export interface ProductRow {
   id: string
-  [key: string]: string | number
+  /** Backend daily_rows.id when known. */
+  sourceRowId?: number
+  exportState?: 'exported' | 'eligible' | 'excluded'
+  excludedReason?: string | null
+  [key: string]: string | number | boolean | null | undefined
 }
 
 /**
@@ -88,6 +92,7 @@ export type ExportOverallStatus =
   | 'pushed'
   | 'partial_failure'
   | 'failed'
+  | 'no_eligible'
 
 export type ExportProgramOutcome =
   | 'success'
@@ -116,8 +121,12 @@ export interface ExportUiState {
   targetEnv?: string
   /** Manual daily_rows found on the backend immediately before export. */
   manualRowsByProgram?: Partial<Record<ProductId, number>>
-  /** Rows eligible for this export batch (unexported manual rows). */
+  /** Rows eligible for this export batch (unexported + not excluded). */
   eligibleCount?: number
+  /** Historical rows excluded from Export All. */
+  excludedCount?: number
+  /** Already-exported manual rows. */
+  exportedCount?: number
   /** Whether the export ran as dry-run (from backend response when present). */
   dryRun?: boolean
   /** Human-readable pre-export note (e.g. pending saves). */

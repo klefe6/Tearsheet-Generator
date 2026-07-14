@@ -178,16 +178,41 @@ def program_nlv(program: str, row: dict) -> Optional[float]:
     return None
 
 
-def public_row(program: str, raw: dict) -> dict:
-    """Project a raw daily_rows record down to just the fields for `program`."""
+def public_row(
+    program: str,
+    raw: dict,
+    exclusion: Optional[dict] = None,
+) -> dict:
+    """Project a raw daily_rows record down to just the fields for `program`.
+
+    Export-state precedence:
+      1. exported=true  -> "exported"
+      2. active exclusion -> "excluded"
+      3. otherwise -> "eligible"
+    """
     code = program.upper()
     specs = PROGRAM_FIELDS[code]
     out: dict = {"program": code, "date": raw["date"]}
+    if raw.get("id") is not None:
+        out["id"] = int(raw["id"])
     for f in specs:
         if f.name == "date":
             continue
         out[f.name] = raw.get(f.name)
-    out["exported"] = bool(raw.get("exported", 0))
+    exported = bool(raw.get("exported", 0))
+    out["exported"] = exported
+    if exported:
+        out["export_state"] = "exported"
+        out["excluded"] = False
+        out["excluded_reason"] = None
+    elif exclusion and exclusion.get("active", 1):
+        out["export_state"] = "excluded"
+        out["excluded"] = True
+        out["excluded_reason"] = exclusion.get("reason")
+    else:
+        out["export_state"] = "eligible"
+        out["excluded"] = False
+        out["excluded_reason"] = None
     out["created_at"] = raw.get("created_at")
     out["updated_at"] = raw.get("updated_at")
     return out

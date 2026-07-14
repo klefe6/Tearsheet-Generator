@@ -112,6 +112,17 @@ _REQUIRED_SCHEMA: dict[str, set[str]] = {
         "error",
     },
     "export_locks": {"name", "holder", "acquired_at", "expires_at"},
+    "export_exclusions": {
+        "id",
+        "program",
+        "source_row_id",
+        "reason",
+        "created_at",
+        "created_by",
+        "active",
+        "removed_at",
+        "removed_by",
+    },
     "backfill_batches": {
         "id",
         "ts",
@@ -122,6 +133,12 @@ _REQUIRED_SCHEMA: dict[str, set[str]] = {
         "summary",
     },
 }
+
+# Canonical reason used for tip-only-ingest interior-date rows that permanently
+# 422 on Export All but must remain visible as historical/manual records.
+EXCLUSION_REASON_INTERIOR_DATE = (
+    "historical_interior_date_not_accepted_by_tip_only_ingest"
+)
 
 
 class SchemaError(RuntimeError):
@@ -255,6 +272,24 @@ CREATE TABLE IF NOT EXISTS export_locks (
     acquired_at TEXT NOT NULL,
     expires_at  TEXT NOT NULL
 );
+
+-- Permanent (but reversible) exclusions from Export All. Rows stay in
+-- daily_rows with exported=0 so they remain visible as historical records;
+-- get_unexported_rows() skips any row with an active exclusion.
+CREATE TABLE IF NOT EXISTS export_exclusions (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    program        TEXT    NOT NULL,
+    source_row_id  INTEGER NOT NULL,
+    reason         TEXT    NOT NULL,
+    created_at     TEXT    NOT NULL,
+    created_by     TEXT    NOT NULL,
+    active         INTEGER NOT NULL DEFAULT 1,
+    removed_at     TEXT,
+    removed_by     TEXT
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_export_exclusions_active
+    ON export_exclusions (program, source_row_id) WHERE active = 1;
 """
 
 # --- export batch lifecycle -------------------------------------------------
@@ -477,12 +512,127 @@ class Database:
         return dict(row)
 
     def get_unexported_rows(self) -> list[dict]:
-        """All rows not yet marked exported (i.e. changed/new), ordered."""
+        """Eligible rows for Export All: not exported and not actively excluded.
+
+        Actively excluded rows stay in daily_rows with ``exported=0`` so they
+        remain visible as historical/manual records, but they are never
+        selected for export and must not be treated as successfully exported.
+        """
         with self.connect() as conn:
             rows = conn.execute(
-                "SELECT * FROM daily_rows WHERE exported = 0 ORDER BY program, date"
+                """
+                SELECT d.* FROM daily_rows d
+                WHERE d.exported = 0
+                  AND NOT EXISTS (
+                    SELECT 1 FROM export_exclusions e
+                    WHERE e.program = d.program
+                      AND e.source_row_id = d.id
+                      AND e.active = 1
+                  )
+                ORDER BY d.program, d.date
+                """
             ).fetchall()
         return [dict(r) for r in rows]
+
+    def get_active_exclusions_map(self) -> dict[tuple[str, int], dict]:
+        """Map (program, source_row_id) -> active exclusion row."""
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM export_exclusions WHERE active = 1"
+            ).fetchall()
+        return {(r["program"], int(r["source_row_id"])): dict(r) for r in rows}
+
+    def get_active_exclusion(self, program: str, source_row_id: int) -> Optional[dict]:
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM export_exclusions "
+                "WHERE program = ? AND source_row_id = ? AND active = 1",
+                (program, source_row_id),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def get_daily_row_by_id(self, program: str, source_row_id: int) -> Optional[dict]:
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM daily_rows WHERE program = ? AND id = ?",
+                (program, source_row_id),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def add_export_exclusion(
+        self,
+        program: str,
+        source_row_id: int,
+        reason: str,
+        actor: str,
+    ) -> dict:
+        """Activate an exclusion for one daily_rows id. Idempotent if already active."""
+        now = _utcnow()
+        existing = self.get_active_exclusion(program, source_row_id)
+        if existing:
+            return existing
+        with self.connect() as conn:
+            cur = conn.execute(
+                "INSERT INTO export_exclusions "
+                "(program, source_row_id, reason, created_at, created_by, active) "
+                "VALUES (?, ?, ?, ?, ?, 1)",
+                (program, source_row_id, reason, now, actor),
+            )
+            exclusion_id = cur.lastrowid
+            row = conn.execute(
+                "SELECT * FROM export_exclusions WHERE id = ?", (exclusion_id,)
+            ).fetchone()
+        return dict(row)
+
+    def remove_export_exclusion(
+        self, program: str, source_row_id: int, actor: str
+    ) -> Optional[dict]:
+        """Deactivate the active exclusion for one row. Returns the updated row or None."""
+        now = _utcnow()
+        with self.connect() as conn:
+            existing = conn.execute(
+                "SELECT * FROM export_exclusions "
+                "WHERE program = ? AND source_row_id = ? AND active = 1",
+                (program, source_row_id),
+            ).fetchone()
+            if not existing:
+                return None
+            conn.execute(
+                "UPDATE export_exclusions "
+                "SET active = 0, removed_at = ?, removed_by = ? WHERE id = ?",
+                (now, actor, existing["id"]),
+            )
+            row = conn.execute(
+                "SELECT * FROM export_exclusions WHERE id = ?", (existing["id"],)
+            ).fetchone()
+        return dict(row) if row else None
+
+    def export_row_counts(self) -> dict[str, int]:
+        """Manual-row tallies: total / exported / excluded / eligible."""
+        with self.connect() as conn:
+            total = conn.execute("SELECT COUNT(*) FROM daily_rows").fetchone()[0]
+            exported = conn.execute(
+                "SELECT COUNT(*) FROM daily_rows WHERE exported = 1"
+            ).fetchone()[0]
+            excluded = conn.execute(
+                """
+                SELECT COUNT(*) FROM daily_rows d
+                WHERE d.exported = 0
+                  AND EXISTS (
+                    SELECT 1 FROM export_exclusions e
+                    WHERE e.program = d.program
+                      AND e.source_row_id = d.id
+                      AND e.active = 1
+                  )
+                """
+            ).fetchone()[0]
+        eligible = int(total) - int(exported) - int(excluded)
+        return {
+            "manual_total": int(total),
+            "exported": int(exported),
+            "excluded": int(excluded),
+            "eligible": int(eligible),
+        }
 
     def mark_exported(
         self, program: str, date: str, batch_id: Optional[int] = None

@@ -537,9 +537,30 @@ export function ProductCard({
                         key={col.key}
                         className={col.format === 'currency' ? styles.num : undefined}
                       >
-                        {col.format === 'date'
-                          ? formatShortDate(String(row[col.key]))
-                          : formatCurrency(row[col.key])}
+                        {col.format === 'date' ? (
+                          <span className={styles.dateWithBadge}>
+                            {formatShortDate(String(row[col.key]))}
+                            {row.exportState === 'excluded' && (
+                              <span
+                                className={styles.historicalBadge}
+                                title={
+                                  typeof row.excludedReason === 'string' && row.excludedReason
+                                    ? row.excludedReason
+                                    : 'Historical — not exportable'
+                                }
+                              >
+                                Historical — not exportable
+                              </span>
+                            )}
+                            {row.exportState === 'exported' && (
+                              <span className={styles.exportedBadge} title="Already exported">
+                                Exported
+                              </span>
+                            )}
+                          </span>
+                        ) : (
+                          formatCurrency(row[col.key] as string | number)
+                        )}
                       </td>
                     ))}
                   </tr>
@@ -569,14 +590,31 @@ function DisplayRowsTable({
   const cell = (row: ApiDisplayRowsResponse['rows'][number], col: DisplayColumn) => {
     if (col.key === 'date') return formatShortDate(row.date)
     if (col.key === 'source') {
+      const isExcluded = row.export_state === 'excluded' || row.excluded === true
+      const isExported = row.export_state === 'exported' || row.exported === true
       return (
-        <span
-          className={`${styles.srcBadge} ${
-            row.source_label === 'Manual' ? styles.srcManual : styles.srcBackfilled
-          }`}
-          title={row.source_detail ?? row.source_label}
-        >
-          {row.source_label}
+        <span className={styles.sourceCell}>
+          <span
+            className={`${styles.srcBadge} ${
+              row.source_label === 'Manual' ? styles.srcManual : styles.srcBackfilled
+            }`}
+            title={row.source_detail ?? row.source_label}
+          >
+            {row.source_label}
+          </span>
+          {isExcluded && (
+            <span
+              className={styles.historicalBadge}
+              title={row.excluded_reason ?? 'Historical — not exportable'}
+            >
+              Historical — not exportable
+            </span>
+          )}
+          {isExported && !isExcluded && (
+            <span className={styles.exportedBadge} title="Already exported">
+              Exported
+            </span>
+          )}
         </span>
       )
     }
