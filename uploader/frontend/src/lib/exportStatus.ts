@@ -11,6 +11,18 @@ function firstReason(result: ApiDownstreamProgramResult): string | undefined {
   return result.date_results.find((d) => d.reason)?.reason
 }
 
+function programVerification(
+  result: ApiDownstreamProgramResult,
+): 'verified' | 'pending_refresh' | 'not_confirmed' | undefined {
+  const tags = result.date_results
+    .map((d) => d.verification)
+    .filter((v): v is NonNullable<typeof v> => Boolean(v))
+  if (tags.length === 0) return undefined
+  if (tags.some((v) => v === 'not_confirmed')) return 'not_confirmed'
+  if (tags.some((v) => v === 'pending_refresh')) return 'pending_refresh'
+  return 'verified'
+}
+
 /** Overall status across TKP/TCP/AGM only — Y&Q is always excluded from this
  *  rollup since it's never a real export target (only ever "skipped"). */
 function overallDownstreamStatus(
@@ -21,12 +33,18 @@ function overallDownstreamStatus(
     .filter(([program]) => program !== 'YQ')
     .map(([, r]) => r.status)
 
+  const hasPartial = relevant.some((s) => s === 'partial_failure')
   const hasFailure = relevant.some((s) => s === 'failure' || s === 'partial_failure')
+  const hasPendingRefresh = relevant.some((s) => s === 'pending_refresh')
   const hasSuccess = relevant.some((s) => s === 'success')
+  const onlyIdle = relevant.every((s) => s === 'no_rows' || s === 'skipped')
 
-  if (hasFailure && hasSuccess) return 'partial_failure'
+  // Program-level partial_failure means some dates succeeded — never green.
+  if (hasPartial || (hasFailure && hasSuccess)) return 'partial_failure'
   if (hasFailure) return 'failed'
-  if (!hasSuccess) return 'saved' // nothing needed pushing (all no_rows/skipped)
+  if (onlyIdle || (!hasSuccess && !hasPendingRefresh)) return 'no_eligible'
+  if (hasPendingRefresh && !hasSuccess) return 'pushed_pending_refresh'
+  if (hasPendingRefresh && hasSuccess) return 'pushed_pending_refresh'
   // Real rows accepted downstream: "pushed" for the live tearsheet ingest
   // target, "sandbox_success" for the local sandbox-file target.
   return targetEnv === 'production' ? 'pushed' : 'sandbox_success'
@@ -34,17 +52,24 @@ function overallDownstreamStatus(
 
 /** Build the next ExportUiState from a successful POST /api/export/all response. */
 export function deriveExportState(data: ApiExportResult, exportedAt: Date): ExportUiState {
+  const eligibleCount =
+    typeof data.eligible_count === 'number' ? data.eligible_count : data.total_rows
+  const excludedCount = data.excluded_count
+  const exportedCount = data.exported_count
+
   if (!data.downstream) {
     // Downstream export isn't enabled on this backend — this is the
     // original uploader-only preview. Always truthfully "saved", never
     // "exported to sandbox" (nothing downstream was attempted).
     return {
       lastExportAt: exportedAt,
-      overallStatus: 'saved',
+      overallStatus: eligibleCount === 0 ? 'no_eligible' : 'saved',
       canUndo: true,
       rowCount: data.total_rows,
       programStatuses: [],
-      eligibleCount: data.total_rows,
+      eligibleCount,
+      excludedCount,
+      exportedCount,
       dryRun: data.dry_run,
     }
   }
@@ -54,19 +79,28 @@ export function deriveExportState(data: ApiExportResult, exportedAt: Date): Expo
     program,
     status: r.status,
     reason: firstReason(r),
+    verification: programVerification(r),
   }))
 
   const dryRunHadFailure = Object.entries(results).some(
     ([program, r]) =>
       program !== 'YQ' && (r.status === 'failure' || r.status === 'partial_failure'),
   )
-  const overallStatus: ExportOverallStatus = dryRun
+  let overallStatus: ExportOverallStatus = dryRun
     ? dryRunHadFailure
       ? 'partial_failure'
       : targetEnv === 'production'
         ? 'downstream_dry_run'
         : 'dry_run'
     : overallDownstreamStatus(targetEnv, results)
+
+  // Zero eligible rows with no failures → neutral, never a green success check.
+  if (
+    eligibleCount === 0 &&
+    (overallStatus === 'saved' || overallStatus === 'no_eligible' || overallStatus === 'pushed')
+  ) {
+    overallStatus = 'no_eligible'
+  }
 
   return {
     lastExportAt: exportedAt,
@@ -75,7 +109,9 @@ export function deriveExportState(data: ApiExportResult, exportedAt: Date): Expo
     rowCount: data.total_rows,
     programStatuses,
     targetEnv,
-    eligibleCount: data.total_rows,
+    eligibleCount,
+    excludedCount,
+    exportedCount,
     dryRun,
   }
 }
@@ -114,6 +150,27 @@ export function exportToastMessage(data: ApiExportResult, appEnv: string): strin
     .map(([program, r]) => `${program} ${r.status}`)
     .join(', ')
   return `Downstream export to ${targetEnv}: ${summary}.`
+}
+
+/** Icon kind for an overall export badge. Partial/total failure never use check. */
+export function exportStatusIcon(
+  status: ExportOverallStatus,
+): 'check' | 'warn' | 'fail' | null {
+  switch (status) {
+    case 'partial_failure':
+      return 'warn'
+    case 'failed':
+      return 'fail'
+    case 'saved':
+    case 'sandbox_success':
+    case 'pushed':
+    case 'downstream_dry_run':
+      return 'check'
+    case 'pushed_pending_refresh':
+      return 'warn'
+    default:
+      return null
+  }
 }
 
 /** State for the purely-local fallback (backend unreachable) — unchanged

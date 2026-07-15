@@ -580,11 +580,19 @@ def _apply_admin_shared_xaxis(fig: go.Figure) -> go.Figure:
 
 def _daily_equity_frame() -> pd.DataFrame:
     """Client daily equity rows (Date / client_net_value) from live inception onward."""
-    if daily_accounting is None or daily_accounting.table.empty:
+    t = _effective_client_accounting_table()
+    if t is None or t.empty:
         return pd.DataFrame(columns=["Date", "client_net_value"])
-    t = daily_accounting.table
     mask = t["Date"] >= pd.Timestamp(PROGRAM_INCEPTION)
     return t.loc[mask, ["Date", "client_net_value"]].reset_index(drop=True)
+
+
+def _effective_client_accounting_table() -> pd.DataFrame:
+    """CSV daily accounting plus any persisted manual / uploader rows."""
+    manual = _load_agm_manual_daily_rows()
+    if not manual:
+        return daily_accounting.table
+    return _compute_accounting_with_manual_rows(manual)
 
 
 def build_nav_figure() -> go.Figure:
@@ -1615,7 +1623,10 @@ def build_client_daily_table_section():
                     dash_table.DataTable(
                         id=CLIENT_DAILY_TABLE_ID,
                         columns=_build_client_daily_table_columns(),
-                        data=build_client_daily_table_rows(newest_first=True),
+                        data=build_client_daily_table_rows(
+                            newest_first=True,
+                            table=_effective_client_accounting_table(),
+                        ),
                         merge_duplicate_headers=True,
                         sort_action="native",
                         sort_mode="single",
@@ -2349,6 +2360,7 @@ def serve_layout():
             dcc.Store(id="access-mode", storage_type="session", data=None),
             dcc.Store(id=GATE_PASSWORD_VISIBLE_STORE_ID, storage_type="memory", data=False),
             dcc.Location(id="url", refresh=False),
+            dcc.Interval(id="agm-ingest-refresh-interval", interval=3_000, n_intervals=0),
 
             # Accept gate — MANAGER tier: Algominds Financial LLC / Momentum Pacer (port 8304)
             build_manager_accept_gate(
@@ -3322,14 +3334,29 @@ def agm_healthz():
     })
 
 
+# Set by Glenn Uploader ingest; cleared by the refresh interval callback.
+_AGM_INGEST_REFRESH_PENDING = False
+
+
+def _agm_manual_rows_storage_target() -> str:
+    return str(_agm_manual_daily_rows_path())
+
+
+def _on_agm_persisted(outcome, _payload):
+    global _AGM_INGEST_REFRESH_PENDING
+    _AGM_INGEST_REFRESH_PENDING = True
+    outcome.storage_target = _agm_manual_rows_storage_target()
+    outcome.display_refreshed = False
+
+
 # ─────────────────────────────────────────────────────────────
 # Glenn Uploader ingest (POST /api/uploader/ingest-daily-row)
 # Inert unless the operator sets GLENN_UPLOADER_INGEST_ENABLED=true and a
 # GLENN_UPLOADER_INGEST_TOKEN in this process's env (read per request).
 # Persists through the SAME manual-daily-rows mechanism the admin UI uses
 # (agm_add_manual_daily_row -> momentum_pacer_manual_daily_rows.json), which
-# re-runs the accepted accounting model. NOTE: manual rows surface in the
-# authenticated admin view; the public tearsheet stays CSV-driven.
+# re-runs the accepted accounting model. Manual rows are included in the
+# public client daily table and NAV chart (merged with TradeStation CSV).
 # ─────────────────────────────────────────────────────────────
 
 def _uploader_manual_row_view(row):
@@ -3422,8 +3449,27 @@ _ingest.register_uploader_ingest(
         apply=_uploader_ingest_apply_agm,
         audit_path=Path(__file__).resolve().parent
         / "glenn_uploader_ingest_agm_audit.jsonl",
+        storage_target=_agm_manual_rows_storage_target(),
+        on_persisted=_on_agm_persisted,
     ),
 )
+
+
+@app.callback(
+    Output("mp-nav-graph", "figure", allow_duplicate=True),
+    Output(CLIENT_DAILY_TABLE_ID, "data", allow_duplicate=True),
+    Input("agm-ingest-refresh-interval", "n_intervals"),
+    prevent_initial_call=True,
+)
+def _refresh_agm_after_uploader_ingest(_n_intervals):
+    global _AGM_INGEST_REFRESH_PENDING
+    if not _AGM_INGEST_REFRESH_PENDING:
+        return dash.no_update, dash.no_update
+    _AGM_INGEST_REFRESH_PENDING = False
+    return build_nav_figure(), build_client_daily_table_rows(
+        newest_first=True,
+        table=_effective_client_accounting_table(),
+    )
 
 
 # ==============================================================================

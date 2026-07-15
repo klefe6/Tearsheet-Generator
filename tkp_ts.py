@@ -1106,10 +1106,21 @@ else:
 print(f"▶️ Using NAV column: {NAV_col}")
 
 
-def _canonical_records_from_secret_rows(rows):
-    """Build canonical Date/NAV records from persisted Daily Returns rows (same logic as live store)."""
-    if not rows:
-        return []
+def _parse_money(s):
+    """Parse a currency string like '$1,234.56' into a float."""
+    if isinstance(s, (int, float)) and not (s != s):
+        return float(s)
+    try:
+        cleaned = str(s).replace("$", "").replace(",", "").strip()
+        if not cleaned:
+            return 0.0
+        return float(cleaned)
+    except (ValueError, TypeError):
+        return 0.0
+
+
+def _rebuild_nav_series(rows):
+    """Extract (Date, balance) pairs from canonical or store rows; return date-indexed Series."""
     pairs = []
     for r in rows:
         date_str = r.get("Date", "")
@@ -1118,9 +1129,113 @@ def _canonical_records_from_secret_rows(rows):
             continue
         try:
             dt = pd.to_datetime(date_str)
-            nav_val = float(str(nav_str).replace("$", "").replace(",", "").strip())
+            nav_val = _parse_money(nav_str)
             if nav_val > 0:
                 pairs.append((dt, nav_val))
+        except Exception:
+            continue
+    if not pairs:
+        return pd.Series(dtype=float)
+    df = pd.DataFrame(pairs, columns=["Date", "NAV"]).sort_values("Date")
+    df = df.drop_duplicates(subset="Date", keep="last")
+    return df.set_index("Date")["NAV"]
+
+
+def _daily_returns_from_secret_rows(rows, bl):
+    """Deposit-neutralized daily returns from persisted $PL / nominal baseline."""
+    if not rows or bl == 0:
+        return pd.Series(dtype=float)
+    pairs = []
+    for r in rows:
+        date_str = r.get("Date", "")
+        if not date_str:
+            continue
+        try:
+            dt = pd.to_datetime(date_str)
+            pl = _parse_money(r.get("$PL", "")) if r.get("$PL", "") else 0.0
+            pairs.append((dt, pl / bl))
+        except Exception:
+            continue
+    if not pairs:
+        return pd.Series(dtype=float)
+    df = pd.DataFrame(pairs, columns=["Date", "ret"]).sort_values("Date")
+    df = df.drop_duplicates(subset="Date", keep="last")
+    return df.set_index("Date")["ret"]
+
+
+def _extract_stonex_deposit_fee_series(store_rows):
+    """Extract date-indexed StoneX balance, Deposit, and Fee series from store rows."""
+    if not store_rows:
+        return pd.Series(dtype=float), pd.Series(dtype=float), pd.Series(dtype=float)
+    rows = []
+    for r in store_rows:
+        d = r.get("Date", "")
+        sx = r.get("StoneX", "")
+        dep = r.get("Deposit", "")
+        fee = r.get("Fee (20%)", "")
+        if not d or not sx:
+            continue
+        try:
+            dt = pd.to_datetime(d)
+            rows.append((
+                dt,
+                _parse_money(sx),
+                _parse_money(dep) if dep else 0.0,
+                _parse_money(fee) if fee else 0.0,
+            ))
+        except Exception:
+            continue
+    if not rows:
+        return pd.Series(dtype=float), pd.Series(dtype=float), pd.Series(dtype=float)
+    df = pd.DataFrame(rows, columns=["Date", "StoneX", "Deposit", "Fee"]).sort_values("Date")
+    df = df.drop_duplicates(subset="Date", keep="last").set_index("Date")
+    return df["StoneX"], df["Deposit"], df["Fee"]
+
+
+def _compute_stonex_monthly_gross_net(stonex_s, deposit_s, fee_s, bl):
+    """Monthly gross/net % returns from StoneX balances (deposit-neutralized gross)."""
+    if stonex_s.empty or bl == 0:
+        return pd.Series(dtype=float), pd.Series(dtype=float)
+    mp = stonex_s.index.to_period("M")
+    m_last = stonex_s.groupby(mp).last()
+    m_first = pd.Series(index=m_last.index, dtype=float)
+    m_dep = pd.Series(index=m_last.index, dtype=float)
+    m_fee = pd.Series(index=m_last.index, dtype=float)
+    for period in m_last.index:
+        before = stonex_s[stonex_s.index < period.start_time]
+        m_first.loc[period] = before.iloc[-1] if len(before) > 0 else bl
+        in_month_dep = deposit_s[(deposit_s.index >= period.start_time) &
+                                  (deposit_s.index <= period.end_time)]
+        in_month_fee = fee_s[(fee_s.index >= period.start_time) &
+                              (fee_s.index <= period.end_time)]
+        m_dep.loc[period] = in_month_dep.sum()
+        m_fee.loc[period] = in_month_fee.sum()
+    gross = (m_last - m_first - m_dep) / bl * 100
+    net = (m_last - m_first - m_dep - m_fee) / bl * 100
+    return gross, net
+
+
+def _canonical_records_from_secret_rows(rows):
+    """Build canonical Date/balance records for TKP performance representation.
+
+    StoneX is the sole performance input. Plus500 and the persisted synthetic
+    NAV column are never used for charts, returns, drawdown, or benchmarks.
+    The returned dicts keep the ``NAV`` key for store compatibility; values are
+    StoneX balances.
+    """
+    if not rows:
+        return []
+    pairs = []
+    for r in rows:
+        date_str = r.get("Date", "")
+        stonex_str = r.get("StoneX", "")
+        if not date_str or not stonex_str:
+            continue
+        try:
+            dt = pd.to_datetime(date_str)
+            stonex_val = _parse_money(stonex_str)
+            if stonex_val > 0:
+                pairs.append((dt, stonex_val))
         except Exception:
             continue
     if not pairs:
@@ -1158,14 +1273,27 @@ if _secret_editor_restored_from_disk:
     _nav_from_secret = _canonical_records_from_secret_rows(secret_table_records)
     if _nav_from_secret:
         CANONICAL_NAV_RECORDS_INITIAL = _nav_from_secret
+        _perf_series = _rebuild_nav_series(_nav_from_secret)
+        if not _perf_series.empty:
+            NAV_df = _perf_series.to_frame(NAV_col)
+            NAV_df = NAV_df.asfreq(us_bd).ffill()
+            print(
+                f"📊 Performance series overridden from secret store (StoneX only): "
+                f"{len(NAV_df)} rows, last=${NAV_df[NAV_col].iloc[-1]:,.2f}"
+            )
 
 
 # ==============================================================================
 # 6) NON-COMPOUNDED DAILY RETURNS
-#    Compute each day's P&L as a % of starting NAV (baseline)
+#    Compute each day's P&L as a % of the $150k nominal baseline
 # ==============================================================================
-baseline = NAV_df[NAV_col].iloc[0]
-daily_returns = NAV_df[NAV_col].diff().div(baseline).dropna()
+baseline = BASELINE_AMOUNT
+if _secret_editor_restored_from_disk and secret_table_records:
+    daily_returns = _daily_returns_from_secret_rows(secret_table_records, baseline)
+    if not daily_returns.empty:
+        daily_returns = daily_returns.reindex(NAV_df.index).fillna(0.0)
+else:
+    daily_returns = NAV_df[NAV_col].diff().div(baseline).dropna()
 
 
 # ==============================================================================
@@ -1212,27 +1340,22 @@ for name, sym in bench_map.items():
 #    + MONTH-CELLS THAT SUM TO TRUE YEAR-OVER-YEAR RETURN
 # ==============================================================================
 
-# 8a) Month-end and month-start NAV
-mp          = NAV_df.index.to_period("M")
-month_last  = NAV_df[NAV_col].groupby(mp).last()
-
-# Calculate month_first: use the last NAV value from the day before each month starts
-# This ensures we get the correct starting NAV even if there are gaps in months
-month_first = pd.Series(index=month_last.index, dtype=float)
-for period in month_last.index:
-    # Get the first day of this month
-    month_start = period.start_time
-    # Find the last NAV value before this month starts
-    nav_before_month = NAV_df[NAV_col][NAV_df.index < month_start]
-    if len(nav_before_month) > 0:
-        # Use the last NAV value before the month starts
-        month_first.loc[period] = nav_before_month.iloc[-1]
-    else:
-        # For the very first month, use baseline
-        month_first.loc[period] = baseline
-
-# 8b) Compute each month's change **relative** to fixed baseline
-monthly_simple = (month_last - month_first) / baseline * 100
+# 8a) Month-end and month-start performance balance (StoneX when secret store loaded)
+if _secret_editor_restored_from_disk and secret_table_records:
+    sx_s, dep_s, fee_s = _extract_stonex_deposit_fee_series(secret_table_records)
+    monthly_simple, _monthly_net = _compute_stonex_monthly_gross_net(sx_s, dep_s, fee_s, baseline)
+else:
+    mp          = NAV_df.index.to_period("M")
+    month_last  = NAV_df[NAV_col].groupby(mp).last()
+    month_first = pd.Series(index=month_last.index, dtype=float)
+    for period in month_last.index:
+        month_start = period.start_time
+        nav_before_month = NAV_df[NAV_col][NAV_df.index < month_start]
+        if len(nav_before_month) > 0:
+            month_first.loc[period] = nav_before_month.iloc[-1]
+        else:
+            month_first.loc[period] = baseline
+    monthly_simple = (month_last - month_first) / baseline * 100
 
 # Hard-coded overrides for specific months (requested adjustments)
 override_months = {
@@ -1245,7 +1368,7 @@ for override_period, override_value in override_months.items():
 
 # Debug output for October 2025
 oct_2025_period = pd.Period("2025-10", freq="M")
-if oct_2025_period in monthly_simple.index:
+if oct_2025_period in monthly_simple.index and not (_secret_editor_restored_from_disk and secret_table_records):
     oct_last = month_last.loc[oct_2025_period]
     oct_first = month_first.loc[oct_2025_period]
     oct_return = monthly_simple.loc[oct_2025_period]
@@ -1580,9 +1703,9 @@ def safe_spxtr_download():
 # ==============================================================================
 # 11) Build the “Worst Drawdown” DataFrame
 # ==============================================================================
-# Strategy NAV + baseline
+# Strategy NAV + baseline (StoneX levels; baseline-relative drawdown uses $150k nominal)
 strategy_nav      = NAV_df[NAV_col]
-strategy_baseline = strategy_nav.iloc[0]
+strategy_baseline = BASELINE_AMOUNT
 
 # SPXTR NAV scaled to strategy baseline
 spxtr_returns    = bench_ret["SPXTR"]
@@ -3770,13 +3893,6 @@ def show_monthly_calc(n_clicks, month, year, canonical_rows, secret_rows):
     ])
 
 # ── Helper functions for auto-calculation (from CURSOR_PATCH.md) ──────────
-def _parse_money(s):
-    """'$1,234.56' → 1234.56; '' or None → 0.0"""
-    try:
-        return float(str(s).replace("$", "").replace(",", "").strip())
-    except (ValueError, TypeError):
-        return 0.0
-
 def _parse_pct(s):
     """Stored as display % (e.g. 1.2345) → return decimal 0.012345 for calculations."""
     if isinstance(s, (int, float)) and not (s != s):  # excludes NaN
@@ -3828,27 +3944,6 @@ def _compute_new_row(prev_row: dict, new_balance: float, deposit: float) -> dict
 # RECALCULATION ENGINE — rebuild dashboard metrics from Daily Returns store
 # ══════════════════════════════════════════════════════════════════════════
 
-def _rebuild_nav_series(rows):
-    """Extract (Date, NAV) pairs from store rows and return a date-indexed pd.Series."""
-    pairs = []
-    for r in rows:
-        date_str = r.get("Date", "")
-        nav_str = r.get("NAV", "")
-        if not date_str or not nav_str:
-            continue
-        try:
-            dt = pd.to_datetime(date_str)
-            nav_val = _parse_money(nav_str)
-            if nav_val > 0:
-                pairs.append((dt, nav_val))
-        except Exception:
-            continue
-    if not pairs:
-        return pd.Series(dtype=float)
-    df = pd.DataFrame(pairs, columns=["Date", "NAV"]).sort_values("Date")
-    df = df.drop_duplicates(subset="Date", keep="last")
-    return df.set_index("Date")["NAV"]
-
 @app.callback(
     Output("canonical-nav-store", "data"),
     Input("secret-data-store", "data"),
@@ -3857,100 +3952,28 @@ def _rebuild_nav_series(rows):
 def sync_canonical_nav_store(secret_store_rows):
     if not secret_store_rows:
         return dash.no_update
-    nav_s = _rebuild_nav_series(secret_store_rows)
-    if nav_s.empty:
+    records = _canonical_records_from_secret_rows(secret_store_rows)
+    return records if records else dash.no_update
+
+
+def _recompute_monthly_records(nav_series, bl, secret_rows=None):
+    """Rebuild monthly calendar records from StoneX gross returns when store rows exist."""
+    if secret_rows:
+        sx_s, dep_s, fee_s = _extract_stonex_deposit_fee_series(secret_rows)
+        m_simple, _ = _compute_stonex_monthly_gross_net(sx_s, dep_s, fee_s, bl)
+    elif nav_series.empty or bl == 0:
         return []
-    return [
-        {"Date": dt.strftime("%Y-%m-%d"), "NAV": float(v)}
-        for dt, v in nav_s.items()
-    ]
+    else:
+        mp = nav_series.index.to_period("M")
+        m_last = nav_series.groupby(mp).last()
+        m_first = pd.Series(index=m_last.index, dtype=float)
+        for period in m_last.index:
+            before = nav_series[nav_series.index < period.start_time]
+            m_first.loc[period] = before.iloc[-1] if len(before) > 0 else bl
+        m_simple = (m_last - m_first) / bl * 100
 
-
-def _extract_stonex_deposit_fee_series(store_rows):
-    """Extract date-indexed StoneX balance, Deposit, and Fee series from secret-data-store rows.
-    
-    Data model notes:
-    - StoneX = actual brokerage balance (GROSS — does not reflect advisor fees)
-    - Fee (20%) = performance fee charged that day (stored separately)
-    - Deposit = cash transfer that day
-    - NAV = net asset value (reflects fees already deducted)
-    
-    Therefore:
-    - StoneX Excl. Fees (gross) = StoneX change minus deposits
-    - StoneX Incl. Fees (net) = StoneX change minus deposits minus fees
-    """
-    if not store_rows:
-        return pd.Series(dtype=float), pd.Series(dtype=float), pd.Series(dtype=float)
-    rows = []
-    for r in store_rows:
-        d = r.get("Date", "")
-        sx = r.get("StoneX", "")
-        dep = r.get("Deposit", "")
-        fee = r.get("Fee (20%)", "")
-        if not d or not sx:
-            continue
-        try:
-            dt = pd.to_datetime(d)
-            sx_val = _parse_money(sx)
-            dep_val = _parse_money(dep) if dep else 0.0
-            fee_val = _parse_money(fee) if fee else 0.0
-            rows.append((dt, sx_val, dep_val, fee_val))
-        except Exception:
-            continue
-    if not rows:
-        return pd.Series(dtype=float), pd.Series(dtype=float), pd.Series(dtype=float)
-    df = pd.DataFrame(rows, columns=["Date", "StoneX", "Deposit", "Fee"]).sort_values("Date")
-    df = df.drop_duplicates(subset="Date", keep="last").set_index("Date")
-    return df["StoneX"], df["Deposit"], df["Fee"]
-
-
-def _compute_stonex_monthly_gross_net(stonex_s, deposit_s, fee_s, bl):
-    """Compute monthly returns from StoneX balances, returning both gross and net.
-    
-    Gross (Excl. Fees):
-        (month_end_StoneX - prior_month_end_StoneX - net_deposits) / BASELINE * 100
-        
-    Net (Incl. Fees):
-        (month_end_StoneX - prior_month_end_StoneX - net_deposits - fees_in_month) / BASELINE * 100
-    
-    Returns: (gross_series, net_series) — both indexed by Period
-    """
-    if stonex_s.empty or bl == 0:
-        return pd.Series(dtype=float), pd.Series(dtype=float)
-    mp = stonex_s.index.to_period("M")
-    m_last = stonex_s.groupby(mp).last()
-    m_first = pd.Series(index=m_last.index, dtype=float)
-    m_dep = pd.Series(index=m_last.index, dtype=float)
-    m_fee = pd.Series(index=m_last.index, dtype=float)
-    for period in m_last.index:
-        before = stonex_s[stonex_s.index < period.start_time]
-        m_first.loc[period] = before.iloc[-1] if len(before) > 0 else bl
-        in_month_dep = deposit_s[(deposit_s.index >= period.start_time) &
-                                  (deposit_s.index <= period.end_time)]
-        in_month_fee = fee_s[(fee_s.index >= period.start_time) &
-                              (fee_s.index <= period.end_time)]
-        m_dep.loc[period] = in_month_dep.sum()
-        m_fee.loc[period] = in_month_fee.sum()
-    gross = (m_last - m_first - m_dep) / bl * 100
-    net = (m_last - m_first - m_dep - m_fee) / bl * 100
-    return gross, net
-
-
-def _recompute_monthly_records(nav_series, bl):
-    """Rebuild monthly calendar records from a NAV series.
-    
-    Produces 1 row per year with official NAV-based results only.
-    StoneX comparison is available in Show Calculations modal, not in main table.
-    """
-    if nav_series.empty or bl == 0:
+    if m_simple.empty or bl == 0:
         return []
-    mp = nav_series.index.to_period("M")
-    m_last = nav_series.groupby(mp).last()
-    m_first = pd.Series(index=m_last.index, dtype=float)
-    for period in m_last.index:
-        before = nav_series[nav_series.index < period.start_time]
-        m_first.loc[period] = before.iloc[-1] if len(before) > 0 else bl
-    m_simple = (m_last - m_first) / bl * 100
 
     for op, ov in override_months.items():
         if op in m_simple.index:
@@ -3972,11 +3995,15 @@ def _recompute_monthly_records(nav_series, bl):
     return rows
 
 
-def _recompute_daily_perf_records(nav_series, bl):
-    """Rebuild daily performance metrics table from a NAV series. Returns list[dict]."""
+def _recompute_daily_perf_records(nav_series, bl, secret_rows=None):
+    """Rebuild daily performance metrics; uses $PL-based returns when store rows exist."""
     if nav_series.empty or bl == 0:
         return []
-    d_returns = nav_series.diff().div(bl).dropna()
+    if secret_rows:
+        d_returns = _daily_returns_from_secret_rows(secret_rows, bl)
+        d_returns = d_returns.reindex(nav_series.index).fillna(0.0)
+    else:
+        d_returns = nav_series.diff().div(bl).dropna()
     i_start = nav_series.index.min()
     ttm = nav_series.index.max() - pd.DateOffset(years=1)
     oy_ret = d_returns.loc[ttm:].dropna()
@@ -3994,22 +4021,22 @@ def _recompute_daily_perf_records(nav_series, bl):
 
 
 def _rebuild_nav_figure(nav_series):
-    """Rebuild the NAV Plotly figure from a live NAV series."""
+    """Rebuild the performance chart from the StoneX balance series."""
     if nav_series.empty:
         fig = go.Figure()
         fig.add_annotation(text="No data", xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False)
         return fig
     fig = go.Figure(
         go.Scatter(x=nav_series.index, y=nav_series.values,
-                   mode="lines", line={"color": PRIMARY_COLOR}, name="NAV")
+                   mode="lines", line={"color": PRIMARY_COLOR}, name="StoneX")
     )
     cfg = {
-        "title": {"text": "<u>Non-Compounded NAV Since Inception</u>", "x": 0.5, "xanchor": "center"},
+        "title": {"text": "<u>StoneX Performance Balance Since Inception</u>", "x": 0.5, "xanchor": "center"},
         "template": "ggplot2",
         "plot_bgcolor": GREY_BG,
         "paper_bgcolor": WHITE_BG,
         "xaxis_title": "Date",
-        "yaxis_title": "NAV",
+        "yaxis_title": "StoneX Balance",
         "autosize": True,
     }
     if SHOW_PERCENTAGE_AXIS:
@@ -4113,8 +4140,8 @@ def propagate_dashboard(canonical_nav_rows, secret_store_rows):
 
     bl = BASELINE_AMOUNT
 
-    monthly_recs = _recompute_monthly_records(nav_s, bl)
-    perf_recs = _recompute_daily_perf_records(nav_s, bl)
+    monthly_recs = _recompute_monthly_records(nav_s, bl, secret_rows=secret_store_rows)
+    perf_recs = _recompute_daily_perf_records(nav_s, bl, secret_rows=secret_store_rows)
     nav_fig = _rebuild_nav_figure(nav_s)
 
     # Use the most recent date from the Daily Returns store (the last actual entry),

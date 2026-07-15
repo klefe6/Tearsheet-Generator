@@ -22,9 +22,9 @@ Idempotency by date against the CURRENT ledger:
     or replaces the latest row only — interior edits stay admin-only)
 
 Dry-run uses tcp_admin.simulate_add_row (the same simulation the admin modal
-shows) and never writes. NOTE (documented caveat): TCP v2 bakes its layout at
-process start, so an ingested row reaches the LIVE page only after a TCP
-restart — the state file itself is updated immediately and safely.
+shows) and never writes. After a real ingest, tcp_ts_v2 reloads its in-memory
+snapshot on the next ingest-refresh interval so the live page reflects the
+persisted state file without a manual process restart.
 """
 
 from __future__ import annotations
@@ -60,9 +60,25 @@ def _as_float(value: Any) -> Any:
         return value
 
 
-def build_tcp_ingest_config(cfg: Any, paths: Any, audit_path: Any = None) -> IngestConfig:
+def build_tcp_ingest_config(
+    cfg: Any,
+    paths: Any,
+    audit_path: Any = None,
+    storage_target: Any = None,
+    on_persisted: Any = None,
+) -> IngestConfig:
     """IngestConfig for TCP. `cfg`/`paths` are the app's own TCPConfig and
     resolved StatePaths — the same objects its admin persistence uses."""
+    active_path = str(getattr(paths, "active_path", storage_target or ""))
+
+    def _finalize_outcome(outcome: IngestOutcome, dry_run: bool) -> IngestOutcome:
+        if dry_run:
+            return outcome
+        snap = load_runtime_snapshot(cfg, paths)
+        outcome.persisted = True
+        outcome.state_revision = snap.state_revision
+        outcome.storage_target = active_path
+        return outcome
 
     def apply(payload: dict, dry_run: bool) -> IngestOutcome:
         snapshot = load_runtime_snapshot(cfg, paths)
@@ -98,9 +114,12 @@ def build_tcp_ingest_config(cfg: Any, paths: Any, audit_path: Any = None) -> Ing
                 and abs(last_view["cash_transfers"] - cash_transfers) < 0.005
             )
             if same:
-                return IngestOutcome(
-                    action="unchanged", before=last_view, after=last_view,
-                    message=f"TCP {date} already has these values.",
+                return _finalize_outcome(
+                    IngestOutcome(
+                        action="unchanged", before=last_view, after=last_view,
+                        message=f"TCP {date} already has these values.",
+                    ),
+                    dry_run,
                 )
             if len(snapshot.records) < 2:
                 raise IngestRejected(
@@ -134,7 +153,10 @@ def build_tcp_ingest_config(cfg: Any, paths: Any, audit_path: Any = None) -> Ing
                     f"replace failed at re-add step (last row was deleted, revision "
                     f"{deleted.revision}): {added.error_message}"
                 )
-            return IngestOutcome(action="updated", before=last_view, after=after)
+            return _finalize_outcome(
+                IngestOutcome(action="updated", before=last_view, after=after),
+                dry_run,
+            )
 
         # date > latest: append.
         sim = simulate_add_row(
@@ -154,7 +176,10 @@ def build_tcp_ingest_config(cfg: Any, paths: Any, audit_path: Any = None) -> Ing
         )
         if not added.success:
             raise IngestRejected(added.error_message or "TCP persist failed.")
-        return IngestOutcome(action="created", before=last_view, after=after)
+        return _finalize_outcome(
+            IngestOutcome(action="created", before=last_view, after=after),
+            dry_run,
+        )
 
     return IngestConfig(
         program="TCP",
@@ -162,4 +187,6 @@ def build_tcp_ingest_config(cfg: Any, paths: Any, audit_path: Any = None) -> Ing
         optional_fields=("cash_transfer",),
         apply=apply,
         audit_path=audit_path,
+        storage_target=active_path,
+        on_persisted=on_persisted,
     )

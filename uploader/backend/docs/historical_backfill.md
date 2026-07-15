@@ -34,39 +34,35 @@ scripts/extract_tearsheet_history.py  ──JSON──▶ POST /api/backfill/imp
 
 | Program | Store | Maps to | Coverage |
 | ------- | ----- | ------- | -------- |
-| TKP | `<repo>/daily_returns_secret_state.json` — the **`NAV`** column (equity curve), NOT raw StoneX/Plus500 balances (see TKP decision below) | stonex_nlv = `NAV - Plus500`, plus500_nlv = `Plus500` (0 when blank), cash_transfer = 0 | 837 rows, 2023-04-10 → 2026-07-09 |
+| TKP | `<repo>/daily_returns_secret_state.json` — authoritative broker columns (see TKP decision below) | stonex_nlv = `StoneX`, plus500_nlv = `Plus500` (0 when blank), cash_transfer = `Deposit` (0 when blank) | 837+ rows, 2023-04-10 → 2026-07-09 (historical import window) |
 | TCP | LIVE state file from `TCP_V2_STATE_PATH` in `<repo>/.tcp_production.env` — the repo-root file of the same name is a **stale seed**, never used by default. **Gated**: skipped unless `BACKFILL_TCP_NLV_FIELD=nav-x1` | stonex_nlv = `nav-x1`, cash_transfer = 0 (see TCP decision below) | 121 rows, 2026-01-20 → 2026-07-07 |
 | AGM | newest `<repo>/Momentum Pacer/data/daily_balances/balances_210TGG51_*.csv` (`Net Worth` = raw actual_nlv, **not** the client-net value the tearsheet shows). **Rows before 2025-11-13 skipped** — account funded 2025-10-20 but strategy inception is 2025-11-13 (the fee engine anchors there); earlier idle-cash rows would chart a fake flat segment | tradestation_nlv, cash_transfer (evidenced fee withdrawals only) | 166 rows, 2025-11-13 → 2026-07-06 |
 | Y&Q | `yq.csv` is **monthly** (2011-04 →), at real-fund ~$89M scale, while the tearsheet renders a $100k-normalized ROR curve | **no daily source — always skipped** | — |
 
-### TKP decision: the `NAV` equity curve, never raw balances (traced 2026-07-10)
+### TKP decision: StoneX-only performance, Plus500 informational (2026-07-14)
 
-The TKP tearsheet graphs the workbook's NAV column (renamed `nav-x1` in
-`tkp_ts.py`), and the app explicitly neutralizes transfers on it —
-`_apply_cash_transfer_adjustment` adds withdrawals back / removes deposits
-from the transfer date onward (`AUTO_DETECT_CASH_TRANSFERS = True`). The
-state JSON's own `NAV` column embodies exactly that concept:
+Glenn Daily Uploader treats **StoneX as the sole TKP performance account**.
+Plus500 is imported and shown in the bottom table for account tracking, but
+it never enters `program_nlv`, the normalized $100,000 chart, or any TKP
+performance calculation.
 
-```
-NAV(t) = 150,000 × (1 + "Cumm Perc. Net"(t))     # verified to the cent, all 837 rows
-```
+Field mapping from `daily_returns_secret_state.json`:
 
-— cumulative NET performance, seeded $150k, smooth through every
-deposit/withdrawal date (e.g. 2025-10-29's −$100k day: NAV +0.009%).
+| Source column | historical_rows field | Role |
+| ------------- | --------------------- | ---- |
+| `StoneX` | `stonex_nlv` | **Performance balance** (required) |
+| `Plus500` | `plus500_nlv` | Informational display only |
+| `Deposit` | `cash_transfer` | Transfer neutralization in return formula |
+| `NAV` | *(not imported)* | Tearsheet equity curve — **not used** by Glenn Uploader |
 
-Raw `StoneX + Plus500` balances are **rejected** because the state's
-`Deposit` ledger is provably incomplete: on **2026-03-05 both accounts
-dropped ~$25k each (−$49,915.58 combined) while `Deposit` recorded only
-−$25,000**, and the 2025-03-11 Plus500 $100k funding had a blank `Deposit`
-cell entirely. No neutralization built on that ledger can be trusted, so the
-first backfill (raw balances + recorded/synthesized transfers) showed fake
-drops on withdrawal days. Backfilled TKP rows carry `stonex_nlv = NAV`,
-`plus500_nlv = 0`, `cash_transfer = 0` (NAV is already neutral); the
-uploader's $100k line telescopes to `100000 × NAV(t)/NAV(first)` — a
-faithful rescaling of TKP's own equity curve. When the state's ``Plus500``
-column is populated, that value is backfilled into ``plus500_nlv`` and
-``stonex_nlv`` is set to ``NAV - Plus500`` so the bottom table shows both
-broker NLVs while the chart still compounds on NAV.
+The tearsheet's `NAV` column (cumulative net performance seeded at $150k) is
+deliberately **not** backfilled. Historical and manual TKP rows both compound
+on StoneX only. When `Deposit` is populated, it maps to `cash_transfer` so the
+existing uploader formula (`adjusted = stonex_nlv - cash_transfer`) can
+neutralize deposits and withdrawals on the StoneX-only chart.
+
+Rows with a blank `StoneX` are skipped with a warning — NAV is never
+substituted.
 
 ### TCP decision: `nav-x1`, never raw `NLV` (traced 2026-07-10)
 

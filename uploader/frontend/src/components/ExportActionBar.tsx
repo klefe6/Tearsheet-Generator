@@ -1,4 +1,5 @@
 import type { ExportOverallStatus, ExportUiState } from '../types'
+import { exportStatusIcon } from '../lib/exportStatus'
 import styles from './ExportActionBar.module.css'
 
 interface Props {
@@ -43,6 +44,25 @@ function WarnIcon() {
   )
 }
 
+function FailIcon() {
+  return (
+    <svg
+      width="13"
+      height="13"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <circle cx="12" cy="12" r="9" />
+      <path d="M15 9l-6 6M9 9l6 6" />
+    </svg>
+  )
+}
+
 function formatExportTime(value: Date): string {
   return value.toLocaleString(undefined, {
     month: 'short',
@@ -57,28 +77,38 @@ function formatExportTime(value: Date): string {
  *  failure behind a reassuring label — see docs/downstream_export_contract.md. */
 const STATUS_BADGE: Record<
   Exclude<ExportOverallStatus, 'idle' | 'pending'>,
-  { label: string; className: keyof typeof styles; icon: 'check' | 'warn' | null }
+  { label: string; className: keyof typeof styles }
 > = {
-  offline_mock: { label: 'Backend Unreachable — Local Only', className: 'mutedBadge', icon: null },
-  saved: { label: 'Saved to Uploader Backend', className: 'processedBadge', icon: 'check' },
-  dry_run: { label: 'Dry Run — Nothing Written', className: 'dryRunBadge', icon: null },
+  offline_mock: { label: 'Backend Unreachable — Local Only', className: 'mutedBadge' },
+  saved: { label: 'Saved to Uploader Backend', className: 'processedBadge' },
+  dry_run: { label: 'Dry Run — Nothing Written', className: 'dryRunBadge' },
   downstream_dry_run: {
     label: 'Downstream Dry-Run Validated',
     className: 'dryRunBadge',
-    icon: 'check',
   },
-  sandbox_success: { label: 'Exported to Sandbox', className: 'processedBadge', icon: 'check' },
-  pushed: { label: 'Pushed to Tearsheet Sites', className: 'processedBadge', icon: 'check' },
-  partial_failure: { label: 'Partial Failure', className: 'warnBadge', icon: 'warn' },
-  failed: { label: 'Failed', className: 'failBadge', icon: 'warn' },
+  sandbox_success: { label: 'Exported to Sandbox', className: 'processedBadge' },
+  pushed: { label: 'Exported and Verified', className: 'processedBadge' },
+  pushed_pending_refresh: {
+    label: 'Accepted — Awaiting Site Refresh',
+    className: 'warnBadge',
+  },
+  partial_failure: { label: 'Partial Failure', className: 'warnBadge' },
+  failed: { label: 'Failed', className: 'failBadge' },
+  no_eligible: { label: 'No Eligible Rows', className: 'mutedBadge' },
 }
 
 const PROGRAM_LABEL: Record<string, string> = { TKP: 'TKP', TCP: 'TCP', AGM: 'AGM', YQ: 'Y&Q' }
 
-function programStatusText(status: string, reason?: string): string {
+function programStatusText(
+  status: string,
+  reason?: string,
+  verification?: string,
+): string {
   switch (status) {
     case 'success':
-      return 'exported'
+      return verification === 'verified' ? 'exported and verified' : 'exported'
+    case 'pending_refresh':
+      return 'accepted — awaiting refresh'
     case 'failure':
       return 'failed'
     case 'partial_failure':
@@ -94,6 +124,16 @@ function programStatusText(status: string, reason?: string): string {
   }
 }
 
+function programItemClass(status: string, verification?: string): string {
+  if (status === 'failure' || status === 'partial_failure') return styles.programItemFail
+  if (status === 'pending_refresh' || verification === 'pending_refresh') {
+    return styles.programItemWarn
+  }
+  if (status === 'success') return styles.programItemOk
+  if (status === 'skipped' || status === 'no_rows') return styles.programItemNeutral
+  return styles.programItem
+}
+
 export function ExportActionBar({ exportState, onExport, onUndo }: Props) {
   const {
     lastExportAt,
@@ -104,11 +144,14 @@ export function ExportActionBar({ exportState, onExport, onUndo }: Props) {
     targetEnv,
     manualRowsByProgram,
     eligibleCount,
+    excludedCount,
+    exportedCount,
     dryRun,
     preflightNote,
   } = exportState
   const showPending = overallStatus === 'pending'
   const badge = showPending || overallStatus === 'idle' ? null : STATUS_BADGE[overallStatus]
+  const icon = badge ? exportStatusIcon(overallStatus) : null
 
   const manualSummary = manualRowsByProgram
     ? (['TKP', 'TCP', 'AGM', 'YQ'] as const)
@@ -152,8 +195,9 @@ export function ExportActionBar({ exportState, onExport, onUndo }: Props) {
 
         {badge && (
           <span className={styles[badge.className]} role="status">
-            {badge.icon === 'check' && <CheckIcon />}
-            {badge.icon === 'warn' && <WarnIcon />}
+            {icon === 'check' && <CheckIcon />}
+            {icon === 'warn' && <WarnIcon />}
+            {icon === 'fail' && <FailIcon />}
             {badge.label}
           </span>
         )}
@@ -175,16 +219,20 @@ export function ExportActionBar({ exportState, onExport, onUndo }: Props) {
         )}
       </div>
 
-      {(manualSummary || typeof eligibleCount === 'number' || preflightNote) && (
+      {(manualSummary ||
+        typeof eligibleCount === 'number' ||
+        typeof excludedCount === 'number' ||
+        typeof exportedCount === 'number' ||
+        preflightNote) && (
         <div className={styles.summaryBlock} aria-label="Export row summary">
           {manualSummary && (
-            <p className={styles.summaryLine}>
-              Manual rows on backend: {manualSummary}
-            </p>
+            <p className={styles.summaryLine}>Manual rows on backend: {manualSummary}</p>
           )}
           {typeof eligibleCount === 'number' && (
             <p className={styles.summaryLine}>
-              Eligible for this export: {eligibleCount}
+              Eligible for export: {eligibleCount}
+              {typeof exportedCount === 'number' ? ` · already exported: ${exportedCount}` : ''}
+              {typeof excludedCount === 'number' ? ` · historical/excluded: ${excludedCount}` : ''}
               {skipped.length > 0
                 ? ` · skipped: ${skipped
                     .map((p) => `${PROGRAM_LABEL[p.program] ?? p.program}`)
@@ -199,17 +247,9 @@ export function ExportActionBar({ exportState, onExport, onUndo }: Props) {
       {programStatuses.length > 0 && (
         <ul className={styles.programList} aria-label="Per-program export result">
           {programStatuses.map((p) => (
-            <li
-              key={p.program}
-              className={`${styles.programItem} ${
-                p.status === 'failure' || p.status === 'partial_failure'
-                  ? styles.programItemFail
-                  : p.status === 'skipped'
-                    ? styles.programItemSkipped
-                    : styles.programItemOk
-              }`}
-            >
-              <strong>{PROGRAM_LABEL[p.program] ?? p.program}</strong>: {programStatusText(p.status, p.reason)}
+            <li key={p.program} className={`${styles.programItem} ${programItemClass(p.status, p.verification)}`}>
+              <strong>{PROGRAM_LABEL[p.program] ?? p.program}</strong>:{' '}
+              {programStatusText(p.status, p.reason, p.verification)}
             </li>
           ))}
         </ul>

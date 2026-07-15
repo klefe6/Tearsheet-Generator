@@ -507,6 +507,7 @@ def build_preview_layout(cfg: TCPConfig, state: PreviewState, benchmark_result: 
         dcc.Store(id="admin-proposed-row-store", storage_type="memory", data=None),
         dcc.Store(id=ADMIN_AUTH_REVISION_STORE_ID, storage_type="memory", data=0),
         dcc.Store(id="admin-state-revision-store", storage_type="memory", data=snapshot.state_revision),
+        dcc.Interval(id="tcp-ingest-refresh-interval", interval=3_000, n_intervals=0),
         dcc.Store(
             id="admin-delete-final-date-store",
             storage_type="memory",
@@ -825,6 +826,28 @@ def _register_access_callbacks(
         if not n_clicks or not table_data:
             return no_update
         return build_daily_values_export_payload(table_data, export_filename)
+
+
+def _register_ingest_refresh_callback(
+    app: dash.Dash,
+    cfg: TCPConfig,
+    paths: StatePaths,
+    runtime_holder: Dict[str, Any],
+) -> None:
+    """Reload JSON state after Glenn Uploader ingest so charts update without restart."""
+
+    @app.callback(
+        Output("canonical-nav-store", "data", allow_duplicate=True),
+        Output("admin-state-revision-store", "data", allow_duplicate=True),
+        Input("tcp-ingest-refresh-interval", "n_intervals"),
+        prevent_initial_call=True,
+    )
+    def _refresh_after_uploader_ingest(_n_intervals):
+        if not runtime_holder.pop("ingest_refresh_pending", False):
+            return no_update, no_update
+        snap = load_runtime_snapshot(cfg, paths)
+        runtime_holder["snapshot"] = snap
+        return snap.canonical_nav, snap.state_revision
 
 
 def _register_dashboard_callback(app: dash.Dash, runtime_holder: Dict[str, Any]) -> None:
@@ -1201,14 +1224,21 @@ def create_app(
     # unless GLENN_UPLOADER_INGEST_ENABLED + _TOKEN are set in this process's
     # env (read per request). Reuses simulate_add_row/persist_add_row, so an
     # ingested row is computed and revision-guarded exactly like an admin
-    # Add Row. NOTE: TCP bakes its layout at startup — an ingested row reaches
-    # the live PAGE after a restart; the state file updates immediately.
+    # Add Row. The JSON state file updates immediately; a short-interval Dash
+    # refresh reloads the in-memory snapshot so charts update without restart.
+    def _on_tcp_persisted(outcome: Any, _payload: dict) -> None:
+        snap = load_runtime_snapshot(cfg, paths)
+        runtime_holder["snapshot"] = snap
+        runtime_holder["ingest_refresh_pending"] = True
+        outcome.display_refreshed = False
+
     register_uploader_ingest(
         app.server,
         build_tcp_ingest_config(
             cfg,
             paths,
             audit_path=REPO_ROOT / "glenn_uploader_ingest_tcp_audit.jsonl",
+            on_persisted=_on_tcp_persisted,
         ),
     )
 
@@ -1217,6 +1247,7 @@ def create_app(
         app.layout = build_preview_layout(cfg, state, benchmark_result)
         _register_access_callbacks(app, auth_manager, runtime_holder, export_filename=cfg.export_filename)
         _register_dashboard_callback(app, runtime_holder)
+        _register_ingest_refresh_callback(app, cfg, paths, runtime_holder)
         _register_admin_callbacks(app, cfg, paths, runtime_holder, auth_manager)
     else:
         app.layout = build_error_layout(cfg, state)

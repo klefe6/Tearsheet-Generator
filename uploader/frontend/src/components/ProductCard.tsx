@@ -7,7 +7,7 @@ import {
   type FormState,
 } from '../lib/pendingRow'
 import type { ProductConfig, ProductId, ProductRow } from '../types'
-import { formatCurrency, formatShortDate } from '../lib/format'
+import { formatCurrency, formatCurrencyInput, formatShortDate } from '../lib/format'
 import styles from './ProductCard.module.css'
 
 /** One shift request from the global date-step buttons ("nonce" makes repeat clicks re-fire the effect even when `delta` repeats). */
@@ -85,7 +85,7 @@ function parsePastedCurrency(raw: string): string | null {
   cleaned = rest.length > 0 ? `${whole}.${rest.join('')}` : whole
   if (!cleaned || cleaned === '.') return null
   const value = Number(`${negative ? '-' : ''}${cleaned}`)
-  return Number.isFinite(value) ? String(value) : null
+  return Number.isFinite(value) ? formatCurrencyInput(String(value)) : null
 }
 
 /**
@@ -176,11 +176,12 @@ function AccountChip({ account, label }: { account: string; label?: string }) {
  * formatting; if the clipboard doesn't hold a usable number, the input is
  * left untouched and a brief "Invalid" state shows instead.
  */
-function PasteButton({ onPaste }: { onPaste: (value: string) => void }) {
+function PasteButton({ onPaste, disabled = false }: { onPaste: (value: string) => void; disabled?: boolean }) {
   const [state, setState] = useState<'idle' | 'pasted' | 'error'>('idle')
   const timer = useRef<number | undefined>(undefined)
 
   const handlePaste = async (event: React.MouseEvent<HTMLButtonElement>) => {
+    if (disabled) return
     // The button sits inside the field <label>; don't focus/activate the input.
     event.preventDefault()
     event.stopPropagation()
@@ -203,10 +204,11 @@ function PasteButton({ onPaste }: { onPaste: (value: string) => void }) {
       type="button"
       className={`${styles.pasteBtn} ${state === 'pasted' ? styles.pasteBtnPasted : ''} ${
         state === 'error' ? styles.pasteBtnError : ''
-      }`}
+      } ${disabled ? styles.pasteBtnDisabled : ''}`}
       onClick={handlePaste}
-      title="Paste value from clipboard"
-      aria-label="Paste value from clipboard"
+      disabled={disabled}
+      title={disabled ? 'Entry not enabled for Y&Q' : 'Paste value from clipboard'}
+      aria-label={disabled ? 'Paste disabled for Y&Q' : 'Paste value from clipboard'}
     >
       {state === 'pasted' ? (
         <>
@@ -389,6 +391,9 @@ export function ProductCard({
   // Most recent 7 rows, newest first.
   const visibleRows = [...rows].slice(-7).reverse()
 
+  // Y&Q has no downstream export path yet — currency entry stays disabled/grey.
+  const currencyEntryDisabled = config.id === 'YQ'
+
   const brandStyle = {
     '--brand': config.color,
     '--brand-soft': config.colorSoft,
@@ -424,8 +429,14 @@ export function ProductCard({
                 <span className={styles.inputRow}>
                   <span
                     className={`${styles.currencyWrap} ${
-                      field.tint === 'yellow' ? styles.wrapYellow : ''
-                    } ${field.tint === 'pink' ? styles.wrapPink : ''}`}
+                      currencyEntryDisabled
+                        ? styles.wrapDisabled
+                        : field.tint === 'yellow'
+                          ? styles.wrapYellow
+                          : field.tint === 'pink'
+                            ? styles.wrapPink
+                            : ''
+                    }`}
                   >
                     <span className={styles.currencyPrefix}>$</span>
                     <input
@@ -436,6 +447,14 @@ export function ProductCard({
                       placeholder={field.placeholder}
                       value={form[field.key]}
                       onChange={(e) => update(field.key, e.target.value)}
+                      onBlur={(e) => {
+                        const next = formatCurrencyInput(e.target.value)
+                        if (next !== e.target.value) update(field.key, next)
+                      }}
+                      disabled={currencyEntryDisabled}
+                      readOnly={currencyEntryDisabled}
+                      tabIndex={currencyEntryDisabled ? -1 : undefined}
+                      aria-disabled={currencyEntryDisabled}
                     />
                   </span>
                   <span className={styles.controlStack}>
@@ -445,7 +464,10 @@ export function ProductCard({
                         label={field.accountLabel}
                       />
                     )}
-                    <PasteButton onPaste={(value) => update(field.key, value)} />
+                    <PasteButton
+                      onPaste={(value) => update(field.key, value)}
+                      disabled={currencyEntryDisabled}
+                    />
                   </span>
                 </span>
               )}
@@ -454,7 +476,12 @@ export function ProductCard({
         </div>
 
         <div className={styles.actions}>
-          <button type="submit" className={styles.enterBtn} disabled={saving}>
+          <button
+            type="submit"
+            className={styles.enterBtn}
+            disabled={saving || currencyEntryDisabled}
+            title={currencyEntryDisabled ? 'Y&Q daily entry is not enabled yet' : undefined}
+          >
             {saving ? 'Saving…' : 'Save Daily Row'}
           </button>
           <button
@@ -510,9 +537,30 @@ export function ProductCard({
                         key={col.key}
                         className={col.format === 'currency' ? styles.num : undefined}
                       >
-                        {col.format === 'date'
-                          ? formatShortDate(String(row[col.key]))
-                          : formatCurrency(row[col.key])}
+                        {col.format === 'date' ? (
+                          <span className={styles.dateWithBadge}>
+                            {formatShortDate(String(row[col.key]))}
+                            {row.exportState === 'excluded' && (
+                              <span
+                                className={styles.historicalBadge}
+                                title={
+                                  typeof row.excludedReason === 'string' && row.excludedReason
+                                    ? row.excludedReason
+                                    : 'Historical — not exportable'
+                                }
+                              >
+                                Historical — not exportable
+                              </span>
+                            )}
+                            {row.exportState === 'exported' && (
+                              <span className={styles.exportedBadge} title="Already exported">
+                                Exported
+                              </span>
+                            )}
+                          </span>
+                        ) : (
+                          formatCurrency(row[col.key] as string | number)
+                        )}
                       </td>
                     ))}
                   </tr>
@@ -542,14 +590,31 @@ function DisplayRowsTable({
   const cell = (row: ApiDisplayRowsResponse['rows'][number], col: DisplayColumn) => {
     if (col.key === 'date') return formatShortDate(row.date)
     if (col.key === 'source') {
+      const isExcluded = row.export_state === 'excluded' || row.excluded === true
+      const isExported = row.export_state === 'exported' || row.exported === true
       return (
-        <span
-          className={`${styles.srcBadge} ${
-            row.source_label === 'Manual' ? styles.srcManual : styles.srcBackfilled
-          }`}
-          title={row.source_detail ?? row.source_label}
-        >
-          {row.source_label}
+        <span className={styles.sourceCell}>
+          <span
+            className={`${styles.srcBadge} ${
+              row.source_label === 'Manual' ? styles.srcManual : styles.srcBackfilled
+            }`}
+            title={row.source_detail ?? row.source_label}
+          >
+            {row.source_label}
+          </span>
+          {isExcluded && (
+            <span
+              className={styles.historicalBadge}
+              title={row.excluded_reason ?? 'Historical — not exportable'}
+            >
+              Historical — not exportable
+            </span>
+          )}
+          {isExported && !isExcluded && (
+            <span className={styles.exportedBadge} title="Already exported">
+              Exported
+            </span>
+          )}
         </span>
       )
     }

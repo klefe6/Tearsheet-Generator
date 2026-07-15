@@ -65,6 +65,62 @@ def _export_fields_for(program: str, row: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def _close_enough(left: Any, right: Any, tol: float = 0.005) -> bool:
+    try:
+        return abs(float(left) - float(right)) <= tol
+    except (TypeError, ValueError):
+        return left == right
+
+
+def _after_state_matches_export(
+    program: str, fields: dict[str, Any], after: Optional[dict[str, Any]]
+) -> bool:
+    if not after:
+        return False
+    if program == "TCP":
+        return _close_enough(after.get("cash_balance"), fields.get("stonex_nlv"))
+    if program == "AGM":
+        return (
+            _close_enough(after.get("tradestation_nlv"), fields.get("tradestation_nlv"))
+            and _close_enough(after.get("cash_transfer", 0), fields.get("cash_transfer", 0))
+            and _close_enough(after.get("fee", 0), fields.get("fee", 0))
+        )
+    if program == "TKP":
+        return (
+            _close_enough(after.get("stonex_nlv"), fields.get("stonex_nlv"))
+            and _close_enough(after.get("plus500_nlv"), fields.get("plus500_nlv"))
+            and _close_enough(after.get("cash_transfer", 0), fields.get("cash_transfer", 0))
+        )
+    return True
+
+
+def downstream_proves_persistence(
+    program: str, fields: dict[str, Any], response: Optional[dict[str, Any]]
+) -> bool:
+    """True only when the tearsheet ingest response proves a durable write."""
+    if not response or response.get("dry_run"):
+        return False
+    if not response.get("persisted"):
+        return False
+    after = response.get("after")
+    if response.get("action") == "unchanged":
+        return _after_state_matches_export(
+            program, fields, after or response.get("before")
+        )
+    return _after_state_matches_export(program, fields, after)
+
+
+def export_verification_status(
+    program: str, fields: dict[str, Any], response: Optional[dict[str, Any]]
+) -> str:
+    """Classify a downstream row for UI: verified | pending_refresh | not_confirmed."""
+    if not downstream_proves_persistence(program, fields, response):
+        return "not_confirmed"
+    if response.get("display_refreshed") is False:
+        return "pending_refresh"
+    return "verified"
+
+
 def _atomic_write_json(path: Path, data: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_name = tempfile.mkstemp(dir=str(path.parent), prefix=".tmp-", suffix=".json")
@@ -331,6 +387,9 @@ def run_downstream_export(
                 if push.get("external_call"):
                     external_calls += 1
                 if push.get("accepted"):
+                    resp = push.get("response") or {}
+                    verified = downstream_proves_persistence(program, fields, resp)
+                    verification = export_verification_status(program, fields, resp)
                     if settings.export_dry_run:
                         date_results.append(
                             {
@@ -338,6 +397,7 @@ def run_downstream_export(
                                 "status": "dry_run",
                                 "payload_hash": hash_,
                                 "downstream_response": push.get("response"),
+                                "verification": verification,
                             }
                         )
                         db.add_audit(
@@ -352,8 +412,39 @@ def run_downstream_export(
                                 "downstream_response": push.get("response"),
                             },
                         )
+                    elif not verified:
+                        any_failure = True
+                        date_results.append(
+                            {
+                                "date": date,
+                                "status": "not_confirmed",
+                                "payload_hash": hash_,
+                                "reason": (
+                                    "Downstream accepted the row but did not prove "
+                                    "a durable write (missing persisted=true or "
+                                    "after-state mismatch)."
+                                ),
+                                "downstream_response": push.get("response"),
+                                "verification": verification,
+                            }
+                        )
+                        db.add_audit(
+                            action="downstream_export_failure",
+                            actor=actor,
+                            program=program,
+                            date=date,
+                            detail={
+                                "batch_id": batch_id,
+                                "target_env": "production",
+                                "payload_hash": hash_,
+                                "error_code": "not_durably_confirmed",
+                                "error_message": (
+                                    "Downstream response lacked durable-write proof."
+                                ),
+                                "downstream_response": push.get("response"),
+                            },
+                        )
                     else:
-                        resp = push.get("response") or {}
                         db.add_batch_item(
                             batch_id=batch_id,
                             source_row_id=row.get("id"),
@@ -372,12 +463,18 @@ def run_downstream_export(
                         )
                         db.mark_exported(program, date, batch_id)
                         any_success = True
+                        row_status = (
+                            "pending_refresh"
+                            if verification == "pending_refresh"
+                            else "success"
+                        )
                         date_results.append(
                             {
                                 "date": date,
-                                "status": "success",
+                                "status": row_status,
                                 "payload_hash": hash_,
                                 "downstream_response": push.get("response"),
+                                "verification": verification,
                             }
                         )
                         db.add_audit(
@@ -390,6 +487,7 @@ def run_downstream_export(
                                 "target_env": "production",
                                 "payload_hash": hash_,
                                 "downstream_response": push.get("response"),
+                                "verification": verification,
                             },
                         )
                 else:
@@ -456,9 +554,19 @@ def run_downstream_export(
             )
             db.mark_exported(program, date, batch_id)
             any_success = True
-            downstream_response = {"action": written["action"]}
+            downstream_response = {
+                "action": written["action"],
+                "persisted": True,
+                "after": after,
+            }
             date_results.append(
-                {"date": date, "status": "success", "payload_hash": hash_, "downstream_response": downstream_response}
+                {
+                    "date": date,
+                    "status": "success",
+                    "payload_hash": hash_,
+                    "downstream_response": downstream_response,
+                    "verification": "verified",
+                }
             )
             db.add_audit(
                 action="downstream_export_success",
@@ -476,11 +584,13 @@ def run_downstream_export(
         if not program_rows:
             program_status = "no_rows"
         elif any_failure and any(
-            r["status"] in ("success", "dry_run") for r in date_results
+            r["status"] in ("success", "pending_refresh", "dry_run") for r in date_results
         ):
             program_status = "partial_failure"
         elif any_failure:
             program_status = "failure"
+        elif any(r["status"] == "pending_refresh" for r in date_results):
+            program_status = "pending_refresh"
         elif settings.export_dry_run:
             program_status = "dry_run"
         else:

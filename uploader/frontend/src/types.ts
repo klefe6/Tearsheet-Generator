@@ -60,10 +60,14 @@ export interface ProductConfig {
   columns: ProductColumn[]
 }
 
-/** One data row. `id` is a local, client-only key; the rest are field values. */
+/** One data row. `id` is a local, client-only key; field values are string|number. */
 export interface ProductRow {
   id: string
-  [key: string]: string | number
+  /** Backend daily_rows.id when known. */
+  sourceRowId?: number
+  exportState?: 'exported' | 'eligible' | 'excluded'
+  excludedReason?: string | null
+  [key: string]: string | number | undefined | null
 }
 
 /**
@@ -86,8 +90,10 @@ export type ExportOverallStatus =
   | 'downstream_dry_run'
   | 'sandbox_success'
   | 'pushed'
+  | 'pushed_pending_refresh'
   | 'partial_failure'
   | 'failed'
+  | 'no_eligible'
 
 export type ExportProgramOutcome =
   | 'success'
@@ -96,12 +102,17 @@ export type ExportProgramOutcome =
   | 'dry_run'
   | 'no_rows'
   | 'partial_failure'
+  | 'pending_refresh'
+
+export type ExportDateVerification = 'verified' | 'pending_refresh' | 'not_confirmed'
 
 export interface ExportProgramStatus {
   program: string
   status: ExportProgramOutcome
   /** Present for skipped programs, e.g. "destination not configured". */
   reason?: string
+  /** Per-date verification rollup when downstream export ran. */
+  verification?: ExportDateVerification
 }
 
 export interface ExportUiState {
@@ -116,8 +127,12 @@ export interface ExportUiState {
   targetEnv?: string
   /** Manual daily_rows found on the backend immediately before export. */
   manualRowsByProgram?: Partial<Record<ProductId, number>>
-  /** Rows eligible for this export batch (unexported manual rows). */
+  /** Rows eligible for this export batch (unexported + not excluded). */
   eligibleCount?: number
+  /** Historical rows excluded from Export All. */
+  excludedCount?: number
+  /** Already-exported manual rows. */
+  exportedCount?: number
   /** Whether the export ran as dry-run (from backend response when present). */
   dryRun?: boolean
   /** Human-readable pre-export note (e.g. pending saves). */

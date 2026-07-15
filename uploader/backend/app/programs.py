@@ -145,9 +145,9 @@ def program_metadata() -> list[dict]:
 
 
 def program_nlv(program: str, row: dict) -> Optional[float]:
-    """Total NLV for one stored row, per program's accounting rule:
+    """Performance balance for one stored row, per program accounting rule:
 
-      * TKP = stonex_nlv + plus500_nlv
+      * TKP = stonex_nlv only (Plus500 is informational, never summed in)
       * TCP = stonex_nlv
       * AGM = tradestation_nlv
       * YQ  = stonex_nlv
@@ -165,10 +165,7 @@ def program_nlv(program: str, row: dict) -> Optional[float]:
     code = program.upper()
     if code == "TKP":
         stonex = row.get("stonex_nlv")
-        plus500 = row.get("plus500_nlv")
-        if stonex is None or plus500 is None:
-            return None
-        return float(stonex) + float(plus500)
+        return float(stonex) if stonex is not None else None
     if code in ("TCP", "YQ"):
         stonex = row.get("stonex_nlv")
         return float(stonex) if stonex is not None else None
@@ -178,16 +175,41 @@ def program_nlv(program: str, row: dict) -> Optional[float]:
     return None
 
 
-def public_row(program: str, raw: dict) -> dict:
-    """Project a raw daily_rows record down to just the fields for `program`."""
+def public_row(
+    program: str,
+    raw: dict,
+    exclusion: Optional[dict] = None,
+) -> dict:
+    """Project a raw daily_rows record down to just the fields for `program`.
+
+    Export-state precedence:
+      1. exported=true  -> "exported"
+      2. active exclusion -> "excluded"
+      3. otherwise -> "eligible"
+    """
     code = program.upper()
     specs = PROGRAM_FIELDS[code]
     out: dict = {"program": code, "date": raw["date"]}
+    if raw.get("id") is not None:
+        out["id"] = int(raw["id"])
     for f in specs:
         if f.name == "date":
             continue
         out[f.name] = raw.get(f.name)
-    out["exported"] = bool(raw.get("exported", 0))
+    exported = bool(raw.get("exported", 0))
+    out["exported"] = exported
+    if exported:
+        out["export_state"] = "exported"
+        out["excluded"] = False
+        out["excluded_reason"] = None
+    elif exclusion and exclusion.get("active", 1):
+        out["export_state"] = "excluded"
+        out["excluded"] = True
+        out["excluded_reason"] = exclusion.get("reason")
+    else:
+        out["export_state"] = "eligible"
+        out["excluded"] = False
+        out["excluded_reason"] = None
     out["created_at"] = raw.get("created_at")
     out["updated_at"] = raw.get("updated_at")
     return out

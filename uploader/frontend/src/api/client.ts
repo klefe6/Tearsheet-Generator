@@ -40,10 +40,14 @@ export interface ApiProgram {
 export interface ApiRow {
   program: string
   date: string
+  id?: number
   exported: boolean
+  export_state?: 'exported' | 'eligible' | 'excluded'
+  excluded?: boolean
+  excluded_reason?: string | null
   created_at: string | null
   updated_at: string | null
-  [fieldName: string]: string | number | boolean | null
+  [fieldName: string]: string | number | boolean | null | undefined
 }
 
 /** One display row as served by GET /api/display-rows/{program} — the bottom
@@ -57,6 +61,11 @@ export interface ApiDisplayRow {
   source_label: 'Manual' | 'Backfilled'
   source_detail?: string
   fee?: number | null
+  id?: number
+  exported?: boolean
+  export_state?: 'exported' | 'eligible' | 'excluded'
+  excluded?: boolean
+  excluded_reason?: string | null
   [fieldName: string]: string | number | boolean | null | undefined
 }
 
@@ -105,13 +114,21 @@ export interface ApiPerformanceResponse {
 /** One program's downstream export outcome (present only when the backend's
  *  EXPORT_DOWNSTREAM_ENABLED flag is on). See docs/downstream_export_contract.md. */
 export interface ApiDownstreamProgramResult {
-  status: 'success' | 'failure' | 'skipped' | 'dry_run' | 'no_rows' | 'partial_failure'
+  status:
+    | 'success'
+    | 'failure'
+    | 'skipped'
+    | 'dry_run'
+    | 'no_rows'
+    | 'partial_failure'
+    | 'pending_refresh'
   date_results: Array<{
     date: string
-    status: 'success' | 'failure' | 'skipped' | 'dry_run'
+    status: 'success' | 'failure' | 'skipped' | 'dry_run' | 'pending_refresh' | 'not_confirmed'
     reason?: string
     payload_hash?: string
     downstream_response?: unknown
+    verification?: 'verified' | 'pending_refresh' | 'not_confirmed'
   }>
 }
 
@@ -129,6 +146,10 @@ export interface ApiExportResult {
   external_calls_made: number
   batch_id: number
   total_rows: number
+  eligible_count?: number
+  excluded_count?: number
+  exported_count?: number
+  manual_total?: number
   programs: Record<string, { target_url: string | null; row_count: number; rows: ApiRow[] }>
   message: string
   /** Present only when the backend attempted downstream TKP/TCP/AGM export. */

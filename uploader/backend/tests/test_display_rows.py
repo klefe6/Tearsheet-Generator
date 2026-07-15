@@ -27,7 +27,7 @@ def _tkp_history(n=10, start_day=1):
                 "plus500_nlv": 0.0,
                 "cash_transfer": 0.0,
                 "source": "tkp_state_json",
-                "source_detail": "daily_returns_secret_state.json (field NAV, equity-curve)",
+                "source_detail": "daily_returns_secret_state.json (StoneX performance, Plus500 informational)",
             }
         )
     return rows
@@ -42,14 +42,14 @@ def test_display_rows_show_tkp_plus500_when_backfilled(backfill_client):
             "plus500_nlv": 20000.0,
             "cash_transfer": 0.0,
             "source": "tkp_state_json",
-            "source_detail": "NAV split",
+            "source_detail": "StoneX authoritative",
         }
     ]
     _seed_history(backfill_client, rows)
     top = backfill_client.get("/api/display-rows/TKP").json()["rows"][0]
     assert top["plus500_nlv"] == 20000.0
     assert top["stonex_nlv"] == 130200.0
-    assert top["value"] == 150200.0
+    assert top["value"] == 130200.0  # StoneX-only performance balance
 
 
 def test_display_rows_include_latest_history_newest_first(backfill_client):
@@ -61,8 +61,8 @@ def test_display_rows_include_latest_history_newest_first(backfill_client):
     assert dates[0] == "2026-06-10"  # newest of the 10 seeded
     assert all(r["source_label"] == "Backfilled" for r in body["rows"])
     assert all(r["row_source"] == "tkp_state_json" for r in body["rows"])
-    assert "NAV" in body["rows"][0]["source_detail"]
-    assert body["rows"][0]["value"] == 150090.0  # program_nlv = NAV + 0
+    assert "StoneX" in body["rows"][0]["source_detail"]
+    assert body["rows"][0]["value"] == 150090.0  # stonex_nlv only
     assert "historical backfill" in body["display_note"]
     assert "manually entered" in body["export_note"]
 
@@ -81,7 +81,7 @@ def test_manual_row_wins_and_is_badged_manual(backfill_client):
     top = body["rows"][0]
     assert top["date"] == "2026-06-03"
     assert top["source_label"] == "Manual"
-    assert top["value"] == 125000.0  # manual StoneX+Plus500, not the NAV 150020
+    assert top["value"] == 105000.0  # manual StoneX only (105000 + 20000 stored, chart uses StoneX)
     assert [r["source_label"] for r in body["rows"]] == ["Manual", "Backfilled", "Backfilled"]
 
 
