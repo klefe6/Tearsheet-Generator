@@ -14,7 +14,7 @@ if sys.platform == "win32":
 import json
 import base64
 import openpyxl
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 import pandas as pd
 from pandas.tseries.holiday import USFederalHolidayCalendar
@@ -61,6 +61,7 @@ from tearsheet_portal import render_legacy_diagnostics_table, render_portal_page
 from tearsheet_header import (
     build_header_date_label_children_from_date,
     build_tearsheet_header_row,
+    resolve_latest_display_date_from_rows,
 )
 from tearsheet_date_defaults import default_add_row_date_str
 from tearsheet_local_admin import is_direct_admin_request
@@ -643,16 +644,16 @@ def _default_add_row_date_str():
     return default_add_row_date_str()
 
 # Compute latest date from Daily Returns for status label
-def _get_latest_daily_date():
-    """Return latest date string from secret_table_records, or 'unavailable'."""
-    try:
-        dates = [r.get("Date") for r in secret_table_records if r.get("Date")]
-        if dates:
-            latest = max(dates)
-            return pd.to_datetime(latest).strftime("%B %d, %Y")
-    except Exception:
-        pass
-    return "unavailable"
+def _get_latest_daily_date(records=None):
+    """Return latest date string from secret_table rows, or 'unavailable'."""
+    rows = records if records is not None else secret_table_records
+    latest = resolve_latest_display_date_from_rows(rows)
+    if latest is None:
+        return "unavailable"
+    if isinstance(latest, date):
+        return latest.strftime("%B %d, %Y")
+    return str(latest)
+
 
 DAILY_RETURNS_LATEST_DATE = _get_latest_daily_date()
 
@@ -1995,7 +1996,9 @@ def _build_tkp_date_status_label_children(latest_date: str) -> tuple[list, list]
 def serve_layout(records=None):
     if records is None:
         records = secret_table_records
-    desktop_date_label, mobile_date_label = _build_tkp_date_status_label_children(DAILY_RETURNS_LATEST_DATE)
+    desktop_date_label, mobile_date_label = _build_tkp_date_status_label_children(
+        _get_latest_daily_date(records)
+    )
     return dbc.Container(
         id="page-container",
         fluid=True,        # ⇒ always 100% on xs, sm; constrained on md+ breakpoints

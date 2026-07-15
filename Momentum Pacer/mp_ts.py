@@ -2317,12 +2317,15 @@ agm_admin_auth_manager = AdminAuthManager(load_agm_admin_auth_settings(), sessio
 apply_runtime_session_config(app.server, agm_admin_auth_manager.settings, "agm")
 
 
+def _agm_authoritative_latest_date():
+    """Latest date in the merged CSV + manual/uploader accounting table."""
+    from tearsheet_header import resolve_latest_display_date_from_dataframe
+
+    return resolve_latest_display_date_from_dataframe(_effective_client_accounting_table())
+
+
 def serve_layout():
-    agm_latest_date = (
-        daily_balances_df["Date"].max()
-        if daily_balances_df is not None and not daily_balances_df.empty
-        else None
-    )
+    agm_latest_date = _agm_authoritative_latest_date()
     desktop_date_label, mobile_date_label = build_header_date_label_children_from_date(
         agm_latest_date
     )
@@ -3458,17 +3461,26 @@ _ingest.register_uploader_ingest(
 @app.callback(
     Output("mp-nav-graph", "figure", allow_duplicate=True),
     Output(CLIENT_DAILY_TABLE_ID, "data", allow_duplicate=True),
+    Output("data-current-label-desktop", "children", allow_duplicate=True),
+    Output("data-current-label-mobile", "children", allow_duplicate=True),
     Input("agm-ingest-refresh-interval", "n_intervals"),
     prevent_initial_call=True,
 )
 def _refresh_agm_after_uploader_ingest(_n_intervals):
     global _AGM_INGEST_REFRESH_PENDING
     if not _AGM_INGEST_REFRESH_PENDING:
-        return dash.no_update, dash.no_update
+        return dash.no_update, dash.no_update, dash.no_update, dash.no_update
     _AGM_INGEST_REFRESH_PENDING = False
-    return build_nav_figure(), build_client_daily_table_rows(
-        newest_first=True,
-        table=_effective_client_accounting_table(),
+    latest = _agm_authoritative_latest_date()
+    desktop, mobile = build_header_date_label_children_from_date(latest)
+    return (
+        build_nav_figure(),
+        build_client_daily_table_rows(
+            newest_first=True,
+            table=_effective_client_accounting_table(),
+        ),
+        desktop,
+        mobile,
     )
 
 

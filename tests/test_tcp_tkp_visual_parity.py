@@ -9,6 +9,8 @@ from __future__ import annotations
 from datetime import date
 from pathlib import Path
 
+from tearsheet_header import format_data_current_date_line
+
 from tcp_ledger import LedgerMetadata, LedgerRecord
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -115,8 +117,9 @@ def test_agm_header_uses_shared_tcp_layout():
     assert "data-current-label-mobile" in layout_str
     assert "Last Updated" not in layout_str
     if mp_ts.daily_balances_df is not None and not mp_ts.daily_balances_df.empty:
-        latest = mp_ts.daily_balances_df["Date"].max().strftime("%B %d, %Y")
-        assert f"{latest} close" in layout_str
+        latest = mp_ts._agm_authoritative_latest_date()
+        assert latest is not None
+        assert format_data_current_date_line(latest) in layout_str
 
 
 def test_format_data_current_date_line():

@@ -20,6 +20,56 @@ HEADER_DATE_CLOSE_SUFFIX = " close"
 DateLike = Union[date, datetime, str, None]
 
 
+def resolve_latest_display_date_from_rows(
+    rows: Any,
+    *,
+    date_key: str = "Date",
+) -> DateLike:
+    """Latest date from authoritative row dicts (TKP secret rows, TCP canonical NAV)."""
+    if not rows:
+        return None
+    parsed: list[date] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        raw = row.get(date_key)
+        if raw is None or raw == "":
+            continue
+        if isinstance(raw, datetime):
+            parsed.append(raw.date())
+        elif isinstance(raw, date):
+            parsed.append(raw)
+        elif isinstance(raw, str):
+            try:
+                parsed.append(date.fromisoformat(raw[:10]))
+            except ValueError:
+                continue
+    return max(parsed) if parsed else None
+
+
+def resolve_latest_display_date_from_dataframe(
+    frame: Any,
+    *,
+    date_col: str = "Date",
+) -> DateLike:
+    """Latest date from a pandas accounting table (AGM merged CSV + manual rows)."""
+    if frame is None:
+        return None
+    try:
+        if getattr(frame, "empty", True):
+            return None
+        latest = frame[date_col].max()
+        if latest is None or (isinstance(latest, float) and str(latest) == "nan"):
+            return None
+        if isinstance(latest, datetime):
+            return latest.date()
+        if isinstance(latest, date):
+            return latest
+        return date.fromisoformat(str(latest)[:10])
+    except Exception:
+        return None
+
+
 def format_data_current_date_line(value: DateLike) -> str:
     """Format a date as ``July 06, 2026 close`` (TCP label style)."""
     if value is None:
