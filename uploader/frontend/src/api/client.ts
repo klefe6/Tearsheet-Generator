@@ -114,13 +114,21 @@ export interface ApiPerformanceResponse {
 /** One program's downstream export outcome (present only when the backend's
  *  EXPORT_DOWNSTREAM_ENABLED flag is on). See docs/downstream_export_contract.md. */
 export interface ApiDownstreamProgramResult {
-  status: 'success' | 'failure' | 'skipped' | 'dry_run' | 'no_rows' | 'partial_failure'
+  status:
+    | 'success'
+    | 'failure'
+    | 'skipped'
+    | 'dry_run'
+    | 'no_rows'
+    | 'partial_failure'
+    | 'pending_refresh'
   date_results: Array<{
     date: string
-    status: 'success' | 'failure' | 'skipped' | 'dry_run'
+    status: 'success' | 'failure' | 'skipped' | 'dry_run' | 'pending_refresh' | 'not_confirmed'
     reason?: string
     payload_hash?: string
     downstream_response?: unknown
+    verification?: 'verified' | 'pending_refresh' | 'not_confirmed'
   }>
 }
 

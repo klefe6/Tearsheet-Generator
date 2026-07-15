@@ -71,6 +71,30 @@ describe('deriveExportState — downstream push statuses', () => {
     expect(deriveExportState(data, NOW).overallStatus).toBe('pushed')
   })
 
+  it('pending_refresh programs roll up to pushed_pending_refresh', () => {
+    const data = result({
+      dry_run: false,
+      total_rows: 1,
+      eligible_count: 1,
+      downstream: {
+        target_env: 'production',
+        dry_run: false,
+        results: {
+          TCP: {
+            status: 'pending_refresh',
+            date_results: [
+              { date: '2026-07-14', status: 'pending_refresh', verification: 'pending_refresh' },
+            ],
+          },
+          YQ: { status: 'skipped', date_results: [] },
+        },
+      },
+    })
+    const state = deriveExportState(data, NOW)
+    expect(state.overallStatus).toBe('pushed_pending_refresh')
+    expect(exportStatusIcon(state.overallStatus)).toBe('warn')
+  })
+
   it('real production push with a failure is failed/partial', () => {
     const failed = result({
       dry_run: false,

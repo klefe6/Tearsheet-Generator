@@ -11,6 +11,18 @@ function firstReason(result: ApiDownstreamProgramResult): string | undefined {
   return result.date_results.find((d) => d.reason)?.reason
 }
 
+function programVerification(
+  result: ApiDownstreamProgramResult,
+): 'verified' | 'pending_refresh' | 'not_confirmed' | undefined {
+  const tags = result.date_results
+    .map((d) => d.verification)
+    .filter((v): v is NonNullable<typeof v> => Boolean(v))
+  if (tags.length === 0) return undefined
+  if (tags.some((v) => v === 'not_confirmed')) return 'not_confirmed'
+  if (tags.some((v) => v === 'pending_refresh')) return 'pending_refresh'
+  return 'verified'
+}
+
 /** Overall status across TKP/TCP/AGM only — Y&Q is always excluded from this
  *  rollup since it's never a real export target (only ever "skipped"). */
 function overallDownstreamStatus(
@@ -23,13 +35,16 @@ function overallDownstreamStatus(
 
   const hasPartial = relevant.some((s) => s === 'partial_failure')
   const hasFailure = relevant.some((s) => s === 'failure' || s === 'partial_failure')
+  const hasPendingRefresh = relevant.some((s) => s === 'pending_refresh')
   const hasSuccess = relevant.some((s) => s === 'success')
   const onlyIdle = relevant.every((s) => s === 'no_rows' || s === 'skipped')
 
   // Program-level partial_failure means some dates succeeded — never green.
   if (hasPartial || (hasFailure && hasSuccess)) return 'partial_failure'
   if (hasFailure) return 'failed'
-  if (onlyIdle || !hasSuccess) return 'no_eligible'
+  if (onlyIdle || (!hasSuccess && !hasPendingRefresh)) return 'no_eligible'
+  if (hasPendingRefresh && !hasSuccess) return 'pushed_pending_refresh'
+  if (hasPendingRefresh && hasSuccess) return 'pushed_pending_refresh'
   // Real rows accepted downstream: "pushed" for the live tearsheet ingest
   // target, "sandbox_success" for the local sandbox-file target.
   return targetEnv === 'production' ? 'pushed' : 'sandbox_success'
@@ -64,6 +79,7 @@ export function deriveExportState(data: ApiExportResult, exportedAt: Date): Expo
     program,
     status: r.status,
     reason: firstReason(r),
+    verification: programVerification(r),
   }))
 
   const dryRunHadFailure = Object.entries(results).some(
@@ -150,6 +166,8 @@ export function exportStatusIcon(
     case 'pushed':
     case 'downstream_dry_run':
       return 'check'
+    case 'pushed_pending_refresh':
+      return 'warn'
     default:
       return null
   }

@@ -74,6 +74,13 @@ class IngestOutcome:
     before: Optional[dict] = None
     after: Optional[dict] = None
     message: str = ""
+    # Set by the app's apply() on real writes. The framework echoes these on
+    # the HTTP response so Glenn Uploader can require durable proof before
+    # marking a row exported.
+    persisted: bool = False
+    state_revision: Optional[int] = None
+    storage_target: Optional[str] = None
+    display_refreshed: bool = False
 
 
 @dataclass
@@ -85,6 +92,10 @@ class IngestConfig:
     # MUST NOT write anything when dry_run is True. May raise IngestRejected.
     apply: Callable[[dict, bool], IngestOutcome]
     audit_path: Optional[Path] = None
+    storage_target: Optional[str] = None
+    # Called after a real (non-dry-run) persist so the app can reload its
+    # in-memory snapshot / schedule a Dash refresh.
+    on_persisted: Optional[Callable[[IngestOutcome, dict], None]] = None
     extra_meta: dict = field(default_factory=dict)
 
 
@@ -224,6 +235,14 @@ def handle_ingest_request(config: IngestConfig, headers: Any, body: Any, remote_
     except IngestRejected as exc:
         return rejected(exc.message, 422, dry_run=dry_run)
 
+    if not dry_run and outcome.action in ("created", "updated", "unchanged"):
+        if not outcome.storage_target and config.storage_target:
+            outcome.storage_target = config.storage_target
+        if outcome.action != "unchanged" or outcome.persisted:
+            outcome.persisted = True
+        if config.on_persisted and outcome.persisted:
+            config.on_persisted(outcome, clean)
+
     response = {
         "accepted": True,
         "dry_run": dry_run,
@@ -237,6 +256,11 @@ def handle_ingest_request(config: IngestConfig, headers: Any, body: Any, remote_
         ),
         "before": outcome.before,
         "after": outcome.after,
+        "persisted": bool(outcome.persisted and not dry_run),
+        "authoritative_record_date": clean["date"],
+        "state_revision": outcome.state_revision,
+        "storage_target": outcome.storage_target or config.storage_target,
+        "display_refreshed": outcome.display_refreshed,
     }
     _append_audit(
         config,

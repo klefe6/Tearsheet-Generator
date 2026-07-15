@@ -90,6 +90,7 @@ export type ExportOverallStatus =
   | 'downstream_dry_run'
   | 'sandbox_success'
   | 'pushed'
+  | 'pushed_pending_refresh'
   | 'partial_failure'
   | 'failed'
   | 'no_eligible'
@@ -101,12 +102,17 @@ export type ExportProgramOutcome =
   | 'dry_run'
   | 'no_rows'
   | 'partial_failure'
+  | 'pending_refresh'
+
+export type ExportDateVerification = 'verified' | 'pending_refresh' | 'not_confirmed'
 
 export interface ExportProgramStatus {
   program: string
   status: ExportProgramOutcome
   /** Present for skipped programs, e.g. "destination not configured". */
   reason?: string
+  /** Per-date verification rollup when downstream export ran. */
+  verification?: ExportDateVerification
 }
 
 export interface ExportUiState {

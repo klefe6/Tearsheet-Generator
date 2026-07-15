@@ -87,7 +87,11 @@ const STATUS_BADGE: Record<
     className: 'dryRunBadge',
   },
   sandbox_success: { label: 'Exported to Sandbox', className: 'processedBadge' },
-  pushed: { label: 'Pushed to Tearsheet Sites', className: 'processedBadge' },
+  pushed: { label: 'Exported and Verified', className: 'processedBadge' },
+  pushed_pending_refresh: {
+    label: 'Accepted — Awaiting Site Refresh',
+    className: 'warnBadge',
+  },
   partial_failure: { label: 'Partial Failure', className: 'warnBadge' },
   failed: { label: 'Failed', className: 'failBadge' },
   no_eligible: { label: 'No Eligible Rows', className: 'mutedBadge' },
@@ -95,10 +99,16 @@ const STATUS_BADGE: Record<
 
 const PROGRAM_LABEL: Record<string, string> = { TKP: 'TKP', TCP: 'TCP', AGM: 'AGM', YQ: 'Y&Q' }
 
-function programStatusText(status: string, reason?: string): string {
+function programStatusText(
+  status: string,
+  reason?: string,
+  verification?: string,
+): string {
   switch (status) {
     case 'success':
-      return 'exported'
+      return verification === 'verified' ? 'exported and verified' : 'exported'
+    case 'pending_refresh':
+      return 'accepted — awaiting refresh'
     case 'failure':
       return 'failed'
     case 'partial_failure':
@@ -114,8 +124,11 @@ function programStatusText(status: string, reason?: string): string {
   }
 }
 
-function programItemClass(status: string): string {
+function programItemClass(status: string, verification?: string): string {
   if (status === 'failure' || status === 'partial_failure') return styles.programItemFail
+  if (status === 'pending_refresh' || verification === 'pending_refresh') {
+    return styles.programItemWarn
+  }
   if (status === 'success') return styles.programItemOk
   if (status === 'skipped' || status === 'no_rows') return styles.programItemNeutral
   return styles.programItem
@@ -234,9 +247,9 @@ export function ExportActionBar({ exportState, onExport, onUndo }: Props) {
       {programStatuses.length > 0 && (
         <ul className={styles.programList} aria-label="Per-program export result">
           {programStatuses.map((p) => (
-            <li key={p.program} className={`${styles.programItem} ${programItemClass(p.status)}`}>
+            <li key={p.program} className={`${styles.programItem} ${programItemClass(p.status, p.verification)}`}>
               <strong>{PROGRAM_LABEL[p.program] ?? p.program}</strong>:{' '}
-              {programStatusText(p.status, p.reason)}
+              {programStatusText(p.status, p.reason, p.verification)}
             </li>
           ))}
         </ul>

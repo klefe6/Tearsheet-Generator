@@ -226,6 +226,10 @@
   color: #127a42;
 }
 
+.programItemWarn {
+  color: #9a3412;
+}
+
 .programItemFail {
   color: #b42318;
 }
