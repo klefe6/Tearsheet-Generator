@@ -86,6 +86,7 @@ from tcp_benchmarks import (
 )
 from tcp_dashboard import (
     GREY_BG,
+    build_tcp_current_data_labels,
     propagate_tcp_dashboard,
 )
 from tcp_ledger import TCPLedgerError
@@ -839,15 +840,23 @@ def _register_ingest_refresh_callback(
     @app.callback(
         Output("canonical-nav-store", "data", allow_duplicate=True),
         Output("admin-state-revision-store", "data", allow_duplicate=True),
+        Output("data-current-label-desktop", "children", allow_duplicate=True),
+        Output("data-current-label-mobile", "children", allow_duplicate=True),
         Input("tcp-ingest-refresh-interval", "n_intervals"),
         prevent_initial_call=True,
     )
     def _refresh_after_uploader_ingest(_n_intervals):
         if not runtime_holder.pop("ingest_refresh_pending", False):
-            return no_update, no_update
+            return no_update, no_update, no_update, no_update
         snap = load_runtime_snapshot(cfg, paths)
         runtime_holder["snapshot"] = snap
-        return snap.canonical_nav, snap.state_revision
+        labels = build_tcp_current_data_labels(snap.canonical_nav)
+        return (
+            snap.canonical_nav,
+            snap.state_revision,
+            _desktop_label_children(labels.header, labels.date_line),
+            _mobile_label_children(labels.header, labels.date_line),
+        )
 
 
 def _register_dashboard_callback(app: dash.Dash, runtime_holder: Dict[str, Any]) -> None:
