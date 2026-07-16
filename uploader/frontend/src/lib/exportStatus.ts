@@ -7,6 +7,17 @@
 import type { ApiDownstreamProgramResult, ApiExportResult } from '../api/client'
 import type { ExportOverallStatus, ExportProgramStatus, ExportUiState } from '../types'
 
+/** Authoritative dry-run flag — prefers real_writes_enabled over legacy dry_run. */
+function resolvesDryRun(data: ApiExportResult): boolean {
+  if (typeof data.real_writes_enabled === 'boolean') {
+    return !data.real_writes_enabled
+  }
+  if (data.downstream) {
+    return data.downstream.dry_run
+  }
+  return data.dry_run
+}
+
 function firstReason(result: ApiDownstreamProgramResult): string | undefined {
   return result.date_results.find((d) => d.reason)?.reason
 }
@@ -70,11 +81,12 @@ export function deriveExportState(data: ApiExportResult, exportedAt: Date): Expo
       eligibleCount,
       excludedCount,
       exportedCount,
-      dryRun: data.dry_run,
+      dryRun: resolvesDryRun(data),
     }
   }
 
-  const { target_env: targetEnv, dry_run: dryRun, results } = data.downstream
+  const { target_env: targetEnv, results } = data.downstream
+  const dryRun = resolvesDryRun(data)
   const programStatuses: ExportProgramStatus[] = Object.entries(results).map(([program, r]) => ({
     program,
     status: r.status,
@@ -125,11 +137,16 @@ export function deriveExportState(data: ApiExportResult, exportedAt: Date): Expo
  * Build a toast that's consistent with whatever badge is about to show.
  */
 export function exportToastMessage(data: ApiExportResult, appEnv: string): string {
+  if (data.message && data.export_mode === 'live') {
+    return data.message
+  }
+
   if (!data.downstream) {
     return `${data.message} (${data.total_rows} row${data.total_rows === 1 ? '' : 's'} in this batch, ${appEnv}).`
   }
 
-  const { target_env: targetEnv, dry_run: dryRun, results } = data.downstream
+  const { target_env: targetEnv, results } = data.downstream
+  const dryRun = resolvesDryRun(data)
   if (dryRun && targetEnv === 'production') {
     const summary = Object.entries(results)
       .map(([program, r]) => `${program} ${r.status}`)

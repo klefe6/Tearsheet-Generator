@@ -151,6 +151,33 @@ describe('deriveExportState — downstream push statuses', () => {
     })
     expect(deriveExportState(data, NOW).overallStatus).toBe('partial_failure')
   })
+
+  it('real_writes_enabled overrides legacy top-level dry_run for live mode', () => {
+    const data = result({
+      dry_run: true,
+      real_writes_enabled: true,
+      export_mode: 'live',
+      downstream: downstream('production', false, {
+        TKP: 'success', TCP: 'success', AGM: 'success', YQ: 'skipped',
+      }),
+    })
+    const state = deriveExportState(data, NOW)
+    expect(state.dryRun).toBe(false)
+    expect(state.overallStatus).toBe('pushed')
+  })
+
+  it('real_writes_enabled false with downstream dry_run stays dry_run', () => {
+    const data = result({
+      dry_run: false,
+      real_writes_enabled: false,
+      export_mode: 'dry_run',
+      downstream: downstream('production', true, {
+        TKP: 'dry_run', TCP: 'dry_run', AGM: 'dry_run', YQ: 'skipped',
+      }),
+    })
+    expect(deriveExportState(data, NOW).dryRun).toBe(true)
+    expect(deriveExportState(data, NOW).overallStatus).toBe('downstream_dry_run')
+  })
 })
 
 describe('exportToastMessage — downstream push wording', () => {
@@ -171,5 +198,17 @@ describe('exportToastMessage — downstream push wording', () => {
     expect(exportToastMessage(data, 'sandbox')).toMatch(
       /Downstream export to production: TKP success, YQ skipped/,
     )
+  })
+
+  it('live mode uses backend message when export_mode is live', () => {
+    const data = result({
+      dry_run: false,
+      real_writes_enabled: true,
+      export_mode: 'live',
+      message: 'Live export — Export All wrote to production TKP, TCP, and AGM (1 row in this batch).',
+      downstream: downstream('production', false, { TKP: 'success', YQ: 'skipped' }),
+    })
+    expect(exportToastMessage(data, 'sandbox')).toBe(data.message)
+    expect(exportToastMessage(data, 'sandbox')).not.toMatch(/DRY RUN/i)
   })
 })

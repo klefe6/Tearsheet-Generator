@@ -2,12 +2,14 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   deleteLastRow,
   fetchDisplayRows,
+  fetchHealth,
   fetchProgramMetadata,
   fetchProgramRows,
   fetchTradingDateStatus,
   postExportAll,
   postRow,
   type ApiDisplayRowsResponse,
+  type ApiExportStatus,
   type ApiTradingDateStatus,
 } from './api/client'
 import { ExportActionBar } from './components/ExportActionBar'
@@ -68,6 +70,8 @@ export default function App() {
   // answers the one optional metadata GET, its account-chip data overlays it.
   const [products, setProducts] = useState<ProductConfig[]>(PRODUCTS)
   const [tradingDates, setTradingDates] = useState<ApiTradingDateStatus | null>(null)
+  const [configuredExport, setConfiguredExport] = useState<ApiExportStatus | null>(null)
+  const [exportModeBanner, setExportModeBanner] = useState<string | null>(null)
   // Manual daily_rows only — start empty so mock seed never looks "saved".
   const [rowsByProduct, setRowsByProduct] =
     useState<Record<ProductId, ProductRow[]>>(EMPTY_ROWS)
@@ -115,6 +119,12 @@ export default function App() {
     })
     fetchTradingDateStatus().then((body) => {
       if (!cancelled && body) setTradingDates(body)
+    })
+    fetchHealth().then((body) => {
+      if (!cancelled && body) {
+        setConfiguredExport(body.export)
+        setExportModeBanner(body.export_mode_banner)
+      }
     })
     return () => {
       cancelled = true
@@ -403,7 +413,12 @@ export default function App() {
 
   return (
     <div className={styles.page}>
-      <PageHeader env={APP_ENV} tradingDates={tradingDates} />
+      <PageHeader
+        env={APP_ENV}
+        tradingDates={tradingDates}
+        exportStatus={configuredExport}
+        exportModeBanner={exportModeBanner}
+      />
 
       <PerformanceChart refreshToken={perfRefreshToken} />
 
@@ -455,6 +470,7 @@ export default function App() {
 
       <ExportActionBar
         exportState={exportState}
+        configuredExport={configuredExport}
         onExport={handleExport}
         onUndo={handleUndo}
       />

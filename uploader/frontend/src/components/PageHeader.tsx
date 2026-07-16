@@ -1,13 +1,16 @@
-import type { ApiTradingDateStatus } from '../api/client'
+import type { ApiTradingDateStatus, ApiExportStatus } from '../api/client'
+import { ExportModeBanner } from './ExportModeBanner'
 import { formatLongDate } from '../lib/format'
 import styles from './PageHeader.module.css'
 
 interface Props {
   env: string
   tradingDates: ApiTradingDateStatus | null
+  exportStatus: ApiExportStatus | null
+  exportModeBanner: string | null
 }
 
-export function PageHeader({ env, tradingDates }: Props) {
+export function PageHeader({ env, tradingDates, exportStatus, exportModeBanner }: Props) {
   const isProd = env.toLowerCase() === 'production'
 
   return (
@@ -24,6 +27,8 @@ export function PageHeader({ env, tradingDates }: Props) {
       <p className={styles.subtitle}>
         Enter daily NLVs, cash transfers, and fees for each product.
       </p>
+
+      <ExportModeBanner exportStatus={exportStatus} bannerMessage={exportModeBanner} />
 
       <div className={styles.dateStatus} aria-label="Market calendar dates">
         {tradingDates?.last_trading_date ? (
