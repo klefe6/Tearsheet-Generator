@@ -138,6 +138,29 @@ export interface ApiDownstreamResult {
   results: Record<string, ApiDownstreamProgramResult>
 }
 
+/** Authoritative export configuration from GET /health or /api/export/status. */
+export interface ApiExportStatus {
+  downstream_export_enabled: boolean
+  dry_run: boolean
+  target_environment: string
+  real_writes_enabled: boolean
+  transport_implemented: boolean
+  export_mode: 'live' | 'dry_run' | 'disabled'
+  app_env: string
+  legacy_export_enabled?: boolean
+  banner_message?: string
+}
+
+export interface ApiHealthResponse {
+  status: string
+  app_env: string
+  export_enabled: boolean
+  version: string
+  serve_frontend: boolean
+  export: ApiExportStatus
+  export_mode_banner: string
+}
+
 export interface ApiExportResult {
   dry_run: boolean
   app_env: string
@@ -152,6 +175,13 @@ export interface ApiExportResult {
   manual_total?: number
   programs: Record<string, { target_url: string | null; row_count: number; rows: ApiRow[] }>
   message: string
+  downstream_export_enabled?: boolean
+  export_dry_run?: boolean
+  target_environment?: string
+  real_writes_enabled?: boolean
+  export_mode?: 'live' | 'dry_run' | 'disabled'
+  export_mode_banner?: string
+  legacy_export_enabled?: boolean
   /** Present only when the backend attempted downstream TKP/TCP/AGM export. */
   downstream?: ApiDownstreamResult
 }
@@ -228,6 +258,59 @@ function isApiTradingDateStatus(value: unknown): value is ApiTradingDateStatus {
   if (typeof value !== 'object' || value === null) return false
   const body = value as Record<string, unknown>
   return typeof body.today === 'string' && typeof body.timezone === 'string'
+}
+
+function isApiExportStatus(value: unknown): value is ApiExportStatus {
+  if (typeof value !== 'object' || value === null) return false
+  const body = value as Record<string, unknown>
+  return (
+    typeof body.downstream_export_enabled === 'boolean' &&
+    typeof body.dry_run === 'boolean' &&
+    typeof body.target_environment === 'string' &&
+    typeof body.real_writes_enabled === 'boolean' &&
+    typeof body.export_mode === 'string'
+  )
+}
+
+function isApiHealthResponse(value: unknown): value is ApiHealthResponse {
+  if (typeof value !== 'object' || value === null) return false
+  const body = value as Record<string, unknown>
+  return (
+    body.status === 'ok' &&
+    typeof body.export_enabled === 'boolean' &&
+    isApiExportStatus(body.export) &&
+    typeof body.export_mode_banner === 'string'
+  )
+}
+
+function healthUrl(): string | null {
+  if (!API_BASE_URL) return null
+  return API_BASE_URL.replace(/\/api\/?$/, '') + '/health'
+}
+
+/**
+ * Fetch backend health including authoritative export-mode configuration.
+ */
+export async function fetchHealth(): Promise<ApiHealthResponse | null> {
+  const url = healthUrl()
+  if (!url) return null
+
+  const controller = new AbortController()
+  const timer = window.setTimeout(() => controller.abort(), READ_TIMEOUT_MS)
+  try {
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+      signal: controller.signal,
+    })
+    if (!response.ok) return null
+    const body: unknown = await response.json()
+    return isApiHealthResponse(body) ? body : null
+  } catch {
+    return null
+  } finally {
+    window.clearTimeout(timer)
+  }
 }
 
 /**

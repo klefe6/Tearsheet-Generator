@@ -39,6 +39,7 @@ from .db import (
     SchemaError,
 )
 from .downstream_export import run_downstream_export
+from .export_status import build_export_status, export_batch_message, export_mode_banner_message
 from .frontend_static import mount_frontend
 from .performance import build_combined, build_program
 from .programs import (
@@ -118,12 +119,25 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     # -- meta -------------------------------------------------------------
     @app.get("/health", tags=["meta"])
     def health() -> dict:
+        export_status = build_export_status(settings)
         return {
             "status": "ok",
             "app_env": settings.app_env,
-            "export_enabled": settings.export_enabled,
             "version": __version__,
             "serve_frontend": settings.serve_frontend,
+            "export": export_status,
+            # Authoritative: real downstream writes enabled (not legacy EXPORT_ENABLED).
+            "export_enabled": export_status["real_writes_enabled"],
+            "export_mode_banner": export_mode_banner_message(export_status),
+        }
+
+    @app.get("/api/export/status", tags=["export"])
+    def export_status_endpoint() -> dict:
+        """Read-only export-mode configuration for UI banners and preflight."""
+        export_status = build_export_status(settings)
+        return {
+            **export_status,
+            "banner_message": export_mode_banner_message(export_status),
         }
 
     if not settings.serve_frontend:
@@ -344,6 +358,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
 
         would_export = settings.export_enabled and not settings.is_sandbox
         dry_run = not would_export
+        export_status = build_export_status(settings)
 
         # A batch only becomes a rollback candidate if it actually commits a
         # downstream write; anything else is recorded with a status that keeps
@@ -370,23 +385,26 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
             detail={"total_rows": len(rows), "batch_id": batch_id},
         )
 
-        if dry_run:
-            message = (
-                "DRY RUN — preview only. No external calls were made and no "
-                "rows were marked exported."
-            )
+        if not export_status["downstream_export_enabled"]:
+            if dry_run:
+                message = (
+                    "DRY RUN — preview only. No external calls were made and no "
+                    "rows were marked exported."
+                )
+            else:
+                message = (
+                    "EXPORT_ENABLED is true, but external transport to the four "
+                    "websites is not implemented in this build. No external calls "
+                    "were made and no rows were marked exported."
+                )
         else:
-            message = (
-                "EXPORT_ENABLED is true, but external transport to the four "
-                "websites is not implemented in this build. No external calls "
-                "were made and no rows were marked exported."
-            )
+            message = export_batch_message(export_status, total_rows=len(rows))
 
         response: dict = {
-            "dry_run": dry_run,
+            "dry_run": not export_status["real_writes_enabled"],
             "app_env": settings.app_env,
-            "export_enabled": settings.export_enabled,
-            "transport_implemented": False,
+            "export_enabled": export_status["real_writes_enabled"],
+            "transport_implemented": export_status["transport_implemented"],
             "external_calls_made": 0,
             "batch_id": batch_id,
             "total_rows": len(rows),
@@ -396,6 +414,13 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
             "manual_total": counts["manual_total"],
             "programs": programs_payload,
             "message": message,
+            "downstream_export_enabled": export_status["downstream_export_enabled"],
+            "export_dry_run": export_status["dry_run"],
+            "target_environment": export_status["target_environment"],
+            "real_writes_enabled": export_status["real_writes_enabled"],
+            "export_mode": export_status["export_mode"],
+            "export_mode_banner": export_mode_banner_message(export_status),
+            "legacy_export_enabled": export_status["legacy_export_enabled"],
         }
 
         if not settings.export_downstream_enabled:
@@ -439,6 +464,11 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
             "dry_run": settings.export_dry_run,
             "results": downstream_results,
         }
+        response["message"] = export_batch_message(
+            export_status,
+            total_rows=len(rows),
+            downstream_attempted=True,
+        )
         # The real tearsheet-ingest transport exists for target "production";
         # these fields now report what actually happened this batch.
         if settings.export_target_env == "production":

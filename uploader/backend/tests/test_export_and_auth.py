@@ -26,9 +26,12 @@ def test_export_stays_safe_even_when_enabled(prod_export_enabled_client):
     r = c.post("/api/export/all", headers=hdr)
     assert r.status_code == 200
     body = r.json()
-    # Enabled -> not a dry run, but STILL no external calls are made.
-    assert body["dry_run"] is False
-    assert body["export_enabled"] is True
+    # Legacy EXPORT_ENABLED alone does not enable real downstream writes.
+    assert body["legacy_export_enabled"] is True
+    assert body["real_writes_enabled"] is False
+    assert body["export_mode"] == "disabled"
+    assert body["dry_run"] is True
+    assert body["export_enabled"] is False
     assert body["external_calls_made"] == 0
     assert body["transport_implemented"] is False
 

@@ -1,9 +1,11 @@
+import type { ApiExportStatus } from '../api/client'
 import type { ExportOverallStatus, ExportUiState } from '../types'
 import { exportStatusIcon } from '../lib/exportStatus'
 import styles from './ExportActionBar.module.css'
 
 interface Props {
   exportState: ExportUiState
+  configuredExport: ApiExportStatus | null
   onExport: () => void
   onUndo: () => void
 }
@@ -134,7 +136,7 @@ function programItemClass(status: string, verification?: string): string {
   return styles.programItem
 }
 
-export function ExportActionBar({ exportState, onExport, onUndo }: Props) {
+export function ExportActionBar({ exportState, configuredExport, onExport, onUndo }: Props) {
   const {
     lastExportAt,
     overallStatus,
@@ -146,7 +148,6 @@ export function ExportActionBar({ exportState, onExport, onUndo }: Props) {
     eligibleCount,
     excludedCount,
     exportedCount,
-    dryRun,
     preflightNote,
   } = exportState
   const showPending = overallStatus === 'pending'
@@ -160,6 +161,16 @@ export function ExportActionBar({ exportState, onExport, onUndo }: Props) {
     : null
 
   const skipped = programStatuses.filter((p) => p.status === 'skipped' || p.status === 'no_rows')
+
+  const configuredMode = configuredExport?.export_mode
+  const configuredDryRun =
+    typeof exportState.dryRun === 'boolean'
+      ? exportState.dryRun
+      : configuredExport
+        ? !configuredExport.real_writes_enabled
+        : undefined
+  const showConfiguredMode =
+    (overallStatus === 'idle' || overallStatus === 'pending') && configuredExport
 
   return (
     <section className={styles.section} aria-label="Export actions">
@@ -208,13 +219,39 @@ export function ExportActionBar({ exportState, onExport, onUndo }: Props) {
           </span>
         )}
 
-        {typeof dryRun === 'boolean' && overallStatus !== 'idle' && overallStatus !== 'pending' && (
-          <span className={styles.deliveredNote}>
-            {dryRun ? 'mode: dry-run (no target mutation)' : 'mode: real push'}
+        {typeof configuredDryRun === 'boolean' &&
+          overallStatus !== 'idle' &&
+          overallStatus !== 'pending' && (
+          <span
+            className={
+              configuredDryRun ? styles.deliveredNote : styles.liveModeNote
+            }
+          >
+            {configuredDryRun
+              ? 'mode: dry-run (no target mutation)'
+              : 'mode: live production writes'}
           </span>
         )}
 
-        {targetEnv && overallStatus !== 'dry_run' && (
+        {showConfiguredMode && (
+          <span
+            className={
+              configuredMode === 'live'
+                ? styles.liveModeNote
+                : configuredMode === 'dry_run'
+                  ? styles.deliveredNote
+                  : styles.deliveredNote
+            }
+          >
+            {configuredMode === 'live'
+              ? 'Export All performs real production writes'
+              : configuredMode === 'dry_run'
+                ? 'Dry run — no downstream data will be written'
+                : 'Export disabled on this backend'}
+          </span>
+        )}
+
+        {targetEnv && overallStatus !== 'dry_run' && overallStatus !== 'idle' && (
           <span className={styles.deliveredNote}>target: {targetEnv}</span>
         )}
       </div>
