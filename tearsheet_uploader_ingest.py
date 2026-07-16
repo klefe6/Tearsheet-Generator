@@ -238,8 +238,8 @@ def handle_ingest_request(config: IngestConfig, headers: Any, body: Any, remote_
     if not dry_run and outcome.action in ("created", "updated", "unchanged"):
         if not outcome.storage_target and config.storage_target:
             outcome.storage_target = config.storage_target
-        if outcome.action != "unchanged" or outcome.persisted:
-            outcome.persisted = True
+        # Idempotent unchanged rows still prove durable downstream state.
+        outcome.persisted = True
         if config.on_persisted and outcome.persisted:
             config.on_persisted(outcome, clean)
 

@@ -4276,6 +4276,7 @@ def _uploader_ingest_apply(payload, dry_run):
             return _ingest.IngestOutcome(
                 action="unchanged", before=last_view, after=last_view,
                 message=f"TKP {date} already has these values.",
+                persisted=True,
             )
         if len(dated) < 2:
             raise _ingest.IngestRejected(

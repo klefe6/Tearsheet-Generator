@@ -130,6 +130,7 @@ from tcp_public_sections import (
 )
 from tcp_daily_values import (
     DAILY_VALUES_SECTION_ID,
+    DAILY_VALUES_SUMMARY_ID,
     DAILY_VALUES_TABLE_ID,
     DAILY_VALUES_TOOLBAR_ID,
     PUBLIC_DAILY_COLLAPSE_ID,
@@ -147,6 +148,7 @@ from tcp_daily_values import (
     UI_MODE_PUBLIC,
     build_daily_values_export_payload,
     build_daily_values_section,
+    build_daily_values_summary,
     project_public_daily_rows,
     public_daily_column_defs,
     resolve_access_visibility,
@@ -835,27 +837,40 @@ def _register_ingest_refresh_callback(
     paths: StatePaths,
     runtime_holder: Dict[str, Any],
 ) -> None:
-    """Reload JSON state after Glenn Uploader ingest so charts update without restart."""
+    """Reload JSON state when revision changes (ingest or external write)."""
 
     @app.callback(
         Output("canonical-nav-store", "data", allow_duplicate=True),
         Output("admin-state-revision-store", "data", allow_duplicate=True),
         Output("data-current-label-desktop", "children", allow_duplicate=True),
         Output("data-current-label-mobile", "children", allow_duplicate=True),
+        Output(DAILY_VALUES_SUMMARY_ID, "children", allow_duplicate=True),
         Input("tcp-ingest-refresh-interval", "n_intervals"),
         prevent_initial_call=True,
     )
     def _refresh_after_uploader_ingest(_n_intervals):
-        if not runtime_holder.pop("ingest_refresh_pending", False):
-            return no_update, no_update, no_update, no_update
         snap = load_runtime_snapshot(cfg, paths)
+        current = runtime_holder.get("snapshot")
+        runtime_holder.pop("ingest_refresh_pending", False)
+        if current is not None:
+            same_revision = snap.state_revision == current.state_revision
+            same_rows = len(snap.records) == len(current.records)
+            if same_revision and same_rows:
+                return (no_update,) * 5
         runtime_holder["snapshot"] = snap
         labels = build_tcp_current_data_labels(snap.canonical_nav)
+        meta = snap.ledger.metadata
+        summary = build_daily_values_summary(
+            completed_rows=meta.completed_row_count,
+            latest_date=meta.latest_completed_date,
+            data_source=snap.data_source,
+        )
         return (
             snap.canonical_nav,
             snap.state_revision,
             _desktop_label_children(labels.header, labels.date_line),
             _mobile_label_children(labels.header, labels.date_line),
+            summary.children,
         )
 
 
