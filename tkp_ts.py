@@ -1107,20 +1107,26 @@ print(f"▶️ Using NAV column: {NAV_col}")
 
 
 def _canonical_records_from_secret_rows(rows):
-    """Build canonical Date/NAV records from persisted Daily Returns rows (same logic as live store)."""
+    """Build canonical Date/balance records for TKP performance representation.
+
+    StoneX is the sole performance input. Plus500 and the persisted synthetic
+    NAV column are never used for charts, returns, drawdown, or benchmarks.
+    The returned dicts keep the ``NAV`` key for store compatibility; values are
+    StoneX balances.
+    """
     if not rows:
         return []
     pairs = []
     for r in rows:
         date_str = r.get("Date", "")
-        nav_str = r.get("NAV", "")
-        if not date_str or not nav_str:
+        stonex_str = r.get("StoneX", "")
+        if not date_str or not stonex_str:
             continue
         try:
             dt = pd.to_datetime(date_str)
-            nav_val = float(str(nav_str).replace("$", "").replace(",", "").strip())
-            if nav_val > 0:
-                pairs.append((dt, nav_val))
+            stonex_val = _parse_money(stonex_str)
+            if stonex_val > 0:
+                pairs.append((dt, stonex_val))
         except Exception:
             continue
     if not pairs:
@@ -1131,6 +1137,41 @@ def _canonical_records_from_secret_rows(rows):
         {"Date": d.strftime("%Y-%m-%d"), "NAV": float(v)}
         for d, v in zip(df["Date"], df["NAV"])
     ]
+
+
+def _latest_authoritative_tkp_date_from_rows(rows) -> str:
+    """Latest Date in the StoneX-based canonical dataset powering the public chart."""
+    canonical = _canonical_records_from_secret_rows(rows or [])
+    if not canonical:
+        return "unavailable"
+    try:
+        return pd.to_datetime(canonical[-1]["Date"]).strftime("%B %d, %Y")
+    except Exception:
+        return str(canonical[-1].get("Date", "unavailable"))
+
+
+def _canonical_nav_rows_to_series(canonical_rows):
+    """Date-indexed NAV series from canonical-nav-store rows (float NAV values)."""
+    if not canonical_rows:
+        return pd.Series(dtype=float)
+    pairs = []
+    for row in canonical_rows:
+        date_str = row.get("Date", "")
+        nav_val = row.get("NAV", "")
+        if not date_str or nav_val in ("", None):
+            continue
+        try:
+            dt = pd.to_datetime(date_str)
+            nav_float = float(nav_val)
+            if nav_float > 0:
+                pairs.append((dt, nav_float))
+        except Exception:
+            continue
+    if not pairs:
+        return pd.Series(dtype=float)
+    df = pd.DataFrame(pairs, columns=["Date", "NAV"]).sort_values("Date")
+    df = df.drop_duplicates(subset="Date", keep="last")
+    return df.set_index("Date")["NAV"]
 
 
 def _build_canonical_nav_records(nav_df: pd.DataFrame, nav_column: str):
@@ -1872,7 +1913,8 @@ def _build_tkp_date_status_label_children(latest_date: str) -> tuple[list, list]
 def serve_layout(records=None):
     if records is None:
         records = secret_table_records
-    desktop_date_label, mobile_date_label = _build_tkp_date_status_label_children(DAILY_RETURNS_LATEST_DATE)
+    latest_date = _latest_authoritative_tkp_date_from_rows(records)
+    desktop_date_label, mobile_date_label = _build_tkp_date_status_label_children(latest_date)
     return dbc.Container(
         id="page-container",
         fluid=True,        # ⇒ always 100% on xs, sm; constrained on md+ breakpoints
@@ -4107,7 +4149,7 @@ def propagate_dashboard(canonical_nav_rows, secret_store_rows):
     if not canonical_nav_rows:
         return (dash.no_update,) * 5
 
-    nav_s = _rebuild_nav_series(canonical_nav_rows)
+    nav_s = _canonical_nav_rows_to_series(canonical_nav_rows)
     if nav_s.empty:
         return (dash.no_update,) * 5
 
@@ -4117,18 +4159,13 @@ def propagate_dashboard(canonical_nav_rows, secret_store_rows):
     perf_recs = _recompute_daily_perf_records(nav_s, bl)
     nav_fig = _rebuild_nav_figure(nav_s)
 
-    # Use the most recent date from the Daily Returns store (the last actual entry),
-    # not the canonical NAV series which is forward-filled through asfreq and may overshoot.
-    latest = "unavailable"
-    if secret_store_rows:
-        dates = [r.get("Date", "") for r in secret_store_rows if r.get("Date")]
-        if dates:
-            try:
-                latest = max(pd.to_datetime(dates)).strftime("%B %d, %Y")
-            except Exception:
-                pass
-    if latest == "unavailable" and len(nav_s) > 0:
-        latest = nav_s.index.max().strftime("%B %d, %Y")
+    # Same authoritative merged dataset as canonical-nav-store / public chart.
+    latest = _latest_authoritative_tkp_date_from_rows(secret_store_rows)
+    if latest == "unavailable":
+        try:
+            latest = pd.to_datetime(canonical_nav_rows[-1]["Date"]).strftime("%B %d, %Y")
+        except Exception:
+            latest = "unavailable"
     desktop_label_children, mobile_label_children = _build_tkp_date_status_label_children(latest)
 
     return (
