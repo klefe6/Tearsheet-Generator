@@ -1164,6 +1164,59 @@ def _daily_returns_from_secret_rows(rows, bl):
     return df.set_index("Date")["ret"]
 
 
+def _glenn_aligned_daily_return(prior_stonex: float, stonex: float, cash_flow: float) -> float:
+    """Same daily return as Glenn Uploader TKP: neutralize external cash flow on StoneX."""
+    if prior_stonex == 0:
+        return 0.0
+    return (stonex - cash_flow) / prior_stonex - 1.0
+
+
+def _performance_series_from_secret_rows(rows, baseline: float | None = None) -> pd.Series:
+    """Cash-flow-neutralized StoneX performance curve (compounded from TKP baseline).
+
+    Raw StoneX balances stay in the secret table; this series is for charts,
+    drawdown, and benchmark comparison — not broker balance display.
+    """
+    bl = BASELINE_AMOUNT if baseline is None else baseline
+    stonex_s, deposit_s, _fee_s = _extract_stonex_deposit_fee_series(rows)
+    if stonex_s.empty:
+        return pd.Series(dtype=float)
+    levels: list[float] = []
+    prior_raw: float | None = None
+    level = bl
+    for dt in stonex_s.index:
+        raw = float(stonex_s.loc[dt])
+        cash_flow = float(deposit_s.loc[dt]) if dt in deposit_s.index else 0.0
+        if prior_raw is None:
+            level = bl
+        else:
+            dr = _glenn_aligned_daily_return(prior_raw, raw, cash_flow)
+            level = level * (1.0 + dr)
+        levels.append(level)
+        prior_raw = raw
+    return pd.Series(levels, index=stonex_s.index, dtype=float)
+
+
+def _glenn_aligned_daily_return_series(rows) -> pd.Series:
+    """Per-date Glenn/uploader-aligned daily returns (for parity tests)."""
+    stonex_s, deposit_s, _ = _extract_stonex_deposit_fee_series(rows)
+    if stonex_s.empty:
+        return pd.Series(dtype=float)
+    rets: list[float] = []
+    idx: list[pd.Timestamp] = []
+    prior: float | None = None
+    for dt in stonex_s.index:
+        raw = float(stonex_s.loc[dt])
+        cash_flow = float(deposit_s.loc[dt]) if dt in deposit_s.index else 0.0
+        if prior is None:
+            rets.append(0.0)
+        else:
+            rets.append(_glenn_aligned_daily_return(prior, raw, cash_flow))
+        idx.append(dt)
+        prior = raw
+    return pd.Series(rets, index=idx, dtype=float)
+
+
 def _extract_stonex_deposit_fee_series(store_rows):
     """Extract date-indexed StoneX balance, Deposit, and Fee series from store rows."""
     if not store_rows:
@@ -1309,12 +1362,12 @@ if _secret_editor_restored_from_disk:
     _nav_from_secret = _canonical_records_from_secret_rows(secret_table_records)
     if _nav_from_secret:
         CANONICAL_NAV_RECORDS_INITIAL = _nav_from_secret
-        _perf_series = _rebuild_nav_series(_nav_from_secret)
+        _perf_series = _performance_series_from_secret_rows(secret_table_records)
         if not _perf_series.empty:
             NAV_df = _perf_series.to_frame(NAV_col)
             NAV_df = NAV_df.asfreq(us_bd).ffill()
             print(
-                f"📊 Performance series overridden from secret store (StoneX only): "
+                f"📊 Performance chart series (StoneX cash-flow-adjusted): "
                 f"{len(NAV_df)} rows, last=${NAV_df[NAV_col].iloc[-1]:,.2f}"
             )
 
@@ -1849,7 +1902,7 @@ def build_NAV_figure():
     # Base layout configuration
     layout_config = {
         "title": {
-            "text": "<u>Non-Compounded NAV Since Inception</u>",
+            "text": "<u>StoneX Cash-Flow-Adjusted Performance Since Inception</u>",
             "x": 0.5,
             "xanchor": "center"
         },
@@ -1857,7 +1910,7 @@ def build_NAV_figure():
         "plot_bgcolor": GREY_BG,
         "paper_bgcolor": WHITE_BG,
         "xaxis_title": "Date",
-        "yaxis_title": "NAV",
+        "yaxis_title": f"Performance (${BASELINE_AMOUNT:,.0f} baseline)",
         "autosize": True,
     }
 
@@ -2078,8 +2131,10 @@ def serve_layout(records=None):
                 },
             ),
             html.P(
-                "This chart visualizes the growth of a $150,000 investment from inception to today. "
-                "NAV stands for Net Asset Value; it reflects the non-compounded performance, net of all fees.",
+                "This chart visualizes cash-flow-adjusted StoneX trading performance from a "
+                f"${BASELINE_AMOUNT:,.0f} baseline. Deposits and withdrawals do not create "
+                "artificial gains or losses; broker StoneX balances in the data tables remain "
+                "actual account values.",
                 className="text-center small",
                 style={"marginTop": "4rem"}  # gives some breathing room
             ),
@@ -4057,27 +4112,31 @@ def _recompute_daily_perf_records(nav_series, bl, secret_rows=None):
     return rows
 
 
-def _rebuild_nav_figure(nav_series):
-    """Rebuild the performance chart from the StoneX balance series."""
-    if nav_series.empty:
+def _rebuild_nav_figure(perf_series):
+    """Rebuild the public performance chart from a cash-flow-adjusted StoneX series."""
+    if perf_series.empty:
         fig = go.Figure()
         fig.add_annotation(text="No data", xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False)
         return fig
     fig = go.Figure(
-        go.Scatter(x=nav_series.index, y=nav_series.values,
-                   mode="lines", line={"color": PRIMARY_COLOR}, name="StoneX")
+        go.Scatter(x=perf_series.index, y=perf_series.values,
+                   mode="lines", line={"color": PRIMARY_COLOR}, name="StoneX performance")
     )
     cfg = {
-        "title": {"text": "<u>StoneX Performance Balance Since Inception</u>", "x": 0.5, "xanchor": "center"},
+        "title": {
+            "text": "<u>StoneX Cash-Flow-Adjusted Performance Since Inception</u>",
+            "x": 0.5,
+            "xanchor": "center",
+        },
         "template": "ggplot2",
         "plot_bgcolor": GREY_BG,
         "paper_bgcolor": WHITE_BG,
         "xaxis_title": "Date",
-        "yaxis_title": "StoneX Balance",
+        "yaxis_title": f"Performance (${BASELINE_AMOUNT:,.0f} baseline)",
         "autosize": True,
     }
     if SHOW_PERCENTAGE_AXIS:
-        nav_min, nav_max = nav_series.min(), nav_series.max()
+        nav_min, nav_max = perf_series.min(), perf_series.max()
         pct_min = ((nav_min - BASELINE_AMOUNT) / BASELINE_AMOUNT) * 100
         pct_max = ((nav_max - BASELINE_AMOUNT) / BASELINE_AMOUNT) * 100
         pct_range = pct_max - pct_min
@@ -4177,9 +4236,13 @@ def propagate_dashboard(canonical_nav_rows, secret_store_rows):
 
     bl = BASELINE_AMOUNT
 
+    perf_s = _performance_series_from_secret_rows(secret_store_rows or [])
+    if perf_s.empty:
+        perf_s = _canonical_nav_rows_to_series(canonical_nav_rows)
+
     monthly_recs = _recompute_monthly_records(nav_s, bl, secret_rows=secret_store_rows)
     perf_recs = _recompute_daily_perf_records(nav_s, bl, secret_rows=secret_store_rows)
-    nav_fig = _rebuild_nav_figure(nav_s)
+    nav_fig = _rebuild_nav_figure(perf_s)
 
     latest = _latest_authoritative_tkp_date_from_rows(secret_store_rows)
     if latest == "unavailable":
