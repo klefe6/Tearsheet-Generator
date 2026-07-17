@@ -75,8 +75,7 @@ def test_plus500_change_does_not_move_performance_series(tkp_mod, state_rows):
 
 
 def test_stonex_change_moves_performance_series(tkp_mod, state_rows):
-    base = tkp_mod._canonical_records_from_secret_rows(state_rows)
-    series_a = tkp_mod._rebuild_nav_series(base)
+    base = tkp_mod._performance_series_from_secret_rows(state_rows)
 
     mutated = []
     for r in state_rows:
@@ -85,11 +84,9 @@ def test_stonex_change_moves_performance_series(tkp_mod, state_rows):
             row["StoneX"] = "$83,000.00"
             row["$PL"] = "$1,000.00"
         mutated.append(row)
-    series_b = tkp_mod._rebuild_nav_series(
-        tkp_mod._canonical_records_from_secret_rows(mutated)
-    )
+    series_b = tkp_mod._performance_series_from_secret_rows(mutated)
 
-    assert series_a.loc["2026-07-09"] != pytest.approx(series_b.loc["2026-07-09"], abs=0.01)
+    assert base.loc["2026-07-09"] != pytest.approx(series_b.loc["2026-07-09"], abs=0.01)
 
 
 def test_client_admin_canonical_same_source(tkp_mod, state_rows):
