@@ -837,7 +837,13 @@ def _register_ingest_refresh_callback(
     paths: StatePaths,
     runtime_holder: Dict[str, Any],
 ) -> None:
-    """Reload JSON state when revision changes (ingest or external write)."""
+    """Push recalculated snapshot into client stores when revision advances.
+
+    Compares disk revision against ``last_pushed_revision`` (what clients were
+    last sent), NOT against ``runtime_holder["snapshot"]`` — the latter is
+    updated on ingest before any browser callback runs, so comparing to it
+    would skip the push and leave open/new clients on stale Store data.
+    """
 
     @app.callback(
         Output("canonical-nav-store", "data", allow_duplicate=True),
@@ -850,14 +856,16 @@ def _register_ingest_refresh_callback(
     )
     def _refresh_after_uploader_ingest(_n_intervals):
         snap = load_runtime_snapshot(cfg, paths)
-        current = runtime_holder.get("snapshot")
-        runtime_holder.pop("ingest_refresh_pending", False)
-        if current is not None:
-            same_revision = snap.state_revision == current.state_revision
-            same_rows = len(snap.records) == len(current.records)
-            if same_revision and same_rows:
-                return (no_update,) * 5
         runtime_holder["snapshot"] = snap
+        force = bool(runtime_holder.pop("ingest_refresh_pending", False))
+        last_pushed = runtime_holder.get("last_pushed_revision")
+        if (
+            not force
+            and last_pushed is not None
+            and snap.state_revision == last_pushed
+        ):
+            return (no_update,) * 5
+        runtime_holder["last_pushed_revision"] = snap.state_revision
         labels = build_tcp_current_data_labels(snap.canonical_nav)
         meta = snap.ledger.metadata
         summary = build_daily_values_summary(
@@ -872,6 +880,65 @@ def _register_ingest_refresh_callback(
             _mobile_label_children(labels.header, labels.date_line),
             summary.children,
         )
+
+
+TCP_RECALCULATED_FIELDS = (
+    "canonical_nav",
+    "daily_returns",
+    "cumulative_returns",
+    "monthly_performance",
+    "current_drawdown",
+    "maximum_drawdown",
+    "benchmark_alignment",
+    "data_current_label",
+    "admin_daily_table",
+    "client_nav_chart",
+    "admin_nav_chart",
+)
+
+
+def apply_tcp_recalculation(
+    cfg: TCPConfig,
+    paths: StatePaths,
+    runtime_holder: Dict[str, Any],
+    *,
+    authoritative_date: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Reload authoritative JSON state and rebuild derived dashboard inputs.
+
+    Atomically replaces ``runtime_holder["snapshot"]``. Does not mutate the
+    persisted ledger. Returns a status dict for ingest / admin recalculate.
+    """
+    snap = load_runtime_snapshot(cfg, paths)
+    if not snap.canonical_nav:
+        raise RuntimeError("TCP snapshot has no canonical NAV records after reload")
+    benchmark_result = _resolve_benchmark_result(runtime_holder)
+    propagation = _propagate_with_drawdown_benchmarks(
+        snap.canonical_nav,
+        runtime_holder,
+        benchmark_result,
+    )
+    latest = (
+        propagation.latest_date.isoformat()
+        if propagation.latest_date is not None
+        else None
+    )
+    if authoritative_date is not None and latest != authoritative_date:
+        raise RuntimeError(
+            f"TCP display latest date {latest!r} does not match "
+            f"authoritative record date {authoritative_date!r}"
+        )
+    runtime_holder["snapshot"] = snap
+    runtime_holder["ingest_refresh_pending"] = True
+    runtime_holder["display_revision"] = snap.state_revision
+    runtime_holder["last_propagation"] = propagation
+    return {
+        "source_revision": snap.state_revision,
+        "display_revision": snap.state_revision,
+        "latest_display_date": latest,
+        "latest_nav": propagation.latest_nav,
+        "recalculated_fields": list(TCP_RECALCULATED_FIELDS),
+    }
 
 
 def _register_dashboard_callback(app: dash.Dash, runtime_holder: Dict[str, Any]) -> None:
@@ -1248,13 +1315,23 @@ def create_app(
     # unless GLENN_UPLOADER_INGEST_ENABLED + _TOKEN are set in this process's
     # env (read per request). Reuses simulate_add_row/persist_add_row, so an
     # ingested row is computed and revision-guarded exactly like an admin
-    # Add Row. The JSON state file updates immediately; a short-interval Dash
-    # refresh reloads the in-memory snapshot so charts update without restart.
-    def _on_tcp_persisted(outcome: Any, _payload: dict) -> None:
-        snap = load_runtime_snapshot(cfg, paths)
-        runtime_holder["snapshot"] = snap
-        runtime_holder["ingest_refresh_pending"] = True
-        outcome.display_refreshed = False
+    # Add Row. After a durable write, apply_tcp_recalculation reloads the
+    # authoritative JSON and rebuilds derived dashboard inputs so charts /
+    # stats share one canonical revision without a process restart.
+    def _on_tcp_persisted(outcome: Any, payload: dict) -> None:
+        status = apply_tcp_recalculation(
+            cfg,
+            paths,
+            runtime_holder,
+            authoritative_date=str(payload.get("date") or ""),
+        )
+        outcome.state_revision = status["source_revision"]
+        outcome.source_revision = status["source_revision"]
+        outcome.display_revision = status["display_revision"]
+        outcome.latest_display_date = status["latest_display_date"]
+        outcome.recalculated_fields = status["recalculated_fields"]
+        outcome.recalculated = True
+        outcome.display_refreshed = True
 
     register_uploader_ingest(
         app.server,
@@ -1266,13 +1343,43 @@ def create_app(
         ),
     )
 
+    @app.server.route("/api/admin/recalculate", methods=["POST"])
+    def tcp_admin_recalculate():
+        """Rebuild derived website state from authoritative stored ledger."""
+        if not auth_manager.is_authenticated(session):
+            return jsonify({"ok": False, "error": "not authenticated"}), 401
+        try:
+            status = apply_tcp_recalculation(cfg, paths, runtime_holder)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("TCP admin recalculation failed")
+            return jsonify(
+                {
+                    "ok": False,
+                    "persisted": True,
+                    "recalculated": False,
+                    "display_refreshed": False,
+                    "error": str(exc),
+                }
+            ), 500
+        return jsonify({"ok": True, "persisted": True, "recalculated": True, "display_refreshed": True, **status})
+
     if state.snapshot is not None:
-        benchmark_result = _resolve_benchmark_result(runtime_holder)
-        app.layout = build_preview_layout(cfg, state, benchmark_result)
+        # Callable layout so each browser session seeds Stores from the live
+        # runtime snapshot (post-ingest), not the process-startup bake.
+        def _tcp_live_layout():
+            live_snap = runtime_holder.get("snapshot") or state.snapshot
+            live_state = PreviewState(snapshot=live_snap)
+            live_benchmark = _resolve_benchmark_result(runtime_holder)
+            return build_preview_layout(cfg, live_state, live_benchmark)
+
+        app.layout = _tcp_live_layout
         _register_access_callbacks(app, auth_manager, runtime_holder, export_filename=cfg.export_filename)
         _register_dashboard_callback(app, runtime_holder)
         _register_ingest_refresh_callback(app, cfg, paths, runtime_holder)
         _register_admin_callbacks(app, cfg, paths, runtime_holder, auth_manager)
+        # last_pushed starts None so the first connected client interval push
+        # delivers the current revision after ingest forces a refresh.
+        runtime_holder.setdefault("last_pushed_revision", None)
     else:
         app.layout = build_error_layout(cfg, state)
 

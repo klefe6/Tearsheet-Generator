@@ -23,6 +23,7 @@ import json
 import math
 import os
 import sys
+import threading
 import traceback
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -559,11 +560,15 @@ ADMIN_XAXIS_TICKS = {"dtick": "M1", "tickformat": "%b %Y"}
 
 def _admin_shared_xaxis_range() -> tuple[pd.Timestamp, pd.Timestamp] | tuple[None, None]:
     """Shared x-axis window for the 3 admin-verification charts: live
-    inception through the latest daily-balances date."""
-    if daily_balances_df is None or daily_balances_df.empty:
-        return None, None
+    inception through the latest daily accounting date (CSV + manual)."""
+    t = _effective_client_accounting_table()
+    if t is None or t.empty:
+        if daily_balances_df is None or daily_balances_df.empty:
+            return None, None
+        x_right = pd.Timestamp(daily_balances_df["Date"].max()) + pd.Timedelta(days=10)
+    else:
+        x_right = pd.Timestamp(t["Date"].max()) + pd.Timedelta(days=10)
     x_left = pd.Timestamp(PROGRAM_INCEPTION) - pd.Timedelta(days=7)
-    x_right = pd.Timestamp(daily_balances_df["Date"].max()) + pd.Timedelta(days=10)
     return x_left, x_right
 
 
@@ -585,14 +590,6 @@ def _daily_equity_frame() -> pd.DataFrame:
         return pd.DataFrame(columns=["Date", "client_net_value"])
     mask = t["Date"] >= pd.Timestamp(PROGRAM_INCEPTION)
     return t.loc[mask, ["Date", "client_net_value"]].reset_index(drop=True)
-
-
-def _effective_client_accounting_table() -> pd.DataFrame:
-    """CSV daily accounting plus any persisted manual / uploader rows."""
-    manual = _load_agm_manual_daily_rows()
-    if not manual:
-        return daily_accounting.table
-    return _compute_accounting_with_manual_rows(manual)
 
 
 def build_nav_figure() -> go.Figure:
@@ -814,7 +811,8 @@ def _empty_admin_figure(title: str, message: str) -> go.Figure:
 
 def build_agm_accrued_fees_figure() -> go.Figure:
     """Admin-only. Daily accrued unpaid fees from the accounting model."""
-    acc_tbl = daily_accounting.table
+    live_acct = _live_daily_accounting()
+    acc_tbl = live_acct.table
     if acc_tbl is None or acc_tbl.empty:
         return _empty_admin_figure(
             "Accrued Unpaid Fees (Admin)",
@@ -834,7 +832,7 @@ def build_agm_accrued_fees_figure() -> go.Figure:
         line=dict(color="#B02A37", width=2),
         hovertemplate="%{x|%b %d, %Y}<br>Accrued: $%{y:,.2f}<extra></extra>",
     ))
-    payments = daily_accounting.payments
+    payments = live_acct.payments
     if payments:
         pay_dates = [p["date"] for p in payments]
         pay_y = [
@@ -848,7 +846,7 @@ def build_agm_accrued_fees_figure() -> go.Figure:
             hovertemplate="%{x|%b %d, %Y}<br>Payment: $%{customdata:,.2f}<extra></extra>",
             customdata=[p["amount"] for p in payments],
         ))
-    outstanding = daily_fee_accrual.outstanding
+    outstanding = _live_daily_fee_accrual().outstanding
     if outstanding:
         note = "Outstanding (no payment evidence in CSV): " + ", ".join(
             f"{o['month']} ${o['fee']:,.2f}" for o in outstanding
@@ -1314,22 +1312,42 @@ def _agm_manual_fee_payments(manual_rows):
     return tuple(agm_fee_evidence.EVIDENCED_FEE_PAYMENTS) + tuple(extra)
 
 
-def _compute_accounting_with_manual_rows(manual_rows) -> pd.DataFrame:
-    """Daily accounting table for the CSV rows plus admin-entered manual rows.
+# Live display state rebuilt after Glenn ingest / admin manual-row edits.
+# Startup CSV-only objects remain the base; this holder is swapped atomically.
+_AGM_DISPLAY_LOCK = threading.Lock()
+_AGM_DISPLAY_REVISION = 0
+_AGM_LIVE_ACCOUNTING = None  # AgmDailyAccounting | None
+_AGM_LIVE_FEE_ACCRUAL = None  # DailyFeeAccrual | None
+_AGM_INGEST_REFRESH_PENDING = False
+_AGM_LAST_PUSHED_REVISION = None
 
-    Manual rows carry Date + TradeStation NLV (deposit_withdrawal is stored
-    as display-only metadata — the NLV already reflects the cash debit/credit,
-    see build_agm_daily_admin_controls). Every derived column (accrued fee,
-    client net value, SPX alignment, daily returns) comes from re-running the
-    SAME accepted accounting model over the augmented balance frame — the fee
-    formula itself is never touched here. A manually recorded incentive fee
-    payment is passed through as additional evidence to the SAME
-    exact-daily-match/workbook-reconciliation/cash-transaction mechanism the
-    fee engine already uses, so it reduces accrued_unpaid_fees (and therefore
-    increases client_net_value back to par) without double-subtracting.
+AGM_RECALCULATED_FIELDS = (
+    "client_accounting_table",
+    "nav_chart",
+    "daily_returns",
+    "monthly_performance",
+    "current_drawdown",
+    "maximum_drawdown",
+    "account_statistics",
+    "hwm",
+    "loss_carry",
+    "accrued_incentive_fees",
+    "admin_nlv_chart",
+    "admin_fee_chart",
+    "data_current_label",
+)
+
+
+def _compute_agm_accounting_bundle(manual_rows):
+    """Run the accepted fee + accounting + monthly pipeline over CSV + manual rows.
+
+    Manual rows are merged into the chronological Net Worth series FIRST; then
+    fee accrual, daily accounting, and monthly summary are derived in order.
+    Never concatenates a manual row onto already-derived columns.
     """
     if not manual_rows:
-        return daily_accounting.table
+        return daily_accounting, daily_fee_accrual, monthly_summary
+
     extra = pd.DataFrame(
         {
             "Date": [pd.Timestamp(r["date"]).normalize() for r in manual_rows],
@@ -1341,14 +1359,118 @@ def _compute_accounting_with_manual_rows(manual_rows) -> pd.DataFrame:
         .sort_values("Date")
         .reset_index(drop=True)
     )
+    fee_accrual = agm_fees.compute_daily_fee_accrual(
+        augmented,
+        spx_daily_df,
+        monthly_reference=summary_df if not summary_df.empty else None,
+        cash_transaction_payments=_agm_manual_fee_payments(manual_rows),
+    )
     acct = agm_accounting.compute_agm_daily_accounting(
         augmented,
         spx_daily_df,
         inception=pd.Timestamp(PROGRAM_INCEPTION),
+        fee_accrual=fee_accrual,
         monthly_reference=summary_df if not summary_df.empty else None,
-        cash_transaction_payments=_agm_manual_fee_payments(manual_rows),
     )
+    monthly = agm_monthly.compute_agm_monthly_summary(
+        acct.table,
+        fee_accrual.crystallized,
+        spx_daily_df,
+        ndx_daily_df,
+        PROGRAM_INCEPTION,
+    )
+    return acct, fee_accrual, monthly
+
+
+def _compute_accounting_with_manual_rows(manual_rows) -> pd.DataFrame:
+    """Daily accounting table for the CSV rows plus admin-entered manual rows."""
+    acct, _fees, _monthly = _compute_agm_accounting_bundle(manual_rows)
     return acct.table
+
+
+def recalculate_agm_display_state_from_disk(*, authoritative_date=None) -> dict:
+    """Reload manual rows, recompute all derived AGM display state atomically.
+
+    Does not mutate TradeStation CSV history. Safe to call after ingest or via
+    the admin recalculation endpoint.
+    """
+    global _AGM_DISPLAY_REVISION, _AGM_LIVE_ACCOUNTING, _AGM_LIVE_FEE_ACCRUAL
+    global _display_summary_df, net_totals, perf_metrics, monthly_stats
+    global perf_df, stats_df, LATEST_DATE, monthly_summary
+    global _AGM_INGEST_REFRESH_PENDING
+
+    manual = _load_agm_manual_daily_rows()
+    acct, fees, monthly = _compute_agm_accounting_bundle(manual)
+
+    display_df = monthly.table if not monthly.table.empty else _summary_through_current_month(summary_df)
+    totals = dict(monthly.totals) if not monthly.table.empty else net_totals
+    new_perf = calc_performance_metrics(display_df)
+    new_monthly_stats = calc_monthly_stats(display_df)
+    new_perf_df = pd.DataFrame({
+        "Metric": list(new_perf.keys()),
+        "Momentum Pacer (Inception)": list(new_perf.values()),
+    }) if new_perf else pd.DataFrame()
+    new_stats_df = pd.DataFrame({
+        "Metric": list(new_monthly_stats.keys()),
+        "Momentum Pacer (Inception)": list(new_monthly_stats.values()),
+    }) if new_monthly_stats else pd.DataFrame()
+
+    latest_ts = None
+    if acct.table is not None and not acct.table.empty:
+        latest_ts = pd.Timestamp(acct.table["Date"].max()).normalize()
+    latest_iso = latest_ts.strftime("%Y-%m-%d") if latest_ts is not None else None
+    if authoritative_date is not None and latest_iso != authoritative_date:
+        raise RuntimeError(
+            f"AGM display latest date {latest_iso!r} does not match "
+            f"authoritative record date {authoritative_date!r}"
+        )
+
+    with _AGM_DISPLAY_LOCK:
+        _AGM_LIVE_ACCOUNTING = acct
+        _AGM_LIVE_FEE_ACCRUAL = fees
+        monthly_summary = monthly
+        _display_summary_df = display_df
+        net_totals = totals
+        perf_metrics = new_perf
+        monthly_stats = new_monthly_stats
+        perf_df = new_perf_df
+        stats_df = new_stats_df
+        if latest_ts is not None:
+            LATEST_DATE = latest_ts
+        _AGM_DISPLAY_REVISION += 1
+        revision = _AGM_DISPLAY_REVISION
+        _AGM_INGEST_REFRESH_PENDING = True
+
+    return {
+        "source_revision": revision,
+        "display_revision": revision,
+        "latest_display_date": latest_iso,
+        "recalculated_fields": list(AGM_RECALCULATED_FIELDS),
+    }
+
+
+def _effective_client_accounting_table() -> pd.DataFrame:
+    """CSV daily accounting plus any persisted manual / uploader rows."""
+    with _AGM_DISPLAY_LOCK:
+        live = _AGM_LIVE_ACCOUNTING
+    if live is not None and live.table is not None and not live.table.empty:
+        return live.table
+    manual = _load_agm_manual_daily_rows()
+    if not manual:
+        return daily_accounting.table
+    return _compute_accounting_with_manual_rows(manual)
+
+
+def _live_daily_accounting():
+    with _AGM_DISPLAY_LOCK:
+        live = _AGM_LIVE_ACCOUNTING
+    return live if live is not None else daily_accounting
+
+
+def _live_daily_fee_accrual():
+    with _AGM_DISPLAY_LOCK:
+        live = _AGM_LIVE_FEE_ACCRUAL
+    return live if live is not None else daily_fee_accrual
 
 
 def agm_add_manual_daily_row(date_val, nlv_val, deposit_val=0, fee_paid_val=0):
@@ -1402,7 +1524,14 @@ def agm_add_manual_daily_row(date_val, nlv_val, deposit_val=0, fee_paid_val=0):
         "incentive_fee_paid": fee_paid,
     })
     _save_agm_manual_daily_rows(manual)
-    return True, "", _compute_accounting_with_manual_rows(manual)
+    try:
+        recalculate_agm_display_state_from_disk(
+            authoritative_date=date.strftime("%Y-%m-%d")
+        )
+        return True, "", _effective_client_accounting_table()
+    except Exception as exc:  # noqa: BLE001
+        # Durable write succeeded; derived display may be stale until recalculate.
+        return True, f"saved_but_recalc_failed:{exc}", None
 
 
 def agm_delete_last_manual_daily_row():
@@ -1419,10 +1548,11 @@ def agm_delete_last_manual_daily_row():
     manual.sort(key=lambda r: r["date"])
     removed = manual.pop()
     _save_agm_manual_daily_rows(manual)
+    recalculate_agm_display_state_from_disk()
     return (
         True,
         f"Deleted manually added row for {removed['date']}.",
-        _compute_accounting_with_manual_rows(manual),
+        _effective_client_accounting_table(),
     )
 
 
@@ -3337,19 +3467,35 @@ def agm_healthz():
     })
 
 
-# Set by Glenn Uploader ingest; cleared by the refresh interval callback.
-_AGM_INGEST_REFRESH_PENDING = False
+# Set by Glenn Uploader ingest / recalculate; cleared by the refresh interval.
+# (Canonical definition lives with the display-state holder above.)
 
 
 def _agm_manual_rows_storage_target() -> str:
     return str(_agm_manual_daily_rows_path())
 
 
-def _on_agm_persisted(outcome, _payload):
+def _on_agm_persisted(outcome, payload):
     global _AGM_INGEST_REFRESH_PENDING
-    _AGM_INGEST_REFRESH_PENDING = True
     outcome.storage_target = _agm_manual_rows_storage_target()
-    outcome.display_refreshed = False
+    try:
+        status = recalculate_agm_display_state_from_disk(
+            authoritative_date=str(payload.get("date") or "") or None
+        )
+    except Exception as exc:  # noqa: BLE001
+        outcome.recalculated = False
+        outcome.display_refreshed = False
+        outcome.recalculation_error = f"{type(exc).__name__}: {exc}"
+        _AGM_INGEST_REFRESH_PENDING = True
+        return
+    outcome.source_revision = status["source_revision"]
+    outcome.display_revision = status["display_revision"]
+    outcome.state_revision = status["display_revision"]
+    outcome.latest_display_date = status["latest_display_date"]
+    outcome.recalculated_fields = status["recalculated_fields"]
+    outcome.recalculated = True
+    outcome.display_refreshed = True
+    _AGM_INGEST_REFRESH_PENDING = True
 
 
 # ─────────────────────────────────────────────────────────────
@@ -3457,9 +3603,22 @@ _ingest.register_uploader_ingest(
     ),
 )
 
+# Seed live display state from any persisted manual rows so cold starts
+# (and new browser sessions) share the same recalculated revision as ingest.
+try:
+    if _load_agm_manual_daily_rows():
+        recalculate_agm_display_state_from_disk()
+except Exception as _agm_boot_exc:  # noqa: BLE001
+    print(f"[mp_ts] AGM startup recalculation deferred: {_agm_boot_exc}")
+
 
 @app.callback(
     Output("mp-nav-graph", "figure", allow_duplicate=True),
+    Output("drawdown-graph", "figure", allow_duplicate=True),
+    Output("agm-accrued-fees-graph", "figure", allow_duplicate=True),
+    Output("agm-admin-monthly-performance", "children", allow_duplicate=True),
+    Output("agm-client-performance-summary", "children", allow_duplicate=True),
+    Output("agm-drawdown-profile-card", "children", allow_duplicate=True),
     Output(CLIENT_DAILY_TABLE_ID, "data", allow_duplicate=True),
     Output("data-current-label-desktop", "children", allow_duplicate=True),
     Output("data-current-label-mobile", "children", allow_duplicate=True),
@@ -3467,20 +3626,58 @@ _ingest.register_uploader_ingest(
     prevent_initial_call=True,
 )
 def _refresh_agm_after_uploader_ingest(_n_intervals):
-    global _AGM_INGEST_REFRESH_PENDING
-    if not _AGM_INGEST_REFRESH_PENDING:
-        return dash.no_update, dash.no_update, dash.no_update, dash.no_update
+    global _AGM_INGEST_REFRESH_PENDING, _AGM_LAST_PUSHED_REVISION
+    with _AGM_DISPLAY_LOCK:
+        revision = _AGM_DISPLAY_REVISION
+        pending = _AGM_INGEST_REFRESH_PENDING
+    if not pending and _AGM_LAST_PUSHED_REVISION == revision:
+        return (dash.no_update,) * 9
     _AGM_INGEST_REFRESH_PENDING = False
+    _AGM_LAST_PUSHED_REVISION = revision
     latest = _agm_authoritative_latest_date()
     desktop, mobile = build_header_date_label_children_from_date(latest)
+    dd_card = build_agm_max_drawdown_profile_card()
     return (
         build_nav_figure(),
+        build_drawdown_figure(),
+        build_agm_accrued_fees_figure(),
+        build_admin_monthly_performance_table(),
+        build_client_performance_summary_table(),
+        dd_card.children,
         build_client_daily_table_rows(
             newest_first=True,
             table=_effective_client_accounting_table(),
         ),
         desktop,
         mobile,
+    )
+
+
+@app.server.route("/api/admin/recalculate", methods=["POST"])
+def agm_admin_recalculate():
+    """Rebuild derived website state from authoritative CSV + manual rows."""
+    if not agm_admin_auth_manager.is_authenticated(session):
+        return jsonify({"ok": False, "error": "not authenticated"}), 401
+    try:
+        status = recalculate_agm_display_state_from_disk()
+    except Exception as exc:  # noqa: BLE001
+        return jsonify(
+            {
+                "ok": False,
+                "persisted": True,
+                "recalculated": False,
+                "display_refreshed": False,
+                "error": str(exc),
+            }
+        ), 500
+    return jsonify(
+        {
+            "ok": True,
+            "persisted": True,
+            "recalculated": True,
+            "display_refreshed": True,
+            **status,
+        }
     )
 
 
