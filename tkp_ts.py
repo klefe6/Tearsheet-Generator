@@ -3448,6 +3448,7 @@ def dynamic_layout():
         dcc.Store(id="canonical-nav-store", storage_type="memory", data=fresh_canonical),
         dcc.Store(id=GATE_PASSWORD_VISIBLE_STORE_ID, storage_type="memory", data=False),
         dcc.Location(id="url", refresh=False),
+        dcc.Interval(id="tkp-ingest-refresh-interval", interval=3_000, n_intervals=0),
         disclaimer_screen,
         html.Div(
             id="main-app",
@@ -3458,6 +3459,47 @@ def dynamic_layout():
 
 # Set layout as a function for dynamic data loading
 app.layout = dynamic_layout
+
+_TKP_INGEST_REFRESH_PENDING = False
+_TKP_DISPLAY_REVISION = 0
+_TKP_LAST_PUSHED_REVISION = None
+
+TKP_RECALCULATED_FIELDS = (
+    "secret_table",
+    "canonical_nav",
+    "daily_returns",
+    "cumulative_returns",
+    "monthly_performance",
+    "data_current_label",
+    "nav_chart",
+    "performance_metrics",
+)
+
+
+def apply_tkp_recalculation(*, authoritative_date=None):
+    """Reload secret JSON and prove derived dashboard outputs rebuild."""
+    global _TKP_DISPLAY_REVISION, _TKP_INGEST_REFRESH_PENDING
+    rows = [dict(r) for r in (_load_fresh_secret_records() or [])]
+    canonical = _canonical_records_from_secret_rows(rows)
+    if not canonical:
+        raise RuntimeError("TKP has no StoneX canonical rows after reload")
+    # Exercise the same propagation path the live dashboard uses.
+    propagate_dashboard(canonical, rows)
+    latest_iso = str(canonical[-1]["Date"])
+    if authoritative_date is not None and latest_iso != authoritative_date:
+        raise RuntimeError(
+            f"TKP display latest date {latest_iso!r} does not match "
+            f"authoritative record date {authoritative_date!r}"
+        )
+    _TKP_DISPLAY_REVISION += 1
+    _TKP_INGEST_REFRESH_PENDING = True
+    return {
+        "source_revision": _TKP_DISPLAY_REVISION,
+        "display_revision": _TKP_DISPLAY_REVISION,
+        "latest_display_date": latest_iso,
+        "recalculated_fields": list(TKP_RECALCULATED_FIELDS),
+        "rows": rows,
+    }
 
 @app.callback(
     Output("disclaimer-screen", "style"),
@@ -4365,6 +4407,21 @@ def _uploader_ingest_apply(payload, dry_run):
 from pathlib import Path as _IngestPath  # noqa: E402
 import tearsheet_uploader_ingest as _ingest  # noqa: E402  (route framework)
 
+
+def _on_tkp_persisted(outcome, payload):
+    status = apply_tkp_recalculation(
+        authoritative_date=str(payload.get("date") or "") or None
+    )
+    outcome.source_revision = status["source_revision"]
+    outcome.display_revision = status["display_revision"]
+    outcome.state_revision = status["display_revision"]
+    outcome.latest_display_date = status["latest_display_date"]
+    outcome.recalculated_fields = status["recalculated_fields"]
+    outcome.recalculated = True
+    outcome.display_refreshed = True
+    outcome.storage_target = str(_IngestPath(_secret_editor_state_path()))
+
+
 _ingest.register_uploader_ingest(
     app.server,
     _ingest.IngestConfig(
@@ -4374,8 +4431,55 @@ _ingest.register_uploader_ingest(
         apply=_uploader_ingest_apply,
         audit_path=_IngestPath(__file__).resolve().parent
         / "glenn_uploader_ingest_tkp_audit.jsonl",
+        storage_target=str(_IngestPath(_secret_editor_state_path())),
+        on_persisted=_on_tkp_persisted,
     ),
 )
+
+
+@app.callback(
+    Output("secret-data-store", "data", allow_duplicate=True),
+    Input("tkp-ingest-refresh-interval", "n_intervals"),
+    prevent_initial_call=True,
+)
+def _refresh_tkp_after_uploader_ingest(_n_intervals):
+    global _TKP_INGEST_REFRESH_PENDING, _TKP_LAST_PUSHED_REVISION
+    if (
+        not _TKP_INGEST_REFRESH_PENDING
+        and _TKP_LAST_PUSHED_REVISION == _TKP_DISPLAY_REVISION
+    ):
+        return dash.no_update
+    _TKP_INGEST_REFRESH_PENDING = False
+    _TKP_LAST_PUSHED_REVISION = _TKP_DISPLAY_REVISION
+    return _load_fresh_secret_records() or []
+
+
+@app.server.route("/api/admin/recalculate", methods=["POST"])
+def tkp_admin_recalculate():
+    if not tkp_admin_auth_manager.is_authenticated(session):
+        return jsonify({"ok": False, "error": "not authenticated"}), 401
+    try:
+        status = apply_tkp_recalculation()
+    except Exception as exc:  # noqa: BLE001
+        return jsonify(
+            {
+                "ok": False,
+                "persisted": True,
+                "recalculated": False,
+                "display_refreshed": False,
+                "error": str(exc),
+            }
+        ), 500
+    status = {k: v for k, v in status.items() if k != "rows"}
+    return jsonify(
+        {
+            "ok": True,
+            "persisted": True,
+            "recalculated": True,
+            "display_refreshed": True,
+            **status,
+        }
+    )
 
 
 if __name__ == "__main__":

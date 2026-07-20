@@ -81,6 +81,15 @@ class IngestOutcome:
     state_revision: Optional[int] = None
     storage_target: Optional[str] = None
     display_refreshed: bool = False
+    # Post-persist recalculation signal (set by on_persisted / apply).
+    # persisted=True with recalculated=False means the row is durable but the
+    # website's derived chart/stats state was not rebuilt.
+    recalculated: bool = False
+    source_revision: Optional[int] = None
+    display_revision: Optional[int] = None
+    latest_display_date: Optional[str] = None
+    recalculated_fields: Optional[list] = None
+    recalculation_error: Optional[str] = None
 
 
 @dataclass
@@ -241,7 +250,26 @@ def handle_ingest_request(config: IngestConfig, headers: Any, body: Any, remote_
         # Idempotent unchanged rows still prove durable downstream state.
         outcome.persisted = True
         if config.on_persisted and outcome.persisted:
-            config.on_persisted(outcome, clean)
+            try:
+                config.on_persisted(outcome, clean)
+            except Exception as exc:  # noqa: BLE001 — keep durable row; report soft fail
+                outcome.recalculated = False
+                outcome.display_refreshed = False
+                outcome.recalculation_error = f"{type(exc).__name__}: {exc}"
+
+    # display_refreshed requires a completed recalculation against the
+    # authoritative date; never claim refresh when recalculation failed.
+    display_refreshed = bool(
+        outcome.display_refreshed
+        and outcome.recalculated
+        and not outcome.recalculation_error
+        and (
+            outcome.latest_display_date is None
+            or str(outcome.latest_display_date) == clean["date"]
+        )
+    )
+    if not display_refreshed:
+        outcome.display_refreshed = False
 
     response = {
         "accepted": True,
@@ -257,11 +285,22 @@ def handle_ingest_request(config: IngestConfig, headers: Any, body: Any, remote_
         "before": outcome.before,
         "after": outcome.after,
         "persisted": bool(outcome.persisted and not dry_run),
+        "recalculated": bool(outcome.recalculated and not dry_run),
         "authoritative_record_date": clean["date"],
+        "source_revision": outcome.source_revision
+        if outcome.source_revision is not None
+        else outcome.state_revision,
+        "display_revision": outcome.display_revision
+        if outcome.display_revision is not None
+        else outcome.state_revision,
+        "latest_display_date": outcome.latest_display_date,
+        "recalculated_fields": list(outcome.recalculated_fields or []),
         "state_revision": outcome.state_revision,
         "storage_target": outcome.storage_target or config.storage_target,
-        "display_refreshed": outcome.display_refreshed,
+        "display_refreshed": bool(display_refreshed and not dry_run),
     }
+    if outcome.recalculation_error:
+        response["recalculation_error"] = outcome.recalculation_error
     _append_audit(
         config,
         {
