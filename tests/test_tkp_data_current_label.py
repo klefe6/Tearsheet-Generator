@@ -105,7 +105,7 @@ def test_propagate_dashboard_uses_authoritative_date_not_synthetic_nav():
     ]
     canonical = tkp_ts._canonical_records_from_secret_rows(secret_rows)
 
-    monthly, perf, _fig, desktop, mobile = tkp_ts.propagate_dashboard(canonical, secret_rows)
+    monthly, perf, _fig, _dd, desktop, mobile = tkp_ts.propagate_dashboard(canonical, secret_rows)
 
     assert monthly is not None
     assert "July 15, 2026 close" in str(desktop)

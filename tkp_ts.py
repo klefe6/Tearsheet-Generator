@@ -1143,7 +1143,13 @@ def _rebuild_nav_series(rows):
 
 
 def _daily_returns_from_secret_rows(rows, bl):
-    """Deposit-neutralized daily returns from persisted $PL / nominal baseline."""
+    """Nominal daily returns from the persisted ledger: Net P&L / baseline.
+
+    Uses the net (after 20% fee) daily P&L so cumulative stats, drawdown, and
+    the monthly table all reconcile with the NAV performance series, which is
+    itself the accumulation of Net P&L from the $150k baseline. $PL already
+    excludes external cash flows, so deposits/withdrawals contribute zero.
+    """
     if not rows or bl == 0:
         return pd.Series(dtype=float)
     pairs = []
@@ -1153,8 +1159,9 @@ def _daily_returns_from_secret_rows(rows, bl):
             continue
         try:
             dt = pd.to_datetime(date_str)
-            pl = _parse_money(r.get("$PL", "")) if r.get("$PL", "") else 0.0
-            pairs.append((dt, pl / bl))
+            raw = r.get("Net P&L", "")
+            net_pl = _parse_money(raw) if raw not in ("", None) else 0.0
+            pairs.append((dt, net_pl / bl))
         except Exception:
             continue
     if not pairs:
@@ -1172,29 +1179,24 @@ def _glenn_aligned_daily_return(prior_stonex: float, stonex: float, cash_flow: f
 
 
 def _performance_series_from_secret_rows(rows, baseline: float | None = None) -> pd.Series:
-    """Cash-flow-neutralized StoneX performance curve (compounded from TKP baseline).
+    """Canonical TKP performance series: the persisted NAV chain.
 
-    Raw StoneX balances stay in the secret table; this series is for charts,
-    drawdown, and benchmark comparison — not broker balance display.
+    NAV is the nominal, NON-compounded StoneX-only equity track — the $150k
+    baseline plus cumulative net trading P&L (`$PL` − fee), where `$PL` already
+    excludes external cash flows (Deposit column) and carries the workbook's
+    curated per-day attribution (e.g. the 2025 period where only half of the
+    StoneX delta belongs to TKP). Rebuilding this curve from raw StoneX
+    balance deltas is NOT equivalent: it anchors the first month against the
+    $150k baseline instead of the $100k StoneX opening balance, drops the
+    curated attribution, and compounding daily percentages contradicts the
+    published non-compounded methodology.
+
+    Raw StoneX/Plus500 balances stay in the tables; deposits and withdrawals
+    move broker balances but never this series. Powers the public chart,
+    monthly summary, drawdown, and benchmark comparison — identical by
+    construction to the canonical-nav-store series.
     """
-    bl = BASELINE_AMOUNT if baseline is None else baseline
-    stonex_s, deposit_s, _fee_s = _extract_stonex_deposit_fee_series(rows)
-    if stonex_s.empty:
-        return pd.Series(dtype=float)
-    levels: list[float] = []
-    prior_raw: float | None = None
-    level = bl
-    for dt in stonex_s.index:
-        raw = float(stonex_s.loc[dt])
-        cash_flow = float(deposit_s.loc[dt]) if dt in deposit_s.index else 0.0
-        if prior_raw is None:
-            level = bl
-        else:
-            dr = _glenn_aligned_daily_return(prior_raw, raw, cash_flow)
-            level = level * (1.0 + dr)
-        levels.append(level)
-        prior_raw = raw
-    return pd.Series(levels, index=stonex_s.index, dtype=float)
+    return _canonical_nav_rows_to_series(_canonical_records_from_secret_rows(rows or []))
 
 
 def _glenn_aligned_daily_return_series(rows) -> pd.Series:
@@ -1246,50 +1248,49 @@ def _extract_stonex_deposit_fee_series(store_rows):
     return df["StoneX"], df["Deposit"], df["Fee"]
 
 
-def _compute_stonex_monthly_gross_net(stonex_s, deposit_s, fee_s, bl):
-    """Monthly gross/net % returns from StoneX balances (deposit-neutralized gross)."""
-    if stonex_s.empty or bl == 0:
-        return pd.Series(dtype=float), pd.Series(dtype=float)
-    mp = stonex_s.index.to_period("M")
-    m_last = stonex_s.groupby(mp).last()
+def _monthly_returns_from_nav_series(nav_s, bl):
+    """Nominal monthly % returns from the NAV performance series.
+
+    Month % = (month-end NAV − prior month-end NAV) / baseline. The first
+    month anchors at the baseline itself, which is exact because the NAV
+    chain opens at the baseline on inception day — account funding therefore
+    produces no artificial first-month return.
+    """
+    if nav_s is None or nav_s.empty or bl == 0:
+        return pd.Series(dtype=float)
+    mp = nav_s.index.to_period("M")
+    m_last = nav_s.groupby(mp).last()
     m_first = pd.Series(index=m_last.index, dtype=float)
-    m_dep = pd.Series(index=m_last.index, dtype=float)
-    m_fee = pd.Series(index=m_last.index, dtype=float)
     for period in m_last.index:
-        before = stonex_s[stonex_s.index < period.start_time]
+        before = nav_s[nav_s.index < period.start_time]
         m_first.loc[period] = before.iloc[-1] if len(before) > 0 else bl
-        in_month_dep = deposit_s[(deposit_s.index >= period.start_time) &
-                                  (deposit_s.index <= period.end_time)]
-        in_month_fee = fee_s[(fee_s.index >= period.start_time) &
-                              (fee_s.index <= period.end_time)]
-        m_dep.loc[period] = in_month_dep.sum()
-        m_fee.loc[period] = in_month_fee.sum()
-    gross = (m_last - m_first - m_dep) / bl * 100
-    net = (m_last - m_first - m_dep - m_fee) / bl * 100
-    return gross, net
+    return (m_last - m_first) / bl * 100
 
 
 def _canonical_records_from_secret_rows(rows):
-    """Build canonical Date/balance records for TKP performance representation.
+    """Build canonical Date/NAV records for TKP performance representation.
 
-    StoneX is the sole performance input. Plus500 and the persisted synthetic
-    NAV column are never used for charts, returns, drawdown, or benchmarks.
-    The returned dicts keep the ``NAV`` key for store compatibility; values are
-    StoneX balances.
+    Values are the persisted NAV chain — StoneX-only net trading P&L
+    accumulated from the $150k baseline, already neutral to deposits,
+    withdrawals, and Plus500 (which is display-only). Raw broker balances
+    stay in the secret table rows; they are never the performance series.
     """
     if not rows:
         return []
     pairs = []
     for r in rows:
         date_str = r.get("Date", "")
+        nav_str = r.get("NAV", "")
+        # A row is only authoritative when it carries a StoneX close; a
+        # partial row (e.g. Plus500-only update) must not advance the series.
         stonex_str = r.get("StoneX", "")
-        if not date_str or not stonex_str:
+        if not date_str or nav_str in ("", None) or not stonex_str:
             continue
         try:
             dt = pd.to_datetime(date_str)
-            stonex_val = _parse_money(stonex_str)
-            if stonex_val > 0:
-                pairs.append((dt, stonex_val))
+            nav_val = _parse_money(nav_str)
+            if nav_val > 0:
+                pairs.append((dt, nav_val))
         except Exception:
             continue
     if not pairs:
@@ -1303,7 +1304,7 @@ def _canonical_records_from_secret_rows(rows):
 
 
 def _latest_authoritative_tkp_date_from_rows(rows) -> str:
-    """Latest Date in the StoneX-based canonical dataset powering the public chart."""
+    """Latest Date in the canonical NAV dataset powering the public chart."""
     canonical = _canonical_records_from_secret_rows(rows or [])
     if not canonical:
         return "unavailable"
@@ -1367,7 +1368,7 @@ if _secret_editor_restored_from_disk:
             NAV_df = _perf_series.to_frame(NAV_col)
             NAV_df = NAV_df.asfreq(us_bd).ffill()
             print(
-                f"📊 Performance chart series (StoneX cash-flow-adjusted): "
+                f"📊 Performance chart series (canonical NAV, non-compounded): "
                 f"{len(NAV_df)} rows, last=${NAV_df[NAV_col].iloc[-1]:,.2f}"
             )
 
@@ -1378,9 +1379,10 @@ if _secret_editor_restored_from_disk:
 # ==============================================================================
 baseline = BASELINE_AMOUNT
 if _secret_editor_restored_from_disk and secret_table_records:
+    # Keep the ledger's own dates: reindexing onto the business-day chart grid
+    # drops rows on US federal holidays the market traded (losing their P&L
+    # from cumulative stats) and pads zero-return days that never traded.
     daily_returns = _daily_returns_from_secret_rows(secret_table_records, baseline)
-    if not daily_returns.empty:
-        daily_returns = daily_returns.reindex(NAV_df.index).fillna(0.0)
 else:
     daily_returns = NAV_df[NAV_col].diff().div(baseline).dropna()
 
@@ -1429,52 +1431,27 @@ for name, sym in bench_map.items():
 #    + MONTH-CELLS THAT SUM TO TRUE YEAR-OVER-YEAR RETURN
 # ==============================================================================
 
-# 8a) Month-end and month-start performance balance (StoneX when secret store loaded)
+# 8a) Monthly % from the canonical NAV performance series (net, non-compounded).
+# The same series drives the chart, so month cells always sum to the chart's
+# cumulative performance. When the secret store is loaded, its NAV chain is
+# the source of truth; otherwise fall back to the workbook NAV column.
 if _secret_editor_restored_from_disk and secret_table_records:
-    sx_s, dep_s, fee_s = _extract_stonex_deposit_fee_series(secret_table_records)
-    monthly_simple, _monthly_net = _compute_stonex_monthly_gross_net(sx_s, dep_s, fee_s, baseline)
+    monthly_simple = _monthly_returns_from_nav_series(
+        _performance_series_from_secret_rows(secret_table_records), baseline
+    )
 else:
-    mp          = NAV_df.index.to_period("M")
-    month_last  = NAV_df[NAV_col].groupby(mp).last()
-    month_first = pd.Series(index=month_last.index, dtype=float)
-    for period in month_last.index:
-        month_start = period.start_time
-        nav_before_month = NAV_df[NAV_col][NAV_df.index < month_start]
-        if len(nav_before_month) > 0:
-            month_first.loc[period] = nav_before_month.iloc[-1]
-        else:
-            month_first.loc[period] = baseline
-    monthly_simple = (month_last - month_first) / baseline * 100
+    monthly_simple = _monthly_returns_from_nav_series(NAV_df[NAV_col], baseline)
 
-# Hard-coded overrides for specific months (requested adjustments)
-override_months = {
-    pd.Period('2025-04', freq='M'): 4.58,
-    pd.Period('2025-10', freq='M'): 0.58,
-}
+# Manual month overrides are intentionally empty: the previous hard-coded
+# patches (2025-04 = 4.58, 2025-10 = 0.58) papered over deposit-month
+# distortions in the old raw-balance formula and match neither the gross nor
+# the net ledger truth (2025-04 net = 4.2722%, 2025-10 net = 0.5626%). All
+# months now come deterministically from the persisted daily ledger.
+override_months = {}
 for override_period, override_value in override_months.items():
     if override_period in monthly_simple.index:
         monthly_simple.loc[override_period] = override_value
 
-# Debug output for October 2025
-oct_2025_period = pd.Period("2025-10", freq="M")
-if oct_2025_period in monthly_simple.index and not (_secret_editor_restored_from_disk and secret_table_records):
-    oct_last = month_last.loc[oct_2025_period]
-    oct_first = month_first.loc[oct_2025_period]
-    oct_return = monthly_simple.loc[oct_2025_period]
-    print(f"🔍 October 2025 Debug:")
-    print(f"   month_last (Oct end NAV): ${oct_last:,.2f}")
-    print(f"   month_first (Sep end NAV): ${oct_first:,.2f}")
-    print(f"   baseline: ${baseline:,.2f}")
-    print(f"   calculated return: {oct_return:.2f}%")
-    print(f"   formula: (${oct_last:,.2f} - ${oct_first:,.2f}) / ${baseline:,.2f} * 100 = {oct_return:.2f}%")
-
- 
- 
- 
- 
- 
- 
- 
 # 8c) Sum those 12 numbers to get the Year Total
 yearly_simple = monthly_simple.groupby(monthly_simple.index.year).sum()
 
@@ -1792,7 +1769,7 @@ def safe_spxtr_download():
 # ==============================================================================
 # 11) Build the “Worst Drawdown” DataFrame
 # ==============================================================================
-# Strategy NAV + baseline (StoneX levels; baseline-relative drawdown uses $150k nominal)
+# Strategy NAV + baseline (canonical NAV series; baseline-relative drawdown uses $150k nominal)
 strategy_nav      = NAV_df[NAV_col]
 strategy_baseline = BASELINE_AMOUNT
 
@@ -1804,38 +1781,48 @@ spxtr_baseline   = strategy_baseline
 # Make sure you have the raw SPXTR close-price series defined as spxtr_price_series
 # e.g.: spxtr_price_series = utils.download_price("^SP500TR").reindex(NAV_df.index).ffill()
 
-period_slices = {
-    f"{STRATEGY_NAME} (Inception)": (
-        strategy_nav,
-        strategy_baseline,
-        USE_QUANTSTATS_DD_STRATEGY,
-        SHOW_DD_PRICE,
-        strategy_nav        # use NAV as price series for TKP
-    ),
-    "SPXTR (Inception)": (
-        spxtr_nav,
-        spxtr_baseline,
-        USE_QUANTSTATS_DD_BENCHMARKS,
-        SHOW_DD_PRICE,
-        spxtr_price_series  # your SPXTR close-price Series
-    ),
-}
 
-max_dd_df = (
-    pd.DataFrame({
-        name: drawdown_profile(
-            nav,
-            baseline,
-            use_flag,
-            show_price,
-            price_series
-        )
-        for name, (nav, baseline, use_flag, show_price, price_series)
-            in period_slices.items()
-    })
-    .rename_axis("Metric")
-    .reset_index()
-)
+def _build_max_dd_df(strategy_nav_series):
+    """Worst-drawdown table from the canonical performance series (+ SPXTR).
+
+    Rebuilt after ingest so drawdown always reflects the same series as the
+    chart and monthly summary. The SPXTR column reuses the benchmark data
+    downloaded at startup.
+    """
+    period_slices = {
+        f"{STRATEGY_NAME} (Inception)": (
+            strategy_nav_series,
+            strategy_baseline,
+            USE_QUANTSTATS_DD_STRATEGY,
+            SHOW_DD_PRICE,
+            strategy_nav_series  # use NAV as price series for TKP
+        ),
+        "SPXTR (Inception)": (
+            spxtr_nav,
+            spxtr_baseline,
+            USE_QUANTSTATS_DD_BENCHMARKS,
+            SHOW_DD_PRICE,
+            spxtr_price_series  # your SPXTR close-price Series
+        ),
+    }
+    return (
+        pd.DataFrame({
+            name: drawdown_profile(
+                nav,
+                baseline,
+                use_flag,
+                show_price,
+                price_series
+            )
+            for name, (nav, baseline, use_flag, show_price, price_series)
+                in period_slices.items()
+        })
+        .rename_axis("Metric")
+        .reset_index()
+    )
+
+
+max_dd_df = _build_max_dd_df(strategy_nav)
 
 
 # ==============================================================================
@@ -2721,13 +2708,16 @@ dbc.Row(
                                 [
                                     dbc.CardHeader(html.H6("Maximum Drawdown Profile", className="mb-0")),
                                     dbc.CardBody(
-                                        dbc.Table.from_dataframe(
-                                            max_dd_df,
-                                            striped=False,
-                                            bordered=True,
-                                            hover=True,
-                                            size="sm",
-                                            className="fixed-cols",
+                                        html.Div(
+                                            id="max-dd-container",
+                                            children=dbc.Table.from_dataframe(
+                                                max_dd_df,
+                                                striped=False,
+                                                bordered=True,
+                                                hover=True,
+                                                size="sm",
+                                                className="fixed-cols",
+                                            ),
                                         )
                                     ),
                                     dbc.CardFooter(
@@ -2877,13 +2867,16 @@ dbc.Row(
                                 [
                                     dbc.CardHeader(html.H6("Maximum Drawdown Profile", className="mb-0")),
                                     dbc.CardBody(
-                                        dbc.Table.from_dataframe(
-                                            max_dd_df,
-                                            striped=False,
-                                            bordered=True,
-                                            hover=True,
-                                            size="sm",
-                                            className="fixed-cols",
+                                        html.Div(
+                                            id="max-dd-container",
+                                            children=dbc.Table.from_dataframe(
+                                                max_dd_df,
+                                                striped=False,
+                                                bordered=True,
+                                                hover=True,
+                                                size="sm",
+                                                className="fixed-cols",
+                                            ),
                                         )
                                     ),
                                     dbc.CardFooter(
@@ -3473,6 +3466,7 @@ TKP_RECALCULATED_FIELDS = (
     "data_current_label",
     "nav_chart",
     "performance_metrics",
+    "max_drawdown",
 )
 
 
@@ -3915,7 +3909,27 @@ def show_monthly_calc(n_clicks, month, year, canonical_rows, secret_rows):
 
         if not in_month_sx.empty:
             sx_end = in_month_sx.iloc[-1]
-            sx_start = before_sx.iloc[-1] if len(before_sx) > 0 else bl
+            if len(before_sx) > 0:
+                sx_start = before_sx.iloc[-1]
+                sx_start_note = before_sx.index[-1].strftime("%Y-%m-%d")
+            else:
+                # Inception month: anchor at the account's actual opening StoneX
+                # balance (first in-month balance backed out of that day's P&L
+                # and cash flow) — NOT the $150k program baseline, which is the
+                # NAV anchor and includes capital never held in StoneX.
+                first_dt = in_month_sx.index[0]
+                first_pl = 0.0
+                for _r in secret_rows or []:
+                    try:
+                        if pd.to_datetime(_r.get("Date", "")) == first_dt:
+                            _v = _r.get("$PL", "")
+                            first_pl = _parse_money(_v) if _v not in ("", None) else 0.0
+                            break
+                    except Exception:
+                        continue
+                first_dep = float(dep_s.loc[first_dt]) if first_dt in dep_s.index else 0.0
+                sx_start = float(in_month_sx.iloc[0]) - first_pl - first_dep
+                sx_start_note = "derived opening balance"
             net_dep = in_month_dep.sum() if not in_month_dep.empty else 0.0
             total_fee = in_month_fee.sum() if not in_month_fee.empty else 0.0
             gross_pnl = sx_end - sx_start - net_dep
@@ -3926,7 +3940,7 @@ def show_monthly_calc(n_clicks, month, year, canonical_rows, secret_rows):
             # Shared values table
             sx_values = dbc.Table([html.Tbody([
                 html.Tr([html.Td("Prior month end StoneX", className="fw-bold"),
-                          html.Td(f"${sx_start:,.2f}  ({before_sx.index[-1].strftime('%Y-%m-%d') if len(before_sx) > 0 else 'N/A — using baseline'})")]),
+                          html.Td(f"${sx_start:,.2f}  ({sx_start_note})")]),
                 html.Tr([html.Td("Month end StoneX", className="fw-bold"),
                           html.Td(f"${sx_end:,.2f}  ({in_month_sx.index[-1].strftime('%Y-%m-%d')})")]),
                 html.Tr([html.Td("Net deposits in month", className="fw-bold"),
@@ -4091,20 +4105,12 @@ def sync_canonical_nav_store(secret_store_rows):
 
 
 def _recompute_monthly_records(nav_series, bl, secret_rows=None):
-    """Rebuild monthly calendar records from StoneX gross returns when store rows exist."""
+    """Rebuild monthly calendar records from the canonical NAV performance series."""
     if secret_rows:
-        sx_s, dep_s, fee_s = _extract_stonex_deposit_fee_series(secret_rows)
-        m_simple, _ = _compute_stonex_monthly_gross_net(sx_s, dep_s, fee_s, bl)
-    elif nav_series.empty or bl == 0:
+        nav_series = _performance_series_from_secret_rows(secret_rows)
+    if nav_series is None or nav_series.empty or bl == 0:
         return []
-    else:
-        mp = nav_series.index.to_period("M")
-        m_last = nav_series.groupby(mp).last()
-        m_first = pd.Series(index=m_last.index, dtype=float)
-        for period in m_last.index:
-            before = nav_series[nav_series.index < period.start_time]
-            m_first.loc[period] = before.iloc[-1] if len(before) > 0 else bl
-        m_simple = (m_last - m_first) / bl * 100
+    m_simple = _monthly_returns_from_nav_series(nav_series, bl)
 
     if m_simple.empty or bl == 0:
         return []
@@ -4263,6 +4269,7 @@ def _build_monthly_table(monthly_records):
     Output("monthly-calendar-container", "children"),
     Output("daily-perf-container", "children"),
     Output("NAV-graph", "figure"),
+    Output("max-dd-container", "children"),
     Output("data-current-label-desktop", "children"),
     Output("data-current-label-mobile", "children"),
     Input("canonical-nav-store", "data"),
@@ -4270,11 +4277,11 @@ def _build_monthly_table(monthly_records):
 )
 def propagate_dashboard(canonical_nav_rows, secret_store_rows):
     if not canonical_nav_rows:
-        return (dash.no_update,) * 5
+        return (dash.no_update,) * 6
 
     nav_s = _canonical_nav_rows_to_series(canonical_nav_rows)
     if nav_s.empty:
-        return (dash.no_update,) * 5
+        return (dash.no_update,) * 6
 
     bl = BASELINE_AMOUNT
 
@@ -4285,6 +4292,15 @@ def propagate_dashboard(canonical_nav_rows, secret_store_rows):
     monthly_recs = _recompute_monthly_records(nav_s, bl, secret_rows=secret_store_rows)
     perf_recs = _recompute_daily_perf_records(nav_s, bl, secret_rows=secret_store_rows)
     nav_fig = _rebuild_nav_figure(perf_s)
+
+    try:
+        max_dd_children = dbc.Table.from_dataframe(
+            _build_max_dd_df(perf_s),
+            striped=False, bordered=True, hover=True,
+            size="sm", className="fixed-cols",
+        )
+    except Exception:
+        max_dd_children = dash.no_update
 
     latest = _latest_authoritative_tkp_date_from_rows(secret_store_rows)
     if latest == "unavailable":
@@ -4298,6 +4314,7 @@ def propagate_dashboard(canonical_nav_rows, secret_store_rows):
         _build_monthly_table(monthly_recs),
         _build_perf_card(perf_recs),
         nav_fig,
+        max_dd_children,
         desktop_label_children,
         mobile_label_children,
     )
