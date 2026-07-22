@@ -229,6 +229,37 @@ def test_chart_table_year_totals_reconcile(tkp_mod, state_rows):
     assert perf.iloc[-1] == pytest.approx(ledger_last_nav, abs=0.01)
 
 
+def test_authoritative_ending_nav_is_persisted_chain_not_column_aggregates(
+    tkp_mod, state_rows,
+):
+    """Cent-level reconciliation: the NAV column chain is authoritative.
+
+    Summing rounded $PL / Fee columns or display percentages can disagree
+    with the persisted NAV by tens of cents; the public chart must track NAV.
+    """
+    auth = sorted(
+        [r for r in state_rows if r.get("StoneX") and r.get("NAV")],
+        key=lambda r: str(r.get("Date", "")),
+    )
+    last_nav = tkp_mod._parse_money(auth[-1]["NAV"])
+    perf = tkp_mod._performance_series_from_secret_rows(state_rows)
+    assert perf.iloc[-1] == pytest.approx(last_nav, abs=1e-6)
+
+    sum_gross = sum(tkp_mod._parse_money(r.get("$PL")) for r in auth)
+    sum_fee = sum(tkp_mod._parse_money(r.get("Fee (20%)")) for r in auth)
+    sum_net = sum(tkp_mod._parse_money(r.get("Net P&L")) for r in auth)
+    bl = float(BL)
+    aggregate_gross_minus_fee = bl + sum_gross - sum_fee
+    aggregate_net = bl + sum_net
+    chart_cum_pct_4dp = round((last_nav - bl) / bl * 100, 4)
+    display_pct_implied = bl + bl * chart_cum_pct_4dp / 100
+
+    # These alternate totals are expected to drift from the ledger; guard regressions.
+    assert aggregate_gross_minus_fee == pytest.approx(last_nav + 0.72, abs=0.02)
+    assert aggregate_net == pytest.approx(last_nav + 0.29, abs=0.02)
+    assert display_pct_implied == pytest.approx(last_nav + 0.06, abs=0.02)
+
+
 def test_daily_stats_reconcile_with_ledger(tkp_mod, state_rows):
     d = tkp_mod._daily_returns_from_secret_rows(state_rows, BL)
     total_net = sum(
