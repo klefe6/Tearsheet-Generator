@@ -390,9 +390,10 @@ def propagate_tcp_dashboard(
     benchmark_result: Optional[Any] = None,
     btc_benchmark_result: Optional[Any] = None,
     eth_benchmark_result: Optional[Any] = None,
+    tranche_count: Optional[int] = None,
 ) -> DashboardPropagation:
     """Recompute all Step 7 dynamic outputs from one canonical NAV snapshot."""
-    from tcp_benchmarks import BENCHMARK_STATUS_UNAVAILABLE, align_benchmark_returns
+    from tcp_benchmarks import BENCHMARK_STATUS_UNAVAILABLE
     from tcp_drawdown import build_drawdown_dataframe, normalize_drawdown_nav_records
 
     records_copy = deepcopy(list(canonical_records))
@@ -402,30 +403,25 @@ def propagate_tcp_dashboard(
     latest_nav = _coerce_nav(records_copy[-1]["NAV"]) if records_copy else None
     labels = build_tcp_current_data_labels(records_copy)
 
-    spxtr_aligned = None
-    btc_aligned = None
-    eth_aligned = None
-    nav_bd = normalize_drawdown_nav_records(records_copy)
-    if not nav_bd.empty:
-        benchmark_pairs = (
-            (benchmark_result, "spxtr"),
-            (btc_benchmark_result, "btc"),
-            (eth_benchmark_result, "eth"),
-        )
-        for result, key in benchmark_pairs:
-            if result is None or result.status == BENCHMARK_STATUS_UNAVAILABLE:
-                continue
-            if result.returns is None or result.returns.empty:
-                continue
-            aligned = align_benchmark_returns(result.returns, nav_bd.index)
-            if aligned.empty:
-                continue
-            if key == "spxtr":
-                spxtr_aligned = aligned
-            elif key == "btc":
-                btc_aligned = aligned
-            else:
-                eth_aligned = aligned
+    spxtr_returns = None
+    btc_returns = None
+    eth_returns = None
+    benchmark_pairs = (
+        (benchmark_result, "spxtr"),
+        (btc_benchmark_result, "btc"),
+        (eth_benchmark_result, "eth"),
+    )
+    for result, key in benchmark_pairs:
+        if result is None or result.status == BENCHMARK_STATUS_UNAVAILABLE:
+            continue
+        if result.returns is None or result.returns.empty:
+            continue
+        if key == "spxtr":
+            spxtr_returns = result.returns
+        elif key == "btc":
+            btc_returns = result.returns
+        else:
+            eth_returns = result.returns
 
     return DashboardPropagation(
         canonical_records=records_copy,
@@ -433,9 +429,10 @@ def propagate_tcp_dashboard(
         daily_performance=recompute_tcp_daily_metrics(records_copy, baseline_nav=baseline),
         drawdown_profile=build_drawdown_dataframe(
             records_copy,
-            spxtr_aligned_returns=spxtr_aligned,
-            btc_aligned_returns=btc_aligned,
-            eth_aligned_returns=eth_aligned,
+            tranche_count=tranche_count,
+            spxtr_aligned_returns=spxtr_returns,
+            btc_aligned_returns=btc_returns,
+            eth_aligned_returns=eth_returns,
         ),
         nav_figure=build_tcp_nav_figure(records_copy),
         desktop_label=labels,

@@ -18,11 +18,13 @@ from tcp_dashboard import (
 from tcp_drawdown import (
     DRAWDOWN_FOOTNOTE,
     DRAWDOWN_METRIC_ORDER,
+    DRAWDOWN_NOMINAL_EXPOSURE_USD,
     STRATEGY_INCEPTION_COLUMN,
     build_drawdown_dataframe,
     build_drawdown_series,
     build_drawdown_summary,
     normalize_drawdown_nav_records,
+    resolve_drawdown_nominal_exposure,
     worst_drawdown_profile,
 )
 from tcp_ledger import load_ledger
@@ -31,9 +33,9 @@ from tcp_public_sections import resolve_public_gate_styles
 REPO_ROOT = Path(__file__).resolve().parent.parent
 _SESSION_LEDGER = None
 
-# Derived once from workbook + committed v1 methodology (2026-07-03).
+# Derived once from workbook + committed drawdown methodology (2026-07-03).
 WORKBOOK_DRAWDOWN_BASELINE = {
-    "Depth": "-10.4%",
+    "Depth": "-5.2%",
     "Decline Period": "148 days",
     "Recovery Period": "Ongoing for 0 days",
     "Total Duration": "Ongoing for 148 days",
@@ -248,7 +250,8 @@ def test_deterministic_output(canonical):
 def test_no_nan_or_infinity_in_output(canonical):
     period = worst_drawdown_profile(
         normalize_drawdown_nav_records(canonical),
-        baseline=float(canonical[0]["NAV"]),
+        baseline=resolve_drawdown_nominal_exposure(tranche_count=2),
+        report_cutoff=canonical[-1]["Date"],
     )
     assert math.isfinite(period.depth_decimal)
     summary = build_drawdown_summary(period)
@@ -279,7 +282,7 @@ def test_workbook_drawdown_matches_baseline(workbook_drawdown, metric, expected)
 
 
 def test_workbook_maximum_drawdown(workbook_drawdown):
-    assert workbook_drawdown.loc[0, STRATEGY_INCEPTION_COLUMN] == "-10.4%"
+    assert workbook_drawdown.loc[0, STRATEGY_INCEPTION_COLUMN] == "-5.2%"
 
 
 def test_workbook_displayed_rows(workbook_drawdown):
@@ -514,9 +517,114 @@ def test_no_stonex_plus500_in_drawdown_slice(layout_text):
 
 
 def test_drawdown_footnote_present(layout_text):
-    assert "$150,000 fixed nominal" in layout_text
+    assert "$100,000 fixed nominal" in layout_text
+    assert "two $50,000 tranches" in layout_text
 
 
 def test_v1_drawdown_chart_not_in_layout(layout_text):
     assert "build_drawdown_figure" not in layout_text
     assert layout_text.count("Drawdown vs Peak") == 0
+
+
+# --- Nominal exposure and duration semantics ---
+
+
+def test_drawdown_nominal_exposure_is_100k_for_two_tranches():
+    assert resolve_drawdown_nominal_exposure(tranche_count=2) == 100_000.0
+    assert DRAWDOWN_NOMINAL_EXPOSURE_USD == 100_000.0
+
+
+def test_nominal_base_10k_decline_is_negative_ten_percent():
+    nav = pd.Series(
+        [100_000.0, 90_000.0],
+        index=pd.to_datetime(["2026-01-01", "2026-01-02"]),
+    )
+    period = worst_drawdown_profile(nav, baseline=100_000.0)
+    assert math.isclose(period.depth_decimal, -10.0)
+
+
+def test_nominal_base_20k_decline_is_negative_twenty_percent():
+    nav = pd.Series(
+        [100_000.0, 80_000.0],
+        index=pd.to_datetime(["2026-01-01", "2026-01-02"]),
+    )
+    period = worst_drawdown_profile(nav, baseline=100_000.0)
+    assert math.isclose(period.depth_decimal, -20.0)
+
+
+def test_completed_drawdown_duration_fields():
+    nav = pd.Series(
+        [100.0, 90.0, 80.0, 90.0, 100.0],
+        index=pd.to_datetime(["2026-01-01", "2026-01-06", "2026-01-11", "2026-01-16", "2026-01-21"]),
+    )
+    period = worst_drawdown_profile(nav, baseline=100.0, report_cutoff="2026-01-21")
+    assert period.start_date == "2026-01-01"
+    assert period.valley_date == "2026-01-11"
+    assert period.end_date == "2026-01-21"
+    assert period.decline_days == 10
+    assert period.recovery_days_text == "10 days"
+    assert period.total_duration_text == "20 days"
+    assert period.recovered is True
+
+
+def test_ongoing_drawdown_duration_fields_use_report_cutoff():
+    nav = pd.Series(
+        [100.0, 90.0, 80.0, 85.0],
+        index=pd.to_datetime(["2026-01-01", "2026-01-06", "2026-01-11", "2026-01-20"]),
+    )
+    period = worst_drawdown_profile(nav, baseline=100.0, report_cutoff="2026-01-31")
+    assert period.decline_days == 10
+    assert period.recovery_days_text == "Ongoing for 20 days"
+    assert period.total_duration_text == "Ongoing for 30 days"
+    assert period.end_date == "TBD"
+    assert period.recovered is False
+
+
+def test_calendar_day_difference_uses_end_minus_start_in_days():
+    nav = pd.Series(
+        [100.0, 110.0, 95.0, 110.0],
+        index=pd.to_datetime(["2026-01-01", "2026-01-02", "2026-01-03", "2026-01-04"]),
+    )
+    period = worst_drawdown_profile(nav, baseline=100.0)
+    assert period.start_date == "2026-01-02"
+    assert period.valley_date == "2026-01-03"
+    assert period.decline_days == 1
+
+
+def test_weekend_spanning_crypto_durations_use_calendar_days():
+    from tcp_drawdown import build_benchmark_drawdown_period
+
+    # Fri peak -> Mon valley = 3 calendar days despite only two return observations.
+    crypto_returns = pd.Series(
+        [0.0, -0.5],
+        index=pd.to_datetime(["2026-01-02", "2026-01-05"]),
+    )
+    period = build_benchmark_drawdown_period(
+        crypto_returns,
+        inception_start=pd.Timestamp("2026-01-02"),
+        baseline=100_000.0,
+        report_cutoff="2026-01-05",
+    )
+    assert period is not None
+    assert period.decline_days == 3
+
+
+def test_benchmark_returns_clipped_to_tcp_report_cutoff():
+    from tcp_benchmarks import clip_benchmark_returns_for_drawdown
+
+    returns = pd.Series(
+        [0.01, 0.02, 0.03],
+        index=pd.to_datetime(["2026-01-20", "2026-01-21", "2026-01-22"]),
+    )
+    clipped = clip_benchmark_returns_for_drawdown(
+        returns,
+        inception_start="2026-01-20",
+        report_cutoff="2026-01-21",
+    )
+    assert list(clipped.index.strftime("%Y-%m-%d")) == ["2026-01-20", "2026-01-21"]
+
+
+def test_drawdown_footnote_text():
+    assert "$100,000 fixed nominal" in DRAWDOWN_FOOTNOTE
+    assert "two $50,000 tranches" in DRAWDOWN_FOOTNOTE
+    assert "$150,000" not in DRAWDOWN_FOOTNOTE
