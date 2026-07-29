@@ -15,10 +15,15 @@ import pandas as pd
 from pandas.tseries.holiday import USFederalHolidayCalendar
 from pandas.tseries.offsets import CustomBusinessDay
 
+from tcp_calculations import TCPRules
 from tcp_dashboard import (
     STRATEGY_NAME,
     canonical_records_to_series,
 )
+
+TRANCHE_NOMINAL_USD = float(TCPRules().base_nav_per_tranche)
+DEFAULT_DRAWDOWN_TRANCHES = 2
+DRAWDOWN_NOMINAL_EXPOSURE_USD = TRANCHE_NOMINAL_USD * DEFAULT_DRAWDOWN_TRANCHES
 
 US_BUSINESS_DAY = CustomBusinessDay(calendar=USFederalHolidayCalendar())
 
@@ -39,8 +44,8 @@ BTC_INCEPTION_COLUMN = "BTC (Inception)"
 ETH_INCEPTION_COLUMN = "ETH (Inception)"
 
 DRAWDOWN_FOOTNOTE = (
-    "Drawdown benchmark columns (TCP, SPXTR, BTC, ETH) use the same $150,000 fixed nominal "
-    "exposure at the start of the drawdown period."
+    "Drawdown benchmark columns (TCP, SPXTR, BTC, ETH) use the same $100,000 fixed nominal "
+    "exposure at the start of the drawdown period, representing two $50,000 tranches."
 )
 
 DRAWDOWN_TABLE_DISPLAY_RENAMES = {
@@ -60,6 +65,36 @@ def format_drawdown_table_for_display(drawdown_df: pd.DataFrame) -> pd.DataFrame
 
 class TCPDrawdownError(Exception):
     """Base drawdown error."""
+
+
+def resolve_drawdown_nominal_exposure(*, tranche_count: Optional[int] = None) -> float:
+    """Fixed nominal exposure for drawdown depth and benchmark scaling."""
+    count = DEFAULT_DRAWDOWN_TRANCHES if tranche_count is None else int(tranche_count)
+    if count < 1:
+        raise TCPDrawdownError("Tranche count must be at least 1")
+    return TRANCHE_NOMINAL_USD * float(count)
+
+
+def _normalize_ts(value: Union[date, datetime, pd.Timestamp, str]) -> pd.Timestamp:
+    return pd.Timestamp(value).normalize()
+
+
+def _calendar_days_between(
+    start: Union[date, datetime, pd.Timestamp, str],
+    end: Union[date, datetime, pd.Timestamp, str],
+) -> int:
+    return int((_normalize_ts(end) - _normalize_ts(start)).days)
+
+
+def _coerce_report_cutoff(
+    report_cutoff: Optional[Union[date, datetime, pd.Timestamp, str]],
+    nav: pd.Series,
+) -> pd.Timestamp:
+    if report_cutoff is not None:
+        return _normalize_ts(report_cutoff)
+    if nav.empty:
+        raise TCPDrawdownError("NAV series is empty")
+    return _normalize_ts(nav.index.max())
 
 
 @dataclass(frozen=True)
@@ -125,16 +160,25 @@ def worst_drawdown_profile(
     baseline: Optional[float] = None,
     use_quantstats: bool = False,
     show_price: bool = False,
+    report_cutoff: Optional[Union[date, datetime, pd.Timestamp, str]] = None,
 ) -> DrawdownPeriod:
     """
     Replicate committed v1 ``drawdown_profile`` for the worst episode.
 
   - TCP uses baseline-relative depth: ``(nav - running_max) / baseline * 100``
-  - Durations use calendar-day ``.days`` between observation timestamps
-    (v1 business-day-filled index positions)
+  - Durations use calendar-day differences between normalized timestamps
+    (not row counts or observation frequency)
     """
     if nav.empty:
         raise TCPDrawdownError("NAV series is empty")
+
+    nav = nav.sort_index()
+    nav = pd.Series(nav.values, index=pd.to_datetime(nav.index).normalize(), dtype=float)
+    cutoff = _coerce_report_cutoff(report_cutoff, nav)
+    nav = nav.loc[:cutoff]
+    if nav.empty:
+        raise TCPDrawdownError("NAV series is empty after report cutoff")
+
     if len(nav) == 1:
         only = nav.index[0]
         only_date = only.strftime("%Y-%m-%d")
@@ -172,24 +216,24 @@ def worst_drawdown_profile(
         peak_str = peak_date
         valley_str = valley_date
 
-    decline_days = int((trough - peak).days)
+    decline_days = _calendar_days_between(peak, trough)
     recovered_slice = nav.loc[trough:][nav.loc[trough:] >= nav.loc[peak]]
     rec_idx = recovered_slice.index[0] if not recovered_slice.empty else None
 
     if rec_idx is not None:
         end_date = rec_idx.strftime("%Y-%m-%d")
         end_str = f"{end_date} - {nav.loc[rec_idx]:,.2f}" if show_price else end_date
-        recovery_days = int((rec_idx - trough).days)
-        total_days = int((rec_idx - peak).days)
+        recovery_days = _calendar_days_between(trough, rec_idx)
+        total_days = _calendar_days_between(peak, rec_idx)
         recovery_text = f"{recovery_days} days"
         total_text = f"{total_days} days"
         recovered = True
     else:
-        last_date = nav.index.max()
-        last_price = float(nav.loc[last_date])
-        peak_price = float(nav.loc[peak])
-        trough_price = float(nav.loc[trough])
         if show_price:
+            last_date = nav.index.max()
+            last_price = float(nav.loc[last_date])
+            peak_price = float(nav.loc[peak])
+            trough_price = float(nav.loc[trough])
             if peak_price != trough_price:
                 remaining_pct = (peak_price - last_price) / (peak_price - trough_price) * 100
             else:
@@ -200,8 +244,8 @@ def worst_drawdown_profile(
             )
         else:
             end_str = "TBD"
-        recovery_days = int((last_date - trough).days)
-        total_days = int((last_date - peak).days)
+        recovery_days = _calendar_days_between(trough, cutoff)
+        total_days = _calendar_days_between(peak, cutoff)
         recovery_text = f"Ongoing for {recovery_days} days"
         total_text = f"Ongoing for {total_days} days"
         recovered = False
@@ -243,14 +287,22 @@ def format_drawdown_table_records(
 
 
 def build_benchmark_drawdown_period(
-    aligned_returns: pd.Series,
+    benchmark_returns: pd.Series,
     *,
     inception_start: pd.Timestamp,
     baseline: float,
+    report_cutoff: Optional[Union[date, datetime, pd.Timestamp, str]] = None,
 ) -> Optional[DrawdownPeriod]:
-    if aligned_returns.empty or baseline == 0:
+    if benchmark_returns.empty or baseline == 0:
         return None
-    benchmark_nav = (1.0 + aligned_returns.loc[inception_start:].astype(float)).cumprod() * float(baseline)
+    start = _normalize_ts(inception_start)
+    cutoff = _normalize_ts(report_cutoff) if report_cutoff is not None else _normalize_ts(benchmark_returns.index.max())
+    returns = benchmark_returns.copy()
+    returns.index = pd.to_datetime(returns.index).normalize()
+    returns = returns.sort_index().loc[start:cutoff]
+    if returns.empty:
+        return None
+    benchmark_nav = (1.0 + returns.astype(float)).cumprod() * float(baseline)
     if benchmark_nav.empty:
         return None
     return worst_drawdown_profile(
@@ -258,6 +310,7 @@ def build_benchmark_drawdown_period(
         baseline=float(baseline),
         use_quantstats=True,
         show_price=False,
+        report_cutoff=cutoff,
     )
 
 
@@ -268,6 +321,7 @@ def build_drawdown_dataframe(
     canonical_records: Sequence[Mapping[str, Any]],
     *,
     business_day_forward_fill: bool = True,
+    tranche_count: Optional[int] = None,
     spxtr_aligned_returns: Optional[pd.Series] = None,
     btc_aligned_returns: Optional[pd.Series] = None,
     eth_aligned_returns: Optional[pd.Series] = None,
@@ -285,18 +339,26 @@ def build_drawdown_dataframe(
         columns.extend(col for col, aligned in benchmark_inputs if aligned is not None)
         return pd.DataFrame(columns=columns)
 
-    baseline = float(nav.iloc[0])
+    nominal_exposure = resolve_drawdown_nominal_exposure(tranche_count=tranche_count)
     inception_start = nav.index.min()
-    period = worst_drawdown_profile(nav, baseline=baseline, use_quantstats=False, show_price=False)
+    report_cutoff = _normalize_ts(records_copy[-1]["Date"])
+    period = worst_drawdown_profile(
+        nav,
+        baseline=nominal_exposure,
+        use_quantstats=False,
+        show_price=False,
+        report_cutoff=report_cutoff,
+    )
 
     extra_columns: Dict[str, DrawdownPeriod] = {}
-    for column_name, aligned_returns in benchmark_inputs:
-        if aligned_returns is None:
+    for column_name, benchmark_returns in benchmark_inputs:
+        if benchmark_returns is None:
             continue
         benchmark_period = build_benchmark_drawdown_period(
-            aligned_returns,
+            benchmark_returns,
             inception_start=inception_start,
-            baseline=baseline,
+            baseline=nominal_exposure,
+            report_cutoff=report_cutoff,
         )
         if benchmark_period is not None:
             extra_columns[column_name] = benchmark_period
@@ -308,10 +370,11 @@ def build_drawdown_series(
     canonical_records: Sequence[Mapping[str, Any]],
     *,
     business_day_forward_fill: bool = True,
+    tranche_count: Optional[int] = None,
 ) -> pd.Series:
     nav = normalize_drawdown_nav_records(canonical_records, business_day_forward_fill=business_day_forward_fill)
     if nav.empty:
         return pd.Series(dtype=float)
-    baseline = float(nav.iloc[0])
+    baseline = resolve_drawdown_nominal_exposure(tranche_count=tranche_count)
     running_max = nav.cummax()
     return (nav - running_max) / baseline * 100

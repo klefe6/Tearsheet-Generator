@@ -11,7 +11,7 @@ import os
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from copy import deepcopy
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Mapping, Optional, Protocol, Sequence, Tuple, Union
 
@@ -234,6 +234,23 @@ def align_benchmark_returns(
         return pd.Series(dtype=float)
     aligned = full_returns.reindex(nav_index).ffill().bfill().dropna()
     return aligned.astype(float)
+
+
+def clip_benchmark_returns_for_drawdown(
+    full_returns: pd.Series,
+    *,
+    inception_start: Union[date, datetime, pd.Timestamp, str],
+    report_cutoff: Union[date, datetime, pd.Timestamp, str],
+) -> pd.Series:
+    """Clip benchmark returns to TCP inception through report cutoff without reindexing."""
+    if full_returns is None or full_returns.empty:
+        return pd.Series(dtype=float)
+    start = pd.Timestamp(inception_start).normalize()
+    end = pd.Timestamp(report_cutoff).normalize()
+    clipped = full_returns.copy()
+    clipped.index = pd.to_datetime(clipped.index).normalize()
+    clipped = clipped.sort_index().loc[start:end]
+    return clipped.astype(float)
 
 
 def build_scaled_benchmark_nav(
