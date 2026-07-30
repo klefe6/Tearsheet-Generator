@@ -89,8 +89,8 @@ TERMS_AND_FEES: Tuple[Tuple[str, str], ...] = (
 
 INVESTOR_OTHER_NOTES = (
     "TCP allows for efficient, opportunistic deployments of capital in and out of the program in fixed "
-    "nominal trading levels of $150,000 per tranche. The program will remain perpetually funded with permanent "
-    "capital of the Introducing Broker in the form of a minimum of two tranches ($300,000 Nominal). The IB "
+    "nominal trading levels of $50,000 per tranche. The program will remain perpetually funded with permanent "
+    "capital of the Introducing Broker in the form of a minimum of two tranches ($100,000 Nominal). The IB "
     "itself also has historically allocated more tranches, and closed tranches profitably, and plans on "
     "continuing in doing so, in what it considers opportunities for additional capital deployment based on "
     "drawdowns of the program itself, with expected recoveries. This capability is allowed for investors as "
