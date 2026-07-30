@@ -55,8 +55,7 @@ def tcp_app():
     return create_app()
 
 
-def _layout_text(app) -> str:
-    return str(app.layout)
+from layout_helpers import layout_text as _layout_text, materialize_layout
 
 
 def test_tcp_page_load_starts_at_gate():
@@ -67,21 +66,21 @@ def test_tcp_page_load_starts_at_gate():
 
 def test_tcp_initial_layout_hides_main_app(tcp_app):
     app, *_ = tcp_app
-    main = _find_by_id(app.layout, "main-app")
+    main = _find_by_id(materialize_layout(app), "main-app")
     assert main is not None
     assert main.style == {"display": "none"}
 
 
 def test_tcp_gate_storage_purge_store_is_memory_only(tcp_app):
     app, *_ = tcp_app
-    store = _find_by_id(app.layout, TCP_GATE_STORAGE_PURGE_STORE_ID)
+    store = _find_by_id(materialize_layout(app), TCP_GATE_STORAGE_PURGE_STORE_ID)
     assert store is not None
     assert store.storage_type == "memory"
 
 
 def test_tcp_ui_mode_store_is_memory_only(tcp_app):
     app, *_ = tcp_app
-    store = _find_by_id(app.layout, TCP_UI_MODE_STORE_ID)
+    store = _find_by_id(materialize_layout(app), TCP_UI_MODE_STORE_ID)
     assert store is not None
     assert store.storage_type == "memory"
 
@@ -324,7 +323,7 @@ def test_gate_bootstrap_and_accept_callbacks_registered(tcp_app):
 
 def test_clientside_gate_storage_purge_registered(tcp_app):
     app, *_ = tcp_app
-    store = _find_by_id(app.layout, TCP_GATE_STORAGE_PURGE_STORE_ID)
+    store = _find_by_id(materialize_layout(app), TCP_GATE_STORAGE_PURGE_STORE_ID)
     assert store is not None
     purge = app.callback_map.get(f"{TCP_GATE_STORAGE_PURGE_STORE_ID}.data")
     assert purge is not None, "gate storage purge callback not registered"

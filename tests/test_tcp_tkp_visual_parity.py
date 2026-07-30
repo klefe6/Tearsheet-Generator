@@ -6,6 +6,8 @@ values, persistence, or auth behavior.
 """
 from __future__ import annotations
 
+from layout_helpers import layout_text
+
 from datetime import date
 from pathlib import Path
 
@@ -224,7 +226,7 @@ def test_tcp_column_selector_not_duplicated():
 
     import tcp_ts_v2
 
-    layout_str = str(tcp_ts_v2.app.layout)
+    layout_str = layout_text(tcp_ts_v2.app)
     assert layout_str.count("'admin-column-selector'") == 1
 
 

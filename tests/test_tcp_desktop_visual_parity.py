@@ -29,8 +29,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 V1_BASE_COMMIT = "b5fce4b"
 
 
-def _layout_text(app) -> str:
-    return str(app.layout)
+from layout_helpers import layout_text as _layout_text
 
 
 def _public_source() -> str:

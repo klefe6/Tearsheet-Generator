@@ -39,8 +39,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 PREVIEW_PORT = 8312
 
 
-def _layout_text(app) -> str:
-    return str(app.layout)
+from layout_helpers import layout_text as _layout_text
 
 
 def _css_text() -> str:

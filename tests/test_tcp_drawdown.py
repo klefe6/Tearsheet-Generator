@@ -1,6 +1,8 @@
 """Step 11D — TCP drawdown pure calculation, parity, and integration tests."""
 from __future__ import annotations
 
+from layout_helpers import layout_text as render_layout_text
+
 import math
 from copy import deepcopy
 from pathlib import Path
@@ -338,7 +340,7 @@ def layout_text():
     )
     if state.snapshot is None:
         pytest.skip("runtime unavailable")
-    text = str(app.layout)
+    text = render_layout_text(app)
     for key, value in saved.items():
         if value is None:
             os.environ.pop(key, None)

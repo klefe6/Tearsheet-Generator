@@ -1,6 +1,8 @@
 """TCP v2 production vs preview labeling and page title contracts."""
 from __future__ import annotations
 
+from layout_helpers import layout_text
+
 import socket
 
 import pytest
@@ -58,7 +60,7 @@ def test_production_public_layout_hides_preview_diagnostics(monkeypatch):
     app, _cfg, state, *_ = _create_app(monkeypatch, bind_port="8302")
     if state.snapshot is None:
         pytest.skip("Runtime not healthy in this environment")
-    layout = str(app.layout)
+    layout = layout_text(app)
     assert RUNTIME_DIAGNOSTICS_CARD_ID not in layout
     assert "Runtime diagnostics (preview only)" not in layout
     assert PREVIEW_BANNER_CLASS not in layout
@@ -70,7 +72,7 @@ def test_preview_mode_retains_diagnostics(monkeypatch):
     app, _cfg, state, *_ = _create_app(monkeypatch, bind_port=None)
     if state.snapshot is None:
         pytest.skip("Runtime not healthy in this environment")
-    layout = str(app.layout)
+    layout = layout_text(app)
     assert RUNTIME_DIAGNOSTICS_CARD_ID in layout
     assert "Runtime diagnostics (preview only)" in layout
     assert "TCP v2 Preview" in layout

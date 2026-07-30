@@ -1,6 +1,8 @@
 """Tests for TCP v2 admin simulation shell and authorization."""
 from __future__ import annotations
 
+from layout_helpers import layout_text
+
 import hashlib
 import json
 import os
@@ -131,7 +133,7 @@ def test_token_absent_from_layout_serialization(app_bundle):
     app, _cfg, state, _auth, _holder = app_bundle
     if state.snapshot is None:
         pytest.skip("runtime unavailable")
-    layout = str(app.layout)
+    layout = layout_text(app)
     assert TEST_TOKEN not in layout
     assert TEST_SECRET not in layout
 

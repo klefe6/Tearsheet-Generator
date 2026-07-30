@@ -1,6 +1,8 @@
 """TCP v2 admin mutation modal and revision hydration regressions."""
 from __future__ import annotations
 
+from layout_helpers import layout_text
+
 import socket
 from dataclasses import replace
 from pathlib import Path
@@ -119,7 +121,7 @@ def test_reset_admin_mutation_state_callback_registered(app_bundle):
 
 def test_admin_auth_revision_store_in_layout(app_bundle):
     app, *_ = app_bundle
-    assert ADMIN_AUTH_REVISION_STORE_ID in str(app.layout)
+    assert ADMIN_AUTH_REVISION_STORE_ID in layout_text(app)
 
 
 def test_login_with_matching_revision_leaves_delete_modal_closed(app_bundle):

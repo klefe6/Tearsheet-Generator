@@ -1,6 +1,8 @@
 """TCP public Daily Values collapse behavior."""
 from __future__ import annotations
 
+from layout_helpers import layout_text as render_layout_text
+
 from datetime import date
 
 from tcp_daily_values import (
@@ -41,7 +43,7 @@ def test_daily_values_section_is_collapsed_by_default():
 
 def test_layout_includes_daily_values_collapse_ids():
     app, *_ = create_app()
-    layout_text = str(app.layout)
+    layout_text = render_layout_text(app)
     assert DAILY_VALUES_SECTION_ID in layout_text
     assert PUBLIC_DAILY_COLLAPSE_ID in layout_text
     assert PUBLIC_DAILY_TOGGLE_BTN_ID in layout_text

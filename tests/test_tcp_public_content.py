@@ -21,8 +21,7 @@ TEST_TOKEN = "test-admin-token-public-content"
 TEST_SECRET = "test-session-secret-public-content"
 
 
-def _layout_text(app) -> str:
-    return str(app.layout)
+from layout_helpers import layout_text as _layout_text
 
 
 def _public_source_text() -> str:

@@ -1,6 +1,8 @@
 """Regression tests for TCP v2 table order, SPXTR benchmark, and explicit auth choice hotfix."""
 from __future__ import annotations
 
+from layout_helpers import layout_text
+
 import json
 import os
 import socket
@@ -298,12 +300,12 @@ def test_password_row_initially_hidden():
 
 def test_layout_contains_ui_mode_store(tcp_app):
     app, *_ = tcp_app
-    assert TCP_UI_MODE_STORE_ID in str(app.layout)
+    assert TCP_UI_MODE_STORE_ID in layout_text(app)
 
 
 def test_password_absent_from_layout_and_stores(tcp_app):
     app, *_ = tcp_app
-    layout = str(app.layout)
+    layout = layout_text(app)
     assert TEST_TOKEN not in layout
     assert "password" in layout.lower()
     assert "localStorage" not in layout
