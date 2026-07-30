@@ -43,8 +43,9 @@ BTC_INCEPTION_COLUMN = "BTC (Inception)"
 ETH_INCEPTION_COLUMN = "ETH (Inception)"
 
 DRAWDOWN_FOOTNOTE = (
-    "Drawdown benchmark columns (TCP, SPXTR, BTC, ETH) use the same $50,000 fixed nominal "
-    "exposure at the start of the drawdown period (one tranche)."
+    "Drawdown benchmark columns (TCP, SPXTR, BTC, ETH) are normalized to a $50,000 fixed nominal "
+    "exposure, equivalent to one TCP tranche. The account currently trades two tranches, representing "
+    "$100,000 total nominal exposure."
 )
 
 DRAWDOWN_TABLE_DISPLAY_RENAMES = {

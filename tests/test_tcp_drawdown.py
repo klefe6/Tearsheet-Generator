@@ -518,6 +518,7 @@ def test_no_stonex_plus500_in_drawdown_slice(layout_text):
 
 def test_drawdown_footnote_present(layout_text):
     assert "$50,000 fixed nominal" in layout_text
+    assert "$100,000 total nominal exposure" in layout_text
 
 
 def test_v1_drawdown_chart_not_in_layout(layout_text):
@@ -625,6 +626,8 @@ def test_benchmark_returns_clipped_to_tcp_report_cutoff():
 
 
 def test_drawdown_footnote_text():
-    assert "$50,000 fixed nominal" in DRAWDOWN_FOOTNOTE
-    assert "$100,000" not in DRAWDOWN_FOOTNOTE
+    assert "normalized to a $50,000 fixed nominal exposure" in DRAWDOWN_FOOTNOTE
+    assert "equivalent to one TCP tranche" in DRAWDOWN_FOOTNOTE
+    assert "$100,000 total nominal exposure" in DRAWDOWN_FOOTNOTE
     assert "$150,000" not in DRAWDOWN_FOOTNOTE
+    assert "use the same $50,000 fixed nominal" not in DRAWDOWN_FOOTNOTE
