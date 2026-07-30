@@ -23,6 +23,14 @@ from quantstats import utils
 from collections import OrderedDict
 
 import tearsheet_disclosure as tsd
+from yq_data_current import (
+    format_yq_data_current_label,
+    format_yq_statistics_range,
+    max_valid_period,
+    resolve_yq_csv_path,
+    yq_source_is_stale,
+    yq_stale_warning_text,
+)
 
 # ==============================================================================
 # 1) BUSINESS-DAY CALENDAR
@@ -415,7 +423,7 @@ BENCHMARKS = [
     "ETH-USD",    # Ethereum
 ]
 
-csv_path = str(Path(__file__).resolve().parent / "yq.csv")
+csv_path = str(resolve_yq_csv_path(module_dir=Path(__file__).resolve().parent))
 
 # ============================================================================== 
 # 4) LOAD & VALIDATE NAV DATA (CSV with monthly performance data)
@@ -475,7 +483,7 @@ try:
     latest = raw_df.iloc[-1]
     print(f"Latest month: {int(latest['year'])}-{int(latest['month']):02d}  Actual ROR: {latest['actual_ror']}%")
     print(f"Final value: ${NAV_df['nav-x1'].iloc[-1]:,.2f}")
-        
+
 except Exception as e:
     print(f"Failed to load CSV data: {e}")
     import traceback
@@ -496,6 +504,14 @@ if NAV_df.index.has_duplicates:
 # NAV_df = NAV_df.asfreq(us_bd)  # Commented out for monthly data
 
 print("NAV data loaded successfully (Date + nav-x1).")
+
+YQ_DATA_AS_OF = max_valid_period(NAV_df.index)
+YQ_DATA_START = max_valid_period([NAV_df.index.min()])
+YQ_DATA_CURRENT_LABEL = format_yq_data_current_label(YQ_DATA_AS_OF)
+YQ_STATISTICS_RANGE = format_yq_statistics_range(YQ_DATA_START, YQ_DATA_AS_OF)
+YQ_SOURCE_STALE = yq_source_is_stale(YQ_DATA_AS_OF)
+YQ_STALE_WARNING = yq_stale_warning_text(YQ_DATA_AS_OF) if YQ_SOURCE_STALE else None
+print(f"Data-current label: {YQ_DATA_CURRENT_LABEL} (stale={YQ_SOURCE_STALE})")
 
 
 
@@ -1130,34 +1146,19 @@ app = dash.Dash(
 )
 
 def serve_layout():
-    # Calculate first Monday of current month after the 2nd
-    from datetime import datetime, timedelta
-    import calendar
-    
-    today = datetime.now()
-    # Get first day of current month
-    first_day = today.replace(day=1)
-    
-    # Find first Monday of the month
-    # Monday is weekday 0 in Python
-    days_ahead = 0 - first_day.weekday()  # Monday is 0
-    if days_ahead <= 0:  # Target day already happened this week
-        days_ahead += 7
-    
-    first_monday = first_day + timedelta(days=days_ahead)
-    
-    # If first Monday is before the 3rd, move to next Monday
-    if first_monday.day <= 2:
-        first_monday += timedelta(days=7)
-    
-    last_updated = first_monday.strftime("%B %d, %Y")
-
-    return dbc.Container(
-        id="page-container",
-        fluid=True,        # ⇒ always 100% on xs, sm; constrained on md+ breakpoints
-        className="py-4",
-                style={"maxWidth": "1400px"},  # Match TKP width exactly
-        children=[
+    # Data-current label is derived from the authoritative monthly CSV max period.
+    data_current_value = YQ_DATA_AS_OF.strftime("%B %Y")
+    stale_banner = (
+        dbc.Alert(
+            YQ_STALE_WARNING,
+            color="warning",
+            className="mb-3",
+            id="yq-stale-data-warning",
+        )
+        if YQ_SOURCE_STALE and YQ_STALE_WARNING
+        else None
+    )
+    children = [
             # ── Header ─────────────────────────────────────────────────────────
             dbc.Row(
                 [
@@ -1190,8 +1191,8 @@ def serve_layout():
                             # desktop style (only on md and up)
                             html.Div(
                                 [
-                                    html.H6("Last Updated", className="text-end text-secondary mb-1"),
-                                    html.H5(last_updated, className="text-end", style={"color": "#28a745"}),
+                                    html.H6("Data current through", className="text-end text-secondary mb-1"),
+                                    html.H5(data_current_value, className="text-end", style={"color": "#28a745"}),
                                 ],
                                 className="d-none d-md-block",   # hide on small viewports
                                 style={"paddingTop": "30px"}
@@ -1199,14 +1200,12 @@ def serve_layout():
                             # mobile style (only on sm and down)
                             html.Div(
                                 [
-                                    # re-add “Last Updated” label
                                     html.Small(
-                                        "Last Updated",
+                                        "Data current through",
                                         className="d-block text-end text-secondary mb-1",
                                     ),
-                                    # show the date underneath in one line
                                     html.Small(
-                                        last_updated,
+                                        data_current_value,
                                         className="d-block text-end",
                                         style={"color": "#28a745"}
                                     ),
@@ -1224,6 +1223,7 @@ def serve_layout():
                 className="header-row",
             ),
             html.Hr(),
+            *([stale_banner] if stale_banner is not None else []),
 
             # ── Description ────────────────────────────────────────────────────
             html.Div(
@@ -1866,7 +1866,7 @@ dbc.Row(
                                     ),
                                     dbc.CardFooter(
                                         html.Small(
-                                            "Statistics calculated from actual monthly return data from April 2011 to April 2026.",
+                                            YQ_STATISTICS_RANGE,
                                             className="text-muted fst-italic"
                                         )
                                     ),
@@ -2077,7 +2077,13 @@ dbc.Row(
                 dbc.Col(html.P(footer_contact, className="text-center small text-muted"), width=12),
                 className="mb-2",
             ),
-        ],
+    ]
+    return dbc.Container(
+        id="page-container",
+        fluid=True,
+        className="py-4",
+        style={"maxWidth": "1400px"},
+        children=children,
     )
 
 dcc_store = dcc.Store(id="disclaimer-accepted", storage_type="session")
