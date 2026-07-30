@@ -35,7 +35,7 @@ _SESSION_LEDGER = None
 
 # Derived once from workbook + committed drawdown methodology (2026-07-03).
 WORKBOOK_DRAWDOWN_BASELINE = {
-    "Depth": "-5.2%",
+    "Depth": "-10.4%",
     "Decline Period": "148 days",
     "Recovery Period": "Ongoing for 0 days",
     "Total Duration": "Ongoing for 148 days",
@@ -250,7 +250,7 @@ def test_deterministic_output(canonical):
 def test_no_nan_or_infinity_in_output(canonical):
     period = worst_drawdown_profile(
         normalize_drawdown_nav_records(canonical),
-        baseline=resolve_drawdown_nominal_exposure(tranche_count=2),
+        baseline=resolve_drawdown_nominal_exposure(),
         report_cutoff=canonical[-1]["Date"],
     )
     assert math.isfinite(period.depth_decimal)
@@ -282,7 +282,7 @@ def test_workbook_drawdown_matches_baseline(workbook_drawdown, metric, expected)
 
 
 def test_workbook_maximum_drawdown(workbook_drawdown):
-    assert workbook_drawdown.loc[0, STRATEGY_INCEPTION_COLUMN] == "-5.2%"
+    assert workbook_drawdown.loc[0, STRATEGY_INCEPTION_COLUMN] == "-10.4%"
 
 
 def test_workbook_displayed_rows(workbook_drawdown):
@@ -517,8 +517,7 @@ def test_no_stonex_plus500_in_drawdown_slice(layout_text):
 
 
 def test_drawdown_footnote_present(layout_text):
-    assert "$100,000 fixed nominal" in layout_text
-    assert "two $50,000 tranches" in layout_text
+    assert "$50,000 fixed nominal" in layout_text
 
 
 def test_v1_drawdown_chart_not_in_layout(layout_text):
@@ -529,26 +528,27 @@ def test_v1_drawdown_chart_not_in_layout(layout_text):
 # --- Nominal exposure and duration semantics ---
 
 
-def test_drawdown_nominal_exposure_is_100k_for_two_tranches():
-    assert resolve_drawdown_nominal_exposure(tranche_count=2) == 100_000.0
-    assert DRAWDOWN_NOMINAL_EXPOSURE_USD == 100_000.0
+def test_drawdown_nominal_exposure_is_50k_per_tranche():
+    assert resolve_drawdown_nominal_exposure() == 50_000.0
+    assert resolve_drawdown_nominal_exposure(tranche_count=2) == 50_000.0
+    assert DRAWDOWN_NOMINAL_EXPOSURE_USD == 50_000.0
 
 
-def test_nominal_base_10k_decline_is_negative_ten_percent():
+def test_nominal_base_5k_decline_is_negative_ten_percent():
     nav = pd.Series(
-        [100_000.0, 90_000.0],
+        [50_000.0, 45_000.0],
         index=pd.to_datetime(["2026-01-01", "2026-01-02"]),
     )
-    period = worst_drawdown_profile(nav, baseline=100_000.0)
+    period = worst_drawdown_profile(nav, baseline=50_000.0)
     assert math.isclose(period.depth_decimal, -10.0)
 
 
-def test_nominal_base_20k_decline_is_negative_twenty_percent():
+def test_nominal_base_10k_decline_is_negative_twenty_percent():
     nav = pd.Series(
-        [100_000.0, 80_000.0],
+        [50_000.0, 40_000.0],
         index=pd.to_datetime(["2026-01-01", "2026-01-02"]),
     )
-    period = worst_drawdown_profile(nav, baseline=100_000.0)
+    period = worst_drawdown_profile(nav, baseline=50_000.0)
     assert math.isclose(period.depth_decimal, -20.0)
 
 
@@ -602,7 +602,7 @@ def test_weekend_spanning_crypto_durations_use_calendar_days():
     period = build_benchmark_drawdown_period(
         crypto_returns,
         inception_start=pd.Timestamp("2026-01-02"),
-        baseline=100_000.0,
+        baseline=50_000.0,
         report_cutoff="2026-01-05",
     )
     assert period is not None
@@ -625,6 +625,6 @@ def test_benchmark_returns_clipped_to_tcp_report_cutoff():
 
 
 def test_drawdown_footnote_text():
-    assert "$100,000 fixed nominal" in DRAWDOWN_FOOTNOTE
-    assert "two $50,000 tranches" in DRAWDOWN_FOOTNOTE
+    assert "$50,000 fixed nominal" in DRAWDOWN_FOOTNOTE
+    assert "$100,000" not in DRAWDOWN_FOOTNOTE
     assert "$150,000" not in DRAWDOWN_FOOTNOTE

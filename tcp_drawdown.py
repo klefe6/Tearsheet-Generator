@@ -22,8 +22,7 @@ from tcp_dashboard import (
 )
 
 TRANCHE_NOMINAL_USD = float(TCPRules().base_nav_per_tranche)
-DEFAULT_DRAWDOWN_TRANCHES = 2
-DRAWDOWN_NOMINAL_EXPOSURE_USD = TRANCHE_NOMINAL_USD * DEFAULT_DRAWDOWN_TRANCHES
+DRAWDOWN_NOMINAL_EXPOSURE_USD = TRANCHE_NOMINAL_USD
 
 US_BUSINESS_DAY = CustomBusinessDay(calendar=USFederalHolidayCalendar())
 
@@ -44,8 +43,8 @@ BTC_INCEPTION_COLUMN = "BTC (Inception)"
 ETH_INCEPTION_COLUMN = "ETH (Inception)"
 
 DRAWDOWN_FOOTNOTE = (
-    "Drawdown benchmark columns (TCP, SPXTR, BTC, ETH) use the same $100,000 fixed nominal "
-    "exposure at the start of the drawdown period, representing two $50,000 tranches."
+    "Drawdown benchmark columns (TCP, SPXTR, BTC, ETH) use the same $50,000 fixed nominal "
+    "exposure at the start of the drawdown period (one tranche)."
 )
 
 DRAWDOWN_TABLE_DISPLAY_RENAMES = {
@@ -68,11 +67,9 @@ class TCPDrawdownError(Exception):
 
 
 def resolve_drawdown_nominal_exposure(*, tranche_count: Optional[int] = None) -> float:
-    """Fixed nominal exposure for drawdown depth and benchmark scaling."""
-    count = DEFAULT_DRAWDOWN_TRANCHES if tranche_count is None else int(tranche_count)
-    if count < 1:
-        raise TCPDrawdownError("Tranche count must be at least 1")
-    return TRANCHE_NOMINAL_USD * float(count)
+    """Per-tranche nominal for drawdown depth and benchmark scaling."""
+    _ = tranche_count
+    return TRANCHE_NOMINAL_USD
 
 
 def _normalize_ts(value: Union[date, datetime, pd.Timestamp, str]) -> pd.Timestamp:
