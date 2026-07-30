@@ -144,7 +144,7 @@ disclaimer_text = GENERAL_DISCLAIMER_TEXT
 footer_contact = FOOTER_CONTACT
 
 NAV_FOOTNOTE_PRIMARY = (
-    "This chart visualizes the growth of a $150,000 investment from inception to today. "
+    "This chart visualizes the growth of a $50,000 investment from inception to today. "
     "NAV stands for Net Asset Value; it reflects the non-compounded performance, net of all fees."
 )
 
@@ -590,7 +590,7 @@ def build_trading_universe() -> dbc.Card:
                         html.Div("Exchange Margin Ratios"),
                         html.Small(
                             "This is not cost-bearing, but is a measure of the exchange-required minimum funds "
-                            "to be in the account versus the Nominal Trade Size (150 k)",
+                            "to be in the account versus the Nominal Trade Size ($50,000)",
                             style={
                                 "fontSize": "0.75rem",
                                 "color": "#6c757d",

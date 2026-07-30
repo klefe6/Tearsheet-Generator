@@ -11,6 +11,7 @@ from tcp_config import AdminAuthSettings, load_config, resolve_state_paths
 from tcp_public_sections import (
     ACCOUNT_STATISTICS,
     INVESTOR_OTHER_NOTES,
+    NAV_FOOTNOTE_PRIMARY,
     TERMS_AND_FEES,
     TRANSACTION_FEE_FOOTNOTE,
     resolve_public_gate_styles,
@@ -151,6 +152,14 @@ def test_investor_terms_labels(layout_text, label, _value):
 def test_minimum_investment_values_from_committed_v1(layout_text):
     assert "$50,000 per tranche" in layout_text
     assert "$100,000 Nominal" in layout_text
+
+
+def test_obsolete_150k_runtime_copy_is_absent():
+    source = (REPO_ROOT / "tcp_public_sections.py").read_text(encoding="utf-8")
+    assert "growth of a $50,000 investment" in NAV_FOOTNOTE_PRIMARY
+    assert "$150,000" not in NAV_FOOTNOTE_PRIMARY
+    assert "Nominal Trade Size ($50,000)" in source
+    assert "Nominal Trade Size (150 k)" not in source
 
 
 def test_proprietary_client_distinctions(layout_text):
