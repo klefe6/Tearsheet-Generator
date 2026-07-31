@@ -3,12 +3,19 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from layout_helpers import layout_text, materialize_layout
+import pytest
+
+from layout_helpers import component_tree_text, layout_text, materialize_layout
 
 
 class _FakeApp:
     def __init__(self, layout):
         self.layout = layout
+
+
+class _Node:
+    def __init__(self, children):
+        self.children = children
 
 
 def test_materialize_layout_calls_callable():
@@ -21,10 +28,43 @@ def test_materialize_layout_passes_through_static():
     assert materialize_layout(app) == {"static": 1}
 
 
+def test_materialize_layout_accepts_layout_directly():
+    assert materialize_layout(lambda: "direct") == "direct"
+
+
 def test_layout_text_stringifies_callable_result():
     app = _FakeApp(lambda: ["drawdown", "$50,000 fixed nominal"])
     text = layout_text(app)
     assert "$50,000 fixed nominal" in text
+
+
+def test_component_tree_text_handles_nested_children_and_none():
+    tree = _Node(
+        [
+            "Maximum Drawdown Profile",
+            None,
+            _Node(["$50,000 fixed nominal", 42]),
+        ]
+    )
+    text = component_tree_text(tree)
+    assert "Maximum Drawdown Profile" in text
+    assert "$50,000 fixed nominal" in text
+    assert "42" in text
+
+
+def test_component_tree_text_emits_dash_id_once_per_component():
+    try:
+        from dash import html
+    except ImportError:
+        pytest.skip("dash not installed")
+
+    tree = html.Div(
+        id="monthly-calendar-container",
+        children=[html.P("Performance Summary")],
+    )
+    text = component_tree_text(tree)
+    assert text.count("id='monthly-calendar-container'") == 1
+    assert "Performance Summary" in text
 
 
 def test_tcp_drawdown_footnote_rejects_obsolete_150k_wording():

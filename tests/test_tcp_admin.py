@@ -51,9 +51,11 @@ def auth_manager(auth_settings):
 def app_bundle(auth_settings, monkeypatch):
     monkeypatch.setenv("TCP_V2_ADMIN_TOKEN", TEST_TOKEN)
     monkeypatch.setenv("TCP_V2_SESSION_SECRET", TEST_SECRET)
+    from tcp_layout_support import tcp_layout_benchmark_patches
     from tcp_ts_v2 import create_app
 
-    return create_app(auth_settings=auth_settings)
+    with tcp_layout_benchmark_patches():
+        yield create_app(auth_settings=auth_settings)
 
 
 @pytest.fixture

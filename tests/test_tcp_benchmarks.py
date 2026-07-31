@@ -339,17 +339,19 @@ def layout_text():
     os.environ["TCP_V2_ADMIN_TOKEN"] = "benchmark-test-token"
     os.environ["TCP_V2_SESSION_SECRET"] = "benchmark-test-secret"
     from tcp_config import AdminAuthSettings
+    from tcp_layout_support import tcp_layout_benchmark_patches
     from tcp_ts_v2 import create_app
 
-    app, _cfg, state, _auth, _holder = create_app(
-        auth_settings=AdminAuthSettings(
-            admin_token="benchmark-test-token",
-            session_secret="benchmark-test-secret",
+    with tcp_layout_benchmark_patches():
+        app, _cfg, state, _auth, _holder = create_app(
+            auth_settings=AdminAuthSettings(
+                admin_token="benchmark-test-token",
+                session_secret="benchmark-test-secret",
+            )
         )
-    )
-    if state.snapshot is None:
-        pytest.skip("runtime unavailable")
-    text = render_layout_text(app)
+        if state.snapshot is None:
+            pytest.skip("runtime unavailable")
+        text = render_layout_text(app)
     for key, value in saved.items():
         if value is None:
             os.environ.pop(key, None)

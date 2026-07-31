@@ -63,12 +63,14 @@ def _port_listening(port: int) -> bool:
         return sock.connect_ex(("127.0.0.1", port)) == 0
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def layout_text():
+    from tcp_layout_support import tcp_layout_benchmark_patches
     from tcp_ts_v2 import create_app
 
-    app, *_ = create_app()
-    return _layout_text(app)
+    with tcp_layout_benchmark_patches():
+        app, *_ = create_app()
+        return _layout_text(app)
 
 
 @pytest.fixture
@@ -195,10 +197,12 @@ def test_public_gate_usable_contract(css_text, layout_text):
 
 
 def test_e_reveals_password_row_callback_registered():
+    from tcp_layout_support import tcp_layout_benchmark_patches
     from tcp_ts_v2 import create_app
     from tearsheet_gate_auth import GATE_PASSWORD_VISIBLE_STORE_ID
 
-    app, *_ = create_app()
+    with tcp_layout_benchmark_patches():
+        app, *_ = create_app()
     assert any(
         GATE_PASSWORD_VISIBLE_STORE_ID in str(cb.get("output", ""))
         and any(inp.get("id") == GATE_NOTICE_E_ID for inp in cb.get("inputs", []))

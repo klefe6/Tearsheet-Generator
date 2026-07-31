@@ -50,9 +50,11 @@ def _auth_env(monkeypatch):
 
 @pytest.fixture
 def tcp_app():
+    from tcp_layout_support import tcp_layout_benchmark_patches
     from tcp_ts_v2 import create_app
 
-    return create_app()
+    with tcp_layout_benchmark_patches():
+        yield create_app()
 
 
 from layout_helpers import layout_text as _layout_text, materialize_layout

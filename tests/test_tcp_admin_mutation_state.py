@@ -80,10 +80,12 @@ def app_bundle():
     os.environ["TCP_V2_ADMIN_TOKEN"] = TEST_TOKEN
     os.environ["TCP_V2_SESSION_SECRET"] = TEST_SECRET
     settings = AdminAuthSettings(admin_token=TEST_TOKEN, session_secret=TEST_SECRET)
+    from tcp_layout_support import tcp_layout_benchmark_patches
     from tcp_ts_v2 import create_app
 
-    bundle = create_app(auth_settings=settings)
-    yield bundle
+    with tcp_layout_benchmark_patches():
+        bundle = create_app(auth_settings=settings)
+        yield bundle
     for key, value in saved.items():
         if value is None:
             os.environ.pop(key, None)

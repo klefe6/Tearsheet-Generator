@@ -42,8 +42,11 @@ def test_daily_values_section_is_collapsed_by_default():
 
 
 def test_layout_includes_daily_values_collapse_ids():
-    app, *_ = create_app()
-    layout_text = render_layout_text(app)
+    from tcp_layout_support import tcp_layout_benchmark_patches
+
+    with tcp_layout_benchmark_patches():
+        app, *_ = create_app()
+        layout_text = render_layout_text(app)
     assert DAILY_VALUES_SECTION_ID in layout_text
     assert PUBLIC_DAILY_COLLAPSE_ID in layout_text
     assert PUBLIC_DAILY_TOGGLE_BTN_ID in layout_text

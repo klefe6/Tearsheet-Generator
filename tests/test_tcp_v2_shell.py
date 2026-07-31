@@ -9,7 +9,15 @@ from pathlib import Path
 
 import pytest
 
+from tcp_layout_support import tcp_layout_benchmark_patches
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _patch_layout_benchmarks():
+    with tcp_layout_benchmark_patches():
+        yield
 
 
 def _port_listening(port: int) -> bool:

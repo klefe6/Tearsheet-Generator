@@ -52,12 +52,14 @@ def _port_listening(port: int) -> bool:
         return sock.connect_ex(("127.0.0.1", port)) == 0
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def layout_text():
+    from tcp_layout_support import tcp_layout_benchmark_patches
     from tcp_ts_v2 import create_app
 
-    app, *_ = create_app()
-    return _layout_text(app)
+    with tcp_layout_benchmark_patches():
+        app, *_ = create_app()
+        return _layout_text(app)
 
 
 @pytest.fixture(scope="session")
@@ -106,10 +108,12 @@ def test_gate_e_does_not_use_visible_absolute_positioning(css_text):
 
 
 def test_gate_e_reveals_password_row_callback():
+    from tcp_layout_support import tcp_layout_benchmark_patches
     from tcp_ts_v2 import create_app
     from tearsheet_gate_auth import GATE_PASSWORD_VISIBLE_STORE_ID
 
-    app, *_ = create_app()
+    with tcp_layout_benchmark_patches():
+        app, *_ = create_app()
     assert any(
         inp.get("id") == GATE_NOTICE_E_ID
         for cb in app.callback_map.values()

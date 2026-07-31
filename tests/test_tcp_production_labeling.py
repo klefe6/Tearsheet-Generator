@@ -8,7 +8,14 @@ import socket
 import pytest
 
 from tcp_config import PREVIEW_PAGE_TITLE, PRODUCTION_PAGE_TITLE, load_config, resolve_page_title
+from tcp_layout_support import tcp_layout_benchmark_patches
 from tcp_public_sections import PREVIEW_BANNER_CLASS, RUNTIME_DIAGNOSTICS_CARD_ID
+
+
+@pytest.fixture(autouse=True)
+def _patch_tcp_layout_benchmarks():
+    with tcp_layout_benchmark_patches():
+        yield
 
 
 def _port_listening(port: int) -> bool:

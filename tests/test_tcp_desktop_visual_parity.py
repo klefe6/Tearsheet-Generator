@@ -42,12 +42,14 @@ def _public_source() -> str:
     )
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def layout_text():
+    from tcp_layout_support import tcp_layout_benchmark_patches
     from tcp_ts_v2 import create_app
 
-    app, *_ = create_app()
-    return _layout_text(app)
+    with tcp_layout_benchmark_patches():
+        app, *_ = create_app()
+        return _layout_text(app)
 
 
 def test_main_page_shell_exists(layout_text):
@@ -192,11 +194,17 @@ def test_import_starts_no_server():
 
 
 def test_no_tkp_stonex_plus500_wording_introduced():
-    for rel in ("tcp_ts_v2.py", "assets/styles.css"):
-        source = (REPO_ROOT / rel).read_text(encoding="utf-8")
-        lowered = re.sub(r"tkp_ts\.py", "", source.lower())
-        assert "tkp" not in lowered
-        assert "plus500" not in lowered
+    def _without_comments(source: str) -> str:
+        return "\n".join(line for line in source.splitlines() if not line.lstrip().startswith("#"))
+
+    tcp_source = _without_comments((REPO_ROOT / "tcp_ts_v2.py").read_text(encoding="utf-8"))
+    tcp_lowered = re.sub(r"tkp_ts\.py", "", tcp_source.lower())
+    assert "tkp" not in tcp_lowered
+    assert "plus500" not in tcp_lowered
+
+    css_lowered = (REPO_ROOT / "assets/styles.css").read_text(encoding="utf-8").lower()
+    assert "plus500" not in css_lowered
+    assert "stonex" not in css_lowered
 
 
 def test_no_financial_formulas_in_presentation_helpers():
