@@ -1889,7 +1889,7 @@ def build_NAV_figure():
     # Base layout configuration
     layout_config = {
         "title": {
-            "text": "<u>StoneX Cash-Flow-Adjusted Performance Since Inception</u>",
+            "text": "<u>Non-Compounded Performance Since Inception</u>",
             "x": 0.5,
             "xanchor": "center"
         },
@@ -4172,7 +4172,7 @@ def _rebuild_nav_figure(perf_series):
     )
     cfg = {
         "title": {
-            "text": "<u>StoneX Cash-Flow-Adjusted Performance Since Inception</u>",
+            "text": "<u>Non-Compounded Performance Since Inception</u>",
             "x": 0.5,
             "xanchor": "center",
         },
