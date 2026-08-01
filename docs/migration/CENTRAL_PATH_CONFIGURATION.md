@@ -53,13 +53,36 @@ Invalid or explicitly empty `HC_APP_ENV` values raise `ValueError`.
 |---|---|---|
 | `HC_AGM_DATA_ROOT` | AGM derived paths | `{deploy_root}/Momentum Pacer` |
 | `HC_YQ_DATA_ROOT` | Y&Q CSV when set | `C:\Coding Projects\Tearsheet Generator` |
+| `HC_TKP_DATA_ROOT` | TKP derived paths | `{deploy_root}` |
 | `HC_AGM_PINNED_CSV` | AGM TradeStation CSV | `{agm_root}/data/daily_balances/balances_210TGG51_20OCT2025_07JUL2026.csv` |
 | `HC_AGM_BENCHMARK_CACHE_DIR` | AGM benchmark caches | `{agm_root}/data/benchmarks` |
 | `HC_TCP_INGEST_AUDIT_PATH` | TCP ingest audit JSONL | `{deploy_root}/glenn_uploader_ingest_tcp_audit.jsonl` |
 | `HC_AGM_INGEST_AUDIT_PATH` | AGM ingest audit JSONL | `{agm_root}/glenn_uploader_ingest_agm_audit.jsonl` |
+| `HC_TKP_STATE_PATH` | TKP Daily Returns editor state JSON | `{deploy_root}/daily_returns_secret_state.json` |
+| `HC_TKP_SOURCE_WORKBOOK` | TKP source workbook | Current protected-folder workbook (verbatim) |
 | `YQ_CSV_PATH` | Y&Q monthly CSV (existing) | Highest precedence when set |
 
 TCP state/workbook paths remain in `tcp_config.py` (`TCP_V2_*`).
+
+### TKP paths
+
+`tkp_ts.py` resolves both paths through `resolve_tkp_state_path()` and
+`resolve_tkp_source_workbook()`. With no `HC_TKP_*` variables set, both return
+exactly the values `tkp_ts.py` hardcoded before this lane.
+
+The laptop workbook default is returned **verbatim, without `Path.resolve()`**.
+It lives under a OneDrive-synced protected Documents tree, where normalisation
+could rewrite the path through a reparse point and change which file is opened.
+
+Still reading the repo-root state file directly, and not yet migrated:
+
+- `uploader/backend/scripts/extract_tearsheet_history.py`
+- `uploader/backend/scripts/reconcile_tkp_stonex_backfill.py` (has `--state`)
+- `scripts/tkp_ledger_reconcile.py`
+- `scripts/tcp_cutover_preflight.py` (TKP collision guard)
+
+Setting `HC_TKP_STATE_PATH` would move the TKP app's state away from those
+consumers. Migrate them before using the override in production.
 
 ## VPS profile defaults (not active until `HC_APP_ENV` is set)
 
@@ -69,6 +92,9 @@ TCP state/workbook paths remain in `tcp_config.py` (`TCP_V2_*`).
 | Log root | `E:\H&C\logs` |
 | AGM data | `E:\H&C\data\agm` |
 | Y&Q CSV | `E:\H&C\data\yq\yq.csv` |
+| TKP data | `E:\H&C\data\tkp` |
+| TKP state | `E:\H&C\data\tkp\daily_returns_secret_state.json` |
+| TKP workbook | `E:\H&C\data\tkp\tkp_source_workbook.xlsx` |
 | Ingest audits (when `HC_LOG_ROOT` set) | `E:\H&C\logs\ingest\` |
 
 ## Authoritative inputs (must already exist)
@@ -77,8 +103,9 @@ These paths are resolved but **never created** by the configuration module:
 
 - AGM pinned TradeStation CSV
 - Y&Q monthly CSV
-- TKP/TCP/AGM financial state (deferred in this lane)
-- Fee workbooks and protected-folder sources (deferred)
+- TKP source workbook and TKP state JSON
+- TCP/AGM financial state (deferred)
+- Fee workbooks and other protected-folder sources (deferred)
 
 Missing configured authoritative inputs must fail clearly in application code — not silently fall back to fixtures.
 
@@ -137,4 +164,4 @@ summary = paths_identity_summary(load_tearsheet_paths())
 ## Module
 
 - **Resolver:** `tearsheet_paths.py` (repo root)
-- **Tests:** `tests/test_tearsheet_paths.py`
+- **Tests:** `tests/test_tearsheet_paths.py`, `tests/test_tkp_paths.py`

@@ -44,12 +44,15 @@ HC_BACKUP_ROOT_ENV = "HC_BACKUP_ROOT"
 # Application data roots
 HC_AGM_DATA_ROOT_ENV = "HC_AGM_DATA_ROOT"
 HC_YQ_DATA_ROOT_ENV = "HC_YQ_DATA_ROOT"
+HC_TKP_DATA_ROOT_ENV = "HC_TKP_DATA_ROOT"
 
 # File-specific settings (active consumers in this lane)
 HC_AGM_PINNED_CSV_ENV = "HC_AGM_PINNED_CSV"
 HC_AGM_BENCHMARK_CACHE_DIR_ENV = "HC_AGM_BENCHMARK_CACHE_DIR"
 HC_TCP_INGEST_AUDIT_PATH_ENV = "HC_TCP_INGEST_AUDIT_PATH"
 HC_AGM_INGEST_AUDIT_PATH_ENV = "HC_AGM_INGEST_AUDIT_PATH"
+HC_TKP_STATE_PATH_ENV = "HC_TKP_STATE_PATH"
+HC_TKP_SOURCE_WORKBOOK_ENV = "HC_TKP_SOURCE_WORKBOOK"
 
 # Launcher guard: main repo checkout that must not host production launches
 HC_DIRTY_ROOT_ENV = "HC_DIRTY_ROOT"
@@ -71,6 +74,18 @@ AGM_DATA_SUBDIR = "Momentum Pacer"
 AGM_MANUAL_ROWS_FILENAME = "momentum_pacer_manual_daily_rows.json"
 AGM_FEE_WORKBOOK_FILENAME = "Momentum Fee Calculation.xlsx"
 AGM_DAILY_BALANCES_FILENAME = "balances_210TGG51_20OCT2025_07JUL2026.csv"
+
+TKP_STATE_FILENAME = "daily_returns_secret_state.json"
+TKP_SOURCE_WORKBOOK_FILENAME = "tkp_source_workbook.xlsx"
+
+# Current laptop TKP workbook. Held verbatim: it lives under a protected
+# OneDrive-synced Documents tree, and normalising it (``Path.resolve()``) could
+# rewrite the path through a reparse point and change which file is opened.
+DEFAULT_TKP_SOURCE_WORKBOOK = Path(
+    r"C:\Users\H&CDanHughes\Hughes & Company\Hughes & Company - Documents"
+    r"\3_Advisors Marketing (Tearsheets, PitchBooks, etc)"
+    r"\1. Tearsheet Project\TKP\VADI\Copy of tkp_alex_old1.xlsx"
+)
 
 INGEST_AUDIT_TCP_FILENAME = "glenn_uploader_ingest_tcp_audit.jsonl"
 INGEST_AUDIT_AGM_FILENAME = "glenn_uploader_ingest_agm_audit.jsonl"
@@ -97,10 +112,13 @@ class TearsheetPaths:
     backup_root: Path
     agm_data_root: Path
     yq_data_root: Path
+    tkp_data_root: Path
     agm_pinned_csv: Path
     agm_benchmark_cache_dir: Path
     tcp_ingest_audit_path: Path
     agm_ingest_audit_path: Path
+    tkp_state_path: Path
+    tkp_source_workbook: Path
     dirty_root: Path
     yq_csv_path: Path
 
@@ -172,6 +190,8 @@ def _profile_roots(
             "backup_root": deploy_root,
             "agm_data_root": deploy_root / AGM_DATA_SUBDIR,
             "yq_data_root": DEFAULT_DIRTY_ROOT,
+            # TKP state has always lived beside tkp_ts.py in the checkout.
+            "tkp_data_root": deploy_root,
         }
     # vps-sandbox and vps-production share the same structural layout;
     # isolation is expected via separate VMs or explicit per-path overrides.
@@ -184,6 +204,7 @@ def _profile_roots(
         "backup_root": VPS_BACKUP_ROOT,
         "agm_data_root": VPS_DATA_ROOT / "agm",
         "yq_data_root": VPS_DATA_ROOT / "yq",
+        "tkp_data_root": VPS_DATA_ROOT / "tkp",
     }
 
 
@@ -340,6 +361,75 @@ def resolve_agm_ingest_audit_path(
     return (agm_root / INGEST_AUDIT_AGM_FILENAME).resolve()
 
 
+def _tkp_data_root(
+    env: Mapping[str, str],
+    *,
+    deploy_root: Path,
+) -> Optional[Path]:
+    """Explicit TKP data root, or ``None`` when no override is configured."""
+    override = _resolve_optional_env_path(
+        env, HC_TKP_DATA_ROOT_ENV, deploy_root=deploy_root
+    )
+    if override is not None:
+        return override
+    app_env = resolve_hc_app_env(env)
+    if app_env.startswith("vps-"):
+        return _profile_roots(app_env, deploy_root=deploy_root)["tkp_data_root"]
+    return None
+
+
+def resolve_tkp_state_path(
+    *,
+    env: Optional[Mapping[str, str]] = None,
+    deploy_root: Optional[Union[str, Path]] = None,
+) -> Path:
+    """TKP persisted Daily Returns editor state JSON.
+
+    Precedence:
+      1. ``HC_TKP_STATE_PATH``
+      2. ``HC_TKP_DATA_ROOT`` / ``daily_returns_secret_state.json``
+      3. VPS profile TKP root + filename
+      4. Laptop default: the filename beside the deployment checkout root
+    """
+    environ = _environ_dict(env)
+    root = Path(deploy_root).resolve() if deploy_root is not None else resolve_deploy_root(env=environ)
+    override = _resolve_optional_env_path(
+        environ, HC_TKP_STATE_PATH_ENV, deploy_root=root
+    )
+    if override is not None:
+        return override
+    tkp_root = _tkp_data_root(environ, deploy_root=root)
+    if tkp_root is not None:
+        return (tkp_root / TKP_STATE_FILENAME).resolve()
+    return (root / TKP_STATE_FILENAME).resolve()
+
+
+def resolve_tkp_source_workbook(
+    *,
+    env: Optional[Mapping[str, str]] = None,
+    deploy_root: Optional[Union[str, Path]] = None,
+) -> Path:
+    """TKP source workbook (authoritative NAV input; must already exist).
+
+    Precedence:
+      1. ``HC_TKP_SOURCE_WORKBOOK``
+      2. ``HC_TKP_DATA_ROOT`` / ``tkp_source_workbook.xlsx``
+      3. VPS profile TKP root + filename
+      4. Laptop default: the protected-folder workbook, returned verbatim
+    """
+    environ = _environ_dict(env)
+    root = Path(deploy_root).resolve() if deploy_root is not None else resolve_deploy_root(env=environ)
+    override = _resolve_optional_env_path(
+        environ, HC_TKP_SOURCE_WORKBOOK_ENV, deploy_root=root
+    )
+    if override is not None:
+        return override
+    tkp_root = _tkp_data_root(environ, deploy_root=root)
+    if tkp_root is not None:
+        return (tkp_root / TKP_SOURCE_WORKBOOK_FILENAME).resolve()
+    return DEFAULT_TKP_SOURCE_WORKBOOK
+
+
 def load_tearsheet_paths(
     *,
     env: Optional[Mapping[str, str]] = None,
@@ -391,6 +481,12 @@ def load_tearsheet_paths(
         )
         or profiles["yq_data_root"]
     ).resolve()
+    tkp_data_root = (
+        _resolve_optional_env_path(
+            environ, HC_TKP_DATA_ROOT_ENV, deploy_root=deploy_root
+        )
+        or profiles["tkp_data_root"]
+    ).resolve()
 
     return TearsheetPaths(
         app_env=app_env,
@@ -403,6 +499,7 @@ def load_tearsheet_paths(
         backup_root=backup_root,
         agm_data_root=agm_data_root,
         yq_data_root=yq_data_root,
+        tkp_data_root=tkp_data_root,
         agm_pinned_csv=resolve_agm_pinned_csv(env=environ, deploy_root=deploy_root),
         agm_benchmark_cache_dir=resolve_agm_benchmark_cache_dir(
             env=environ, deploy_root=deploy_root
@@ -411,6 +508,10 @@ def load_tearsheet_paths(
             env=environ, deploy_root=deploy_root
         ),
         agm_ingest_audit_path=resolve_agm_ingest_audit_path(
+            env=environ, deploy_root=deploy_root
+        ),
+        tkp_state_path=resolve_tkp_state_path(env=environ, deploy_root=deploy_root),
+        tkp_source_workbook=resolve_tkp_source_workbook(
             env=environ, deploy_root=deploy_root
         ),
         dirty_root=resolve_dirty_root(env=environ),
@@ -431,10 +532,13 @@ def paths_identity_summary(paths: TearsheetPaths) -> dict[str, str]:
         "backup_root": str(paths.backup_root),
         "agm_data_root": str(paths.agm_data_root),
         "yq_data_root": str(paths.yq_data_root),
+        "tkp_data_root": str(paths.tkp_data_root),
         "agm_pinned_csv": str(paths.agm_pinned_csv),
         "agm_benchmark_cache_dir": str(paths.agm_benchmark_cache_dir),
         "tcp_ingest_audit_path": str(paths.tcp_ingest_audit_path),
         "agm_ingest_audit_path": str(paths.agm_ingest_audit_path),
+        "tkp_state_path": str(paths.tkp_state_path),
+        "tkp_source_workbook": str(paths.tkp_source_workbook),
         "dirty_root": str(paths.dirty_root),
         "yq_csv_path": str(paths.yq_csv_path),
     }
