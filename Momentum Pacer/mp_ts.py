@@ -3587,6 +3587,8 @@ def _uploader_ingest_apply_agm(payload, dry_run):
     return _ingest.IngestOutcome(action="created", before=None, after=after)
 
 
+from tearsheet_paths import resolve_agm_ingest_audit_path  # noqa: E402
+
 import tearsheet_uploader_ingest as _ingest  # noqa: E402  (route framework)
 
 _ingest.register_uploader_ingest(
@@ -3596,8 +3598,9 @@ _ingest.register_uploader_ingest(
         required_fields=("tradestation_nlv",),
         optional_fields=("cash_transfer", "fee"),
         apply=_uploader_ingest_apply_agm,
-        audit_path=Path(__file__).resolve().parent
-        / "glenn_uploader_ingest_agm_audit.jsonl",
+        audit_path=resolve_agm_ingest_audit_path(
+            deploy_root=Path(__file__).resolve().parent.parent
+        ),
         storage_target=_agm_manual_rows_storage_target(),
         on_persisted=_on_agm_persisted,
     ),

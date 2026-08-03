@@ -20,6 +20,7 @@ from dash import Input, Output, State, dcc, html, no_update
 from dash.exceptions import PreventUpdate
 from flask import jsonify, redirect, render_template_string, request, session
 
+from tearsheet_paths import resolve_tcp_ingest_audit_path
 from tearsheet_gate_auth import (
     ADMIN_DAILY_ENTRY_PATH,
     ADMIN_PORTAL_PATH,
@@ -1338,7 +1339,7 @@ def create_app(
         build_tcp_ingest_config(
             cfg,
             paths,
-            audit_path=REPO_ROOT / "glenn_uploader_ingest_tcp_audit.jsonl",
+            audit_path=resolve_tcp_ingest_audit_path(deploy_root=REPO_ROOT),
             on_persisted=_on_tcp_persisted,
         ),
     )

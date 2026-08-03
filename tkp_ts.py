@@ -35,6 +35,11 @@ import quantstats as qs
 from quantstats import utils
 
 import tearsheet_disclosure as tsd
+from tearsheet_paths import (
+    TKP_STATE_FILENAME,
+    resolve_tkp_source_workbook,
+    resolve_tkp_state_path,
+)
 from tearsheet_gate_ui import build_sibling_accept_gate
 from tearsheet_gate_auth import (
     build_gate_password_row,
@@ -241,16 +246,15 @@ BENCHMARKS = [
     "ETH-USD",    # Ethereum
 ]
 
-xlsx_path = (
-    r"C:\Users\H&CDanHughes\Hughes & Company\Hughes & Company - Documents\3_Advisors Marketing (Tearsheets, PitchBooks, etc)\1. Tearsheet Project\TKP\VADI\Copy of tkp_alex_old1.xlsx"
-)
+# Override with HC_TKP_SOURCE_WORKBOOK; unset keeps the current laptop workbook.
+xlsx_path = str(resolve_tkp_source_workbook())
 
 # Persisted Daily Returns editor state (Add Row / Delete Last Row). Survives browser hard refresh.
-SECRET_EDITOR_STATE_FILENAME = "daily_returns_secret_state.json"
+SECRET_EDITOR_STATE_FILENAME = TKP_STATE_FILENAME
 
 
 def _secret_editor_state_path():
-    return os.path.join(os.path.dirname(os.path.abspath(__file__)), SECRET_EDITOR_STATE_FILENAME)
+    return str(resolve_tkp_state_path())
 
 
 _PCT_JSON_COLS = {"Perc. Net", "Cumm Perc. Net"}
@@ -1889,7 +1893,7 @@ def build_NAV_figure():
     # Base layout configuration
     layout_config = {
         "title": {
-            "text": "<u>StoneX Cash-Flow-Adjusted Performance Since Inception</u>",
+            "text": "<u>Non-Compounded Performance Since Inception</u>",
             "x": 0.5,
             "xanchor": "center"
         },
@@ -4172,7 +4176,7 @@ def _rebuild_nav_figure(perf_series):
     )
     cfg = {
         "title": {
-            "text": "<u>StoneX Cash-Flow-Adjusted Performance Since Inception</u>",
+            "text": "<u>Non-Compounded Performance Since Inception</u>",
             "x": 0.5,
             "xanchor": "center",
         },

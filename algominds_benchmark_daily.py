@@ -47,12 +47,12 @@ from typing import Callable, Optional, Sequence
 
 import pandas as pd
 
+from tearsheet_paths import resolve_agm_benchmark_cache_dir
+
 # S&P 500 price index — matches the fee workbook / Disclosure Document benchmark.
 SPX_TICKER = "^GSPC"
 # Nasdaq-100 price index — the client chart's second benchmark.
 NDX_TICKER = "^NDX"
-
-CACHE_DIR = Path(__file__).resolve().parent / "Momentum Pacer" / "data" / "benchmarks"
 
 # Forward-fill benchmark closes over calendar gaps up to this many days
 # (weekend + holiday clusters); anything longer stays NaN.
@@ -61,10 +61,17 @@ DEFAULT_MAX_FFILL_DAYS = 5
 CACHE_ONLY_ENV = "AGM_BENCHMARK_CACHE_ONLY"
 
 
+def cache_dir() -> Path:
+    """Resolved AGM benchmark cache directory."""
+    return resolve_agm_benchmark_cache_dir(
+        deploy_root=Path(__file__).resolve().parent,
+    )
+
+
 def cache_path(symbol: str) -> Path:
     """CSV cache file for *symbol* (``^GSPC`` -> ``GSPC_daily.csv``)."""
     safe = symbol.replace("^", "").replace("/", "_")
-    return CACHE_DIR / f"{safe}_daily.csv"
+    return cache_dir() / f"{safe}_daily.csv"
 
 
 def _read_cache(path: Path) -> pd.DataFrame:

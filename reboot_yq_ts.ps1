@@ -1,7 +1,14 @@
 $ErrorActionPreference = 'Stop'
 Set-Location $PSScriptRoot
 
-$dirtyRoot = [System.IO.Path]::GetFullPath('C:\Coding Projects\Tearsheet Generator')
+# Main dirty checkout guard — override only via HC_DIRTY_ROOT when explicitly supplied.
+$defaultDirtyRoot = [System.IO.Path]::GetFullPath('C:\Coding Projects\Tearsheet Generator')
+$dirtyRoot = if ($env:HC_DIRTY_ROOT -and $env:HC_DIRTY_ROOT.Trim()) {
+    [System.IO.Path]::GetFullPath($env:HC_DIRTY_ROOT.Trim())
+} else {
+    $defaultDirtyRoot
+}
+
 $here = [System.IO.Path]::GetFullPath($PSScriptRoot)
 if ($here -eq $dirtyRoot) {
     Write-Error "Refusing to start Y&Q from the dirty Tearsheet Generator checkout: $here"
@@ -10,7 +17,12 @@ if ($here -eq $dirtyRoot) {
 
 $env:PYTHONIOENCODING = 'utf-8'
 # Authoritative monthly CSV remains at the repo root; do not invent/copy data.
-$env:YQ_CSV_PATH = Join-Path $dirtyRoot 'yq.csv'
+if ($env:HC_YQ_DATA_ROOT -and $env:HC_YQ_DATA_ROOT.Trim()) {
+    $yqRoot = [System.IO.Path]::GetFullPath($env:HC_YQ_DATA_ROOT.Trim())
+    $env:YQ_CSV_PATH = Join-Path $yqRoot 'yq.csv'
+} else {
+    $env:YQ_CSV_PATH = Join-Path $dirtyRoot 'yq.csv'
+}
 
 $python = Join-Path $PSScriptRoot '.venv310\Scripts\python.exe'
 if (-not (Test-Path $python)) {
