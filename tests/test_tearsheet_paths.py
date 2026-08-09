@@ -207,8 +207,14 @@ def test_paths_identity_summary_no_secrets():
     summary = tp.paths_identity_summary(paths)
     assert summary["app_env"] == "local-production"
     assert "deploy_root" in summary
-    assert "token" not in "".join(summary).lower()
-    assert "secret" not in "".join(summary).lower()
+    # The summary exposes filesystem paths + app_env only — never secret values.
+    # Directory keys/filenames may legitimately contain the word "secret" (the
+    # secrets_root directory, daily_returns_secret_state.json), so guard the
+    # structure instead: no admin token, and every non-env value is a real path.
+    values_blob = "".join(summary.values()).lower()
+    assert "token" not in values_blob
+    for key, value in summary.items():
+        assert key == "app_env" or ("\\" in value or "/" in value)
 
 
 def test_empty_env_override_falls_back_to_default():

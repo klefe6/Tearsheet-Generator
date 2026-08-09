@@ -68,6 +68,7 @@ from tcp_config import (
     validate_bind_port,
     validate_config,
 )
+from tearsheet_paths import resolve_tcp_data_root
 from tcp_benchmarks import (
     BENCHMARK_STATUS_STALE,
     BENCHMARK_STATUS_UNAVAILABLE,
@@ -198,8 +199,15 @@ class PreviewState:
     error_type: Optional[str] = None
 
 
+def _tcp_state_base() -> Path:
+    # Central TCP state root: checkout on laptop (parity), C:\H&C\data\tcp on the
+    # VPS profile. Per-file TCP_V2_STATE_* overrides still win inside
+    # resolve_state_paths, so production launch env is unaffected.
+    return resolve_tcp_data_root(deploy_root=REPO_ROOT)
+
+
 def _configured_state_paths(cfg: TCPConfig) -> StatePaths:
-    active, backup, lock = resolve_state_paths(cfg, REPO_ROOT)
+    active, backup, lock = resolve_state_paths(cfg, _tcp_state_base())
     return StatePaths(active_path=active, backup_path=backup, lock_path=lock)
 
 

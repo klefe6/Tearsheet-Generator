@@ -40,15 +40,22 @@ HC_SANDBOX_DATA_ROOT_ENV = "HC_SANDBOX_DATA_ROOT"
 HC_LOG_ROOT_ENV = "HC_LOG_ROOT"
 HC_CACHE_ROOT_ENV = "HC_CACHE_ROOT"
 HC_BACKUP_ROOT_ENV = "HC_BACKUP_ROOT"
+HC_CONFIG_ROOT_ENV = "HC_CONFIG_ROOT"
+HC_SECRETS_ROOT_ENV = "HC_SECRETS_ROOT"
+HC_WEBSITE_ROOT_ENV = "HC_WEBSITE_ROOT"
+HC_APPS_ROOT_ENV = "HC_APPS_ROOT"
 
 # Application data roots
 HC_AGM_DATA_ROOT_ENV = "HC_AGM_DATA_ROOT"
 HC_YQ_DATA_ROOT_ENV = "HC_YQ_DATA_ROOT"
 HC_TKP_DATA_ROOT_ENV = "HC_TKP_DATA_ROOT"
+HC_TCP_DATA_ROOT_ENV = "HC_TCP_DATA_ROOT"
 
 # File-specific settings (active consumers in this lane)
 HC_AGM_PINNED_CSV_ENV = "HC_AGM_PINNED_CSV"
 HC_AGM_BENCHMARK_CACHE_DIR_ENV = "HC_AGM_BENCHMARK_CACHE_DIR"
+HC_AGM_MANUAL_STATE_PATH_ENV = "HC_AGM_MANUAL_STATE_PATH"
+HC_AGM_FEE_WORKBOOK_ENV = "HC_AGM_FEE_WORKBOOK"
 HC_TCP_INGEST_AUDIT_PATH_ENV = "HC_TCP_INGEST_AUDIT_PATH"
 HC_AGM_INGEST_AUDIT_PATH_ENV = "HC_AGM_INGEST_AUDIT_PATH"
 HC_TKP_STATE_PATH_ENV = "HC_TKP_STATE_PATH"
@@ -91,11 +98,26 @@ INGEST_AUDIT_TCP_FILENAME = "glenn_uploader_ingest_tcp_audit.jsonl"
 INGEST_AUDIT_AGM_FILENAME = "glenn_uploader_ingest_agm_audit.jsonl"
 INGEST_AUDIT_TKP_FILENAME = "glenn_uploader_ingest_tkp_audit.jsonl"
 
-# VPS layout (not active until HC_APP_ENV selects a vps-* profile)
-VPS_DATA_ROOT = Path(r"E:\H&C\data")
-VPS_LOG_ROOT = Path(r"E:\H&C\logs")
-VPS_CACHE_ROOT = Path(r"E:\H&C\data")
-VPS_BACKUP_ROOT = Path(r"E:\H&C\backups")
+# VPS layout (not active until HC_APP_ENV selects a vps-* profile).
+#
+# Canonical provider-neutral root is ``C:\H&C`` — the system volume that every
+# conventional Windows Server VPS exposes (AWS Lightsail, OVHcloud, Azure, etc.).
+# A data disk is intentionally NOT assumed: operators who attach one can point
+# ``HC_DATA_ROOT`` (and siblings) at it without editing source. This deliberately
+# supersedes the earlier E:\H&C draft from the TKP path lane, which assumed a
+# second volume that some providers do not provision by default.
+VPS_ROOT = Path(r"C:\H&C")
+VPS_APPS_ROOT = VPS_ROOT / "apps"
+VPS_DATA_ROOT = VPS_ROOT / "data"
+VPS_CONFIG_ROOT = VPS_ROOT / "config"
+VPS_SECRETS_ROOT = VPS_ROOT / "secrets"
+VPS_LOG_ROOT = VPS_ROOT / "logs"
+VPS_BACKUP_ROOT = VPS_ROOT / "backups"
+VPS_WEBSITE_ROOT = VPS_ROOT / "website"
+VPS_DEPLOYMENT_ROOT = VPS_ROOT / "deployment"
+# Benchmark/return caches are regenerable; they live under the data tree so a
+# single backup contract covers them without a distinct cache volume.
+VPS_CACHE_ROOT = VPS_DATA_ROOT
 
 
 @dataclass(frozen=True)
@@ -104,17 +126,24 @@ class TearsheetPaths:
 
     app_env: str
     deploy_root: Path
+    apps_root: Path
     data_root: Path
     production_data_root: Path
     sandbox_data_root: Path
+    config_root: Path
+    secrets_root: Path
     log_root: Path
     cache_root: Path
     backup_root: Path
+    website_root: Path
     agm_data_root: Path
     yq_data_root: Path
     tkp_data_root: Path
+    tcp_data_root: Path
     agm_pinned_csv: Path
     agm_benchmark_cache_dir: Path
+    agm_manual_state_path: Path
+    agm_fee_workbook: Path
     tcp_ingest_audit_path: Path
     agm_ingest_audit_path: Path
     tkp_state_path: Path
@@ -182,29 +211,39 @@ def _profile_roots(
     """Return profile-level root defaults before per-path overrides."""
     if app_env in {"local-dev", "local-production"}:
         return {
+            "apps_root": deploy_root,
             "data_root": deploy_root,
             "production_data_root": deploy_root,
             "sandbox_data_root": deploy_root,
+            "config_root": deploy_root,
+            "secrets_root": deploy_root,
             "log_root": deploy_root,
             "cache_root": deploy_root,
             "backup_root": deploy_root,
+            "website_root": deploy_root,
             "agm_data_root": deploy_root / AGM_DATA_SUBDIR,
             "yq_data_root": DEFAULT_DIRTY_ROOT,
-            # TKP state has always lived beside tkp_ts.py in the checkout.
+            # TKP and TCP state have always lived beside their modules in the checkout.
             "tkp_data_root": deploy_root,
+            "tcp_data_root": deploy_root,
         }
     # vps-sandbox and vps-production share the same structural layout;
     # isolation is expected via separate VMs or explicit per-path overrides.
     return {
+        "apps_root": VPS_APPS_ROOT,
         "data_root": VPS_DATA_ROOT,
         "production_data_root": VPS_DATA_ROOT,
         "sandbox_data_root": VPS_DATA_ROOT / "sandbox",
+        "config_root": VPS_CONFIG_ROOT,
+        "secrets_root": VPS_SECRETS_ROOT,
         "log_root": VPS_LOG_ROOT,
         "cache_root": VPS_CACHE_ROOT,
         "backup_root": VPS_BACKUP_ROOT,
+        "website_root": VPS_WEBSITE_ROOT,
         "agm_data_root": VPS_DATA_ROOT / "agm",
         "yq_data_root": VPS_DATA_ROOT / "yq",
         "tkp_data_root": VPS_DATA_ROOT / "tkp",
+        "tcp_data_root": VPS_DATA_ROOT / "tcp",
     }
 
 
@@ -319,6 +358,147 @@ def resolve_agm_benchmark_cache_dir(
     return (agm_root / "data" / "benchmarks").resolve()
 
 
+def _resolve_root(
+    env_key: str,
+    profile_key: str,
+    *,
+    env: Optional[Mapping[str, str]] = None,
+    deploy_root: Optional[Union[str, Path]] = None,
+) -> Path:
+    """Resolve a layout root: explicit ``env_key`` override, else profile default."""
+    environ = _environ_dict(env)
+    root = Path(deploy_root).resolve() if deploy_root is not None else resolve_deploy_root(env=environ)
+    override = _resolve_optional_env_path(environ, env_key, deploy_root=root)
+    if override is not None:
+        return override
+    app_env = resolve_hc_app_env(environ)
+    return _profile_roots(app_env, deploy_root=root)[profile_key].resolve()
+
+
+def resolve_apps_root(
+    *, env: Optional[Mapping[str, str]] = None, deploy_root: Optional[Union[str, Path]] = None
+) -> Path:
+    """Application-code root (``C:\\H&C\\apps`` on VPS; checkout on laptop)."""
+    return _resolve_root(HC_APPS_ROOT_ENV, "apps_root", env=env, deploy_root=deploy_root)
+
+
+def resolve_config_root(
+    *, env: Optional[Mapping[str, str]] = None, deploy_root: Optional[Union[str, Path]] = None
+) -> Path:
+    """Non-secret configuration root (``C:\\H&C\\config`` on VPS)."""
+    return _resolve_root(HC_CONFIG_ROOT_ENV, "config_root", env=env, deploy_root=deploy_root)
+
+
+def resolve_secrets_root(
+    *, env: Optional[Mapping[str, str]] = None, deploy_root: Optional[Union[str, Path]] = None
+) -> Path:
+    """Secret material root (``C:\\H&C\\secrets`` on VPS). Never committed to Git."""
+    return _resolve_root(HC_SECRETS_ROOT_ENV, "secrets_root", env=env, deploy_root=deploy_root)
+
+
+def resolve_website_root(
+    *, env: Optional[Mapping[str, str]] = None, deploy_root: Optional[Union[str, Path]] = None
+) -> Path:
+    """Static website/publishing root (``C:\\H&C\\website`` on VPS)."""
+    return _resolve_root(HC_WEBSITE_ROOT_ENV, "website_root", env=env, deploy_root=deploy_root)
+
+
+def resolve_tcp_data_root(
+    *, env: Optional[Mapping[str, str]] = None, deploy_root: Optional[Union[str, Path]] = None
+) -> Path:
+    """TCP persistent-state root.
+
+    Precedence: ``HC_TCP_DATA_ROOT`` → profile ``tcp_data_root`` (checkout on
+    laptop, ``C:\\H&C\\data\\tcp`` on VPS). The active/backup/lock filenames and
+    any ``TCP_V2_STATE_*`` per-file overrides continue to resolve relative to
+    this base inside ``tcp_config.resolve_state_paths``.
+    """
+    return _resolve_root(HC_TCP_DATA_ROOT_ENV, "tcp_data_root", env=env, deploy_root=deploy_root)
+
+
+def resolve_program_log_dir(
+    program: str,
+    *,
+    env: Optional[Mapping[str, str]] = None,
+    deploy_root: Optional[Union[str, Path]] = None,
+) -> Path:
+    """Per-program log directory under the resolved log root (``<log_root>/<program>``).
+
+    On laptop this is the checkout root (current behaviour: logs sit beside the
+    app); on VPS it becomes ``C:\\H&C\\logs\\<program>``. This helper never
+    creates directories — call ``ensure_non_authoritative_directories`` for that.
+    """
+    environ = _environ_dict(env)
+    root = Path(deploy_root).resolve() if deploy_root is not None else resolve_deploy_root(env=environ)
+    log_root = (
+        _resolve_optional_env_path(environ, HC_LOG_ROOT_ENV, deploy_root=root)
+        or _profile_roots(resolve_hc_app_env(environ), deploy_root=root)["log_root"]
+    ).resolve()
+    normalized = str(program).strip().lower()
+    if log_root == root:
+        # Laptop parity: logs currently live at the checkout root, not a subdir.
+        return log_root
+    return (log_root / normalized).resolve()
+
+
+def _agm_data_root(
+    env: Mapping[str, str],
+    *,
+    deploy_root: Path,
+) -> Path:
+    """AGM data root: ``HC_AGM_DATA_ROOT`` override else profile default."""
+    override = _resolve_optional_env_path(env, HC_AGM_DATA_ROOT_ENV, deploy_root=deploy_root)
+    if override is not None:
+        return override
+    return _profile_roots(resolve_hc_app_env(env), deploy_root=deploy_root)["agm_data_root"]
+
+
+def resolve_agm_manual_state_path(
+    *,
+    env: Optional[Mapping[str, str]] = None,
+    deploy_root: Optional[Union[str, Path]] = None,
+) -> Path:
+    """AGM / Momentum Pacer manual daily-rows state JSON (authoritative, read/write).
+
+    Precedence:
+      1. ``HC_AGM_MANUAL_STATE_PATH``
+      2. ``HC_AGM_DATA_ROOT`` / filename
+      3. VPS profile AGM root + filename
+      4. Laptop default: the filename beside ``mp_ts.py`` (``Momentum Pacer/``)
+    """
+    environ = _environ_dict(env)
+    root = Path(deploy_root).resolve() if deploy_root is not None else resolve_deploy_root(env=environ)
+    override = _resolve_optional_env_path(
+        environ, HC_AGM_MANUAL_STATE_PATH_ENV, deploy_root=root
+    )
+    if override is not None:
+        return override
+    return (_agm_data_root(environ, deploy_root=root) / AGM_MANUAL_ROWS_FILENAME).resolve()
+
+
+def resolve_agm_fee_workbook(
+    *,
+    env: Optional[Mapping[str, str]] = None,
+    deploy_root: Optional[Union[str, Path]] = None,
+) -> Path:
+    """AGM Momentum fee-calculation workbook (authoritative input; must already exist).
+
+    Precedence:
+      1. ``HC_AGM_FEE_WORKBOOK``
+      2. ``HC_AGM_DATA_ROOT`` / filename
+      3. VPS profile AGM root + filename
+      4. Laptop default: the workbook beside ``mp_ts.py`` (``Momentum Pacer/``)
+    """
+    environ = _environ_dict(env)
+    root = Path(deploy_root).resolve() if deploy_root is not None else resolve_deploy_root(env=environ)
+    override = _resolve_optional_env_path(
+        environ, HC_AGM_FEE_WORKBOOK_ENV, deploy_root=root
+    )
+    if override is not None:
+        return override
+    return (_agm_data_root(environ, deploy_root=root) / AGM_FEE_WORKBOOK_FILENAME).resolve()
+
+
 def resolve_tcp_ingest_audit_path(
     *,
     env: Optional[Mapping[str, str]] = None,
@@ -333,6 +513,8 @@ def resolve_tcp_ingest_audit_path(
     if override is not None:
         return override
     log_root = _resolve_optional_env_path(environ, HC_LOG_ROOT_ENV, deploy_root=root)
+    if log_root is None and resolve_hc_app_env(environ).startswith("vps-"):
+        log_root = _profile_roots(resolve_hc_app_env(environ), deploy_root=root)["log_root"]
     if log_root is not None:
         return (log_root / "ingest" / INGEST_AUDIT_TCP_FILENAME).resolve()
     return (root / INGEST_AUDIT_TCP_FILENAME).resolve()
@@ -352,9 +534,11 @@ def resolve_agm_ingest_audit_path(
     if override is not None:
         return override
     log_root = _resolve_optional_env_path(environ, HC_LOG_ROOT_ENV, deploy_root=root)
+    app_env = resolve_hc_app_env(environ)
+    if log_root is None and app_env.startswith("vps-"):
+        log_root = _profile_roots(app_env, deploy_root=root)["log_root"]
     if log_root is not None:
         return (log_root / "ingest" / INGEST_AUDIT_AGM_FILENAME).resolve()
-    app_env = resolve_hc_app_env(environ)
     agm_root = _resolve_optional_env_path(
         environ, HC_AGM_DATA_ROOT_ENV, deploy_root=root
     ) or _profile_roots(app_env, deploy_root=root)["agm_data_root"]
@@ -487,21 +671,54 @@ def load_tearsheet_paths(
         )
         or profiles["tkp_data_root"]
     ).resolve()
+    tcp_data_root = (
+        _resolve_optional_env_path(
+            environ, HC_TCP_DATA_ROOT_ENV, deploy_root=deploy_root
+        )
+        or profiles["tcp_data_root"]
+    ).resolve()
+    apps_root = (
+        _resolve_optional_env_path(environ, HC_APPS_ROOT_ENV, deploy_root=deploy_root)
+        or profiles["apps_root"]
+    ).resolve()
+    config_root = (
+        _resolve_optional_env_path(environ, HC_CONFIG_ROOT_ENV, deploy_root=deploy_root)
+        or profiles["config_root"]
+    ).resolve()
+    secrets_root = (
+        _resolve_optional_env_path(environ, HC_SECRETS_ROOT_ENV, deploy_root=deploy_root)
+        or profiles["secrets_root"]
+    ).resolve()
+    website_root = (
+        _resolve_optional_env_path(environ, HC_WEBSITE_ROOT_ENV, deploy_root=deploy_root)
+        or profiles["website_root"]
+    ).resolve()
 
     return TearsheetPaths(
         app_env=app_env,
         deploy_root=deploy_root,
+        apps_root=apps_root,
         data_root=data_root,
         production_data_root=production_data_root,
         sandbox_data_root=sandbox_data_root,
+        config_root=config_root,
+        secrets_root=secrets_root,
         log_root=log_root,
         cache_root=cache_root,
         backup_root=backup_root,
+        website_root=website_root,
         agm_data_root=agm_data_root,
         yq_data_root=yq_data_root,
         tkp_data_root=tkp_data_root,
+        tcp_data_root=tcp_data_root,
         agm_pinned_csv=resolve_agm_pinned_csv(env=environ, deploy_root=deploy_root),
         agm_benchmark_cache_dir=resolve_agm_benchmark_cache_dir(
+            env=environ, deploy_root=deploy_root
+        ),
+        agm_manual_state_path=resolve_agm_manual_state_path(
+            env=environ, deploy_root=deploy_root
+        ),
+        agm_fee_workbook=resolve_agm_fee_workbook(
             env=environ, deploy_root=deploy_root
         ),
         tcp_ingest_audit_path=resolve_tcp_ingest_audit_path(
@@ -524,17 +741,24 @@ def paths_identity_summary(paths: TearsheetPaths) -> dict[str, str]:
     return {
         "app_env": paths.app_env,
         "deploy_root": str(paths.deploy_root),
+        "apps_root": str(paths.apps_root),
         "data_root": str(paths.data_root),
         "production_data_root": str(paths.production_data_root),
         "sandbox_data_root": str(paths.sandbox_data_root),
+        "config_root": str(paths.config_root),
+        "secrets_root": str(paths.secrets_root),
         "log_root": str(paths.log_root),
         "cache_root": str(paths.cache_root),
         "backup_root": str(paths.backup_root),
+        "website_root": str(paths.website_root),
         "agm_data_root": str(paths.agm_data_root),
         "yq_data_root": str(paths.yq_data_root),
         "tkp_data_root": str(paths.tkp_data_root),
+        "tcp_data_root": str(paths.tcp_data_root),
         "agm_pinned_csv": str(paths.agm_pinned_csv),
         "agm_benchmark_cache_dir": str(paths.agm_benchmark_cache_dir),
+        "agm_manual_state_path": str(paths.agm_manual_state_path),
+        "agm_fee_workbook": str(paths.agm_fee_workbook),
         "tcp_ingest_audit_path": str(paths.tcp_ingest_audit_path),
         "agm_ingest_audit_path": str(paths.agm_ingest_audit_path),
         "tkp_state_path": str(paths.tkp_state_path),

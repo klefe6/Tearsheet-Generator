@@ -49,6 +49,7 @@ from tearsheet_gate_auth import (
 )
 from tcp_admin import AdminAuthManager
 from tearsheet_runtime_mode import apply_runtime_session_config, resolve_agm_bind_port
+from tearsheet_paths import resolve_agm_fee_workbook, resolve_agm_manual_state_path
 from tearsheet_portal import render_portal_page
 from tearsheet_date_defaults import default_add_row_date_str
 from tearsheet_local_admin import is_direct_admin_request
@@ -88,7 +89,9 @@ from flask import jsonify, redirect, session
 # PATHS
 # ==============================================================================
 BASE_DIR  = Path(__file__).parent
-EXCEL_PATH = BASE_DIR / "Momentum Fee Calculation.xlsx"
+# Authoritative fee workbook. Centrally resolved so the VPS profile can relocate
+# it to C:\H&C\data\agm without editing source; unset HC_* keeps BASE_DIR.
+EXCEL_PATH = resolve_agm_fee_workbook(deploy_root=_TS_ROOT)
 
 # ==============================================================================
 # BRAND / STYLE  (mirrors Y&Q tearsheet conventions)
@@ -1269,7 +1272,10 @@ AGM_MANUAL_DAILY_ROWS_FILENAME = "momentum_pacer_manual_daily_rows.json"
 
 
 def _agm_manual_daily_rows_path():
-    return os.path.join(os.path.dirname(os.path.abspath(__file__)), AGM_MANUAL_DAILY_ROWS_FILENAME)
+    # Centrally resolved authoritative manual-rows state. Laptop default is the
+    # filename beside this module; the VPS profile relocates it to
+    # C:\H&C\data\agm\ without any source edit.
+    return str(resolve_agm_manual_state_path(deploy_root=Path(__file__).resolve().parent.parent))
 
 
 def _load_agm_manual_daily_rows():

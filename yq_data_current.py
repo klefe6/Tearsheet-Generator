@@ -1,40 +1,33 @@
 """Pure helpers for Y&Q data-current labeling (monthly CSV source of truth)."""
 from __future__ import annotations
 
-import os
 from datetime import date
 from pathlib import Path
-from typing import Optional, Union
+from typing import Mapping, Optional, Union
 
 import pandas as pd
 
-# Authoritative monthly CSV lives at the Tearsheet Generator repo root.
-DEFAULT_REPO_ROOT_CSV = Path(r"C:\Coding Projects\Tearsheet Generator\yq.csv")
+# Single source of truth for Y&Q CSV resolution lives in tearsheet_paths. This
+# module re-exports it so callers/tests keep a stable import while there is only
+# ONE resolver + one default literal to maintain across the codebase.
+from tearsheet_paths import (
+    DEFAULT_YQ_REPO_ROOT_CSV as DEFAULT_REPO_ROOT_CSV,
+    resolve_yq_csv_path as _resolve_yq_csv_path,
+)
 
 
 def resolve_yq_csv_path(
     *,
-    env: Optional[dict] = None,
+    env: Optional[Mapping[str, str]] = None,
     module_dir: Optional[Union[str, Path]] = None,
 ) -> Path:
     """Resolve the authoritative Y&Q CSV path.
 
-    Precedence:
-    1. ``YQ_CSV_PATH`` environment variable (explicit operator/config override)
-    2. ``yq.csv`` beside the running module (when present)
-    3. Repo-root ``yq.csv`` (canonical production source)
+    Thin delegate to :func:`tearsheet_paths.resolve_yq_csv_path`. Precedence:
+    ``YQ_CSV_PATH`` → ``HC_YQ_DATA_ROOT``/yq.csv → sibling ``yq.csv`` →
+    VPS profile → repo-root ``yq.csv``. Kept here for import stability only.
     """
-    environ = env if env is not None else os.environ
-    override = (environ.get("YQ_CSV_PATH") or "").strip()
-    if override:
-        return Path(override).expanduser().resolve()
-
-    if module_dir is not None:
-        sibling = Path(module_dir) / "yq.csv"
-        if sibling.is_file():
-            return sibling.resolve()
-
-    return DEFAULT_REPO_ROOT_CSV.resolve()
+    return _resolve_yq_csv_path(env=env, module_dir=module_dir)
 
 
 def max_valid_period(index_like) -> pd.Timestamp:
