@@ -83,3 +83,6 @@ tests/_replay_step6.json
 /tests/_algominds_preview_state/
 
 glenn_uploader_ingest_*_audit.jsonl
+
+# Populated VPS env (example template is tracked; real values are not)
+deployment/windows-vps/config-templates/hc-vps.env

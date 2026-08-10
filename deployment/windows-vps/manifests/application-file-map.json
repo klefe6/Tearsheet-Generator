@@ -1,0 +1,160 @@
+{
+  "schema_version": "1.0.0",
+  "description": "Future VPS application source layout. Maps current repository modules to C:\\H&C\\apps\\. No data files or secrets.",
+  "repository": "Tearsheet Generator",
+  "shared_modules_target": "C:\\H&C\\apps\\shared",
+  "applications": {
+    "tkp": {
+      "target": "C:\\H&C\\apps\\tkp",
+      "source_checkout_subpath": ".",
+      "entry_point": "tkp_ts.py",
+      "staff_entry_point": "tkp_ts.py",
+      "staff_runtime_mode": "TEARSHEET_MODE=staff",
+      "working_directory": "C:\\H&C\\apps\\tkp",
+      "ports": { "public": 8301, "staff": 8321 },
+      "primary_modules": [
+        "tkp_ts.py",
+        "tearsheet_paths.py"
+      ],
+      "shared_dependencies": [
+        "tearsheet_disclosure.py",
+        "tearsheet_gate_ui.py",
+        "tearsheet_gate_auth.py",
+        "tearsheet_runtime_mode.py",
+        "tearsheet_portal.py",
+        "tearsheet_header.py",
+        "tearsheet_date_defaults.py",
+        "tearsheet_local_admin.py",
+        "tearsheet_uploader_ingest.py",
+        "tcp_admin.py"
+      ],
+      "runtime_assets": [
+        "apps/shared/logos/tkp_logo.png"
+      ],
+      "requirements": "requirements.txt (repo root)",
+      "notes": "State and workbook live under C:\\H&C\\data\\tkp, not in apps\\tkp."
+    },
+    "tcp": {
+      "target": "C:\\H&C\\apps\\tcp",
+      "source_checkout_subpath": ".",
+      "entry_point": "tcp_ts_v2.py",
+      "staff_entry_point": "tcp_ts_v2.py",
+      "staff_runtime_mode": "TEARSHEET_MODE=staff",
+      "working_directory": "C:\\H&C\\apps\\tcp",
+      "ports": { "public": 8302, "staff": 8322 },
+      "primary_modules": [
+        "tcp_ts_v2.py",
+        "tcp_config.py",
+        "tcp_runtime_state.py",
+        "tcp_benchmarks.py",
+        "tcp_dashboard.py",
+        "tcp_drawdown.py",
+        "tcp_public_sections.py",
+        "tcp_admin.py",
+        "tcp_uploader_ingest.py"
+      ],
+      "shared_dependencies": [
+        "tearsheet_paths.py",
+        "tearsheet_gate_auth.py",
+        "tearsheet_runtime_mode.py",
+        "tearsheet_portal.py",
+        "tearsheet_uploader_ingest.py"
+      ],
+      "runtime_assets": [
+        "apps/shared/logos/tcp_logo.png"
+      ],
+      "requirements": "requirements.txt (repo root)",
+      "notes": "JSON state files live under C:\\H&C\\data\\tcp. Benchmark cache under data\\tcp\\_runtime."
+    },
+    "agm": {
+      "target": "C:\\H&C\\apps\\agm",
+      "source_checkout_subpath": "Momentum Pacer",
+      "entry_point": "mp_ts.py",
+      "staff_entry_point": "mp_ts.py",
+      "staff_runtime_mode": "TEARSHEET_MODE=staff",
+      "working_directory": "C:\\H&C\\apps\\agm\\Momentum Pacer",
+      "ports": { "public": 8304, "staff": 8324 },
+      "primary_modules": [
+        "Momentum Pacer/mp_ts.py",
+        "algominds_daily_balances.py",
+        "algominds_benchmark_daily.py",
+        "algominds_daily_fees.py",
+        "algominds_daily_accounting.py",
+        "algominds_monthly_summary.py",
+        "algominds_account_stats.py",
+        "algominds_monthly_stats.py",
+        "algominds_fee_payment_evidence.py",
+        "algominds_drawdown_semantics.py",
+        "algominds_portal_registry.py"
+      ],
+      "shared_dependencies": [
+        "tearsheet_paths.py",
+        "tearsheet_disclosure.py",
+        "tearsheet_gate_ui.py",
+        "tearsheet_gate_auth.py",
+        "tearsheet_runtime_mode.py",
+        "tearsheet_portal.py",
+        "tearsheet_header.py",
+        "tearsheet_date_defaults.py",
+        "tearsheet_local_admin.py",
+        "tcp_admin.py",
+        "tcp_public_sections.py"
+      ],
+      "runtime_assets": [
+        "Momentum Pacer/algominds_logo.png",
+        "Momentum Pacer/logo.png"
+      ],
+      "requirements": "requirements.txt (repo root)",
+      "notes": "Persistent state and fee workbook live under C:\\H&C\\data\\agm."
+    },
+    "yq": {
+      "target": "C:\\H&C\\apps\\yq",
+      "source_checkout_subpath": ".",
+      "entry_point": "yq_ts.py",
+      "staff_entry_point": null,
+      "working_directory": "C:\\H&C\\apps\\yq",
+      "ports": { "public": 8303 },
+      "primary_modules": [
+        "yq_ts.py",
+        "yq_data_current.py"
+      ],
+      "shared_dependencies": [
+        "tearsheet_paths.py",
+        "tearsheet_disclosure.py"
+      ],
+      "runtime_assets": [
+        "apps/shared/logos/yq_logo.png"
+      ],
+      "requirements": "requirements.txt (repo root)",
+      "notes": "Authoritative yq.csv lives under C:\\H&C\\data\\yq."
+    },
+    "dashboard": {
+      "target": "C:\\H&C\\apps\\dashboard",
+      "source_repository": "Manager (external repo)",
+      "source_hint": "External Manager repository — not part of Tearsheet Generator",
+      "entry_point": "TBD — landing/dashboard launcher",
+      "working_directory": "C:\\H&C\\apps\\dashboard",
+      "ports": { "internal": 8006 },
+      "notes": "Dashboard is not in the Tearsheet Generator repo. Port 8006 should remain private (not public homepage)."
+    },
+    "shared": {
+      "target": "C:\\H&C\\apps\\shared",
+      "purpose": "Cross-application Python modules, logos, and static assets copied once for all tearsheet apps.",
+      "modules": [
+        "tearsheet_paths.py",
+        "tearsheet_disclosure.py",
+        "tearsheet_gate_ui.py",
+        "tearsheet_gate_auth.py",
+        "tearsheet_runtime_mode.py",
+        "tearsheet_portal.py",
+        "tearsheet_header.py",
+        "tearsheet_date_defaults.py",
+        "tearsheet_local_admin.py",
+        "tearsheet_uploader_ingest.py",
+        "tcp_admin.py",
+        "tcp_public_sections.py"
+      ],
+      "assets_subdirectory": "logos"
+    }
+  }
+}
