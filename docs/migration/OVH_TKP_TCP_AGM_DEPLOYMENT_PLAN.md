@@ -2,9 +2,13 @@
 
 **Status: PLAN ONLY. Nothing in this document has been executed.**
 
-Companion to `OVH_TKP_TCP_AGM_CURRENT_STATE.md`, `OVH_TKP_TCP_AGM_FILE_MANIFEST.json`, and **`OVH_VPS_TARGET.md`** (authoritative purchased-server record).
+Companion to `OVH_TKP_TCP_AGM_CURRENT_STATE.md`, `OVH_TKP_TCP_AGM_FILE_MANIFEST.json`, **`OVH_VPS_TARGET.md`** (authoritative purchased-server record), and **`OVH_TCP_PILOT_PACKAGE.md`** (exact first-pilot deployment inputs).
 
 **Pilot: TCP.** Then TKP, then AGM. The reasoning is in the current-state report; the short version is that TCP is the only one of the three whose production data paths are already environment-driven and whose state already lives outside the repository, so it can boot on a clean VPS with zero code changes.
+
+### Integration status (deployment-ready branch)
+
+The code for this migration is integrated on branch **`feature/ovh-tkp-tcp-agm-ready`** (tip `49f8864`), built on `live-main @ 3cfda4f`. It folds in the six path-portability commits (`6ce7feb → 38eb0a2`) that centralize all data paths through `tearsheet_paths.py`, plus one dependency-completeness commit (`49f8864`) that adds the two missing packages to `requirements.txt`. The integrated diff is path-centralization only (plus two pre-approved TKP chart *title* strings and a no-op Y&Q resolver delegation) — no NAV/return/fee/drawdown/benchmark math, chart values, state schema, uploader payload, or auth logic changed. Validated read-only on the laptop: resolver/portability/config suite **123 passed**, TCP core reconciliation logic **61 passed / 13 skipped** (local-workbook skips), all modified modules byte-compile, and the resolver was executed under `vps-production` to confirm the `C:\H&C` mappings. Deploy *from this branch*, not from `live-main`.
 
 ### Official OVH target (purchased)
 
@@ -177,9 +181,7 @@ Not executed.
    `C:\Python310\python.exe -m venv C:\H&C\apps\shared\.venv310`
 3. `python -m pip install --upgrade pip`
 4. `pip install -r C:\H&C\deployment\requirements.txt`
-5. **Install the two packages missing from `requirements.txt`:**
-   `pip install openpyxl==3.1.5 dash-bootstrap-components==2.0.3`
-   Without these, every app fails at import. This is a real gap in the current requirements file, not an optional extra.
+5. **`openpyxl==3.1.5` and `dash-bootstrap-components==2.0.3` are now in `requirements.txt`** on the deployment-ready branch (commit `49f8864`), so step 4 installs them. Without them every app fails at import. (On `live-main` they were missing and had to be installed by hand — that gap is closed on this branch. If you ever deploy from `live-main` directly, install them manually.)
 6. Download `nssm.exe` to `C:\H&C\deployment\nssm\`.
 7. `pip freeze > C:\H&C\deployment\vps_freeze.txt` and diff it against a `pip freeze` taken from the laptop venv. Investigate any difference before proceeding.
 
@@ -193,10 +195,9 @@ Not executed.
 
 Not executed.
 
-1. Source of truth is the live worktree at commit `3cfda4fdde5eaa8fae42c87b56d30d34aa717f68` on branch `live-main`:
-   `C:\Coding Projects\Tearsheet Generator\.worktrees\live-deploy-main`
+1. Source of truth is the **deployment-ready branch `feature/ovh-tkp-tcp-agm-ready` (tip `49f8864`)**, based on `live-main @ 3cfda4fdde5eaa8fae42c87b56d30d34aa717f68`. Use the branch worktree, which already contains the portability + dependency work. The exact file list is in `OVH_TCP_PILOT_PACKAGE.md` §2.
 2. Copy the TCP code package per the manifest: `tcp_ts_v2.py` plus the twelve `tcp_*` modules into `C:\H&C\apps\tcp\`.
-3. Copy the shared module package into `C:\H&C\apps\shared\`, including `assets\styles.css` **from the live worktree, not the dev checkout** — the dev checkout copy is modified and differs.
+3. Copy the shared module package into `C:\H&C\apps\shared\`, **including the central resolver `tearsheet_paths.py`** (now required — `tcp_ts_v2.py` and `tcp_config.py` import it) and `assets\styles.css` from the branch, not the dev checkout.
 4. **Resolve all reparse points.** The live worktree contains five links back into the dev checkout. Use a link-following copy or copy from the real targets. A plain `xcopy` or a non-link-aware robocopy will produce zero-byte files.
 5. Explicitly do **not** copy: `tcp_ts.py` (legacy monolith whose `__main__` block would bind 8302 and conflict), `.git`, `.worktrees/`, `__pycache__/`, `tests/`, `backups/`, `_runtime/`, `_restart_logs/`, any `reboot_*` launcher, any `.env` file, or any other application.
 6. Set the `PYTHONPATH` decision from the layout section.
@@ -269,19 +270,19 @@ Do **not** set `TEARSHEET_LOCAL_DIRECT_ADMIN`. It is set to `1` on the laptop vi
 Not executed.
 
 ```
-nssm install HC-TCP-Tearsheet "C:\H&C\apps\shared\.venv310\Scripts\python.exe"
-nssm set HC-TCP-Tearsheet AppParameters "C:\H&C\apps\tcp\tcp_ts_v2.py"
-nssm set HC-TCP-Tearsheet AppDirectory  "C:\H&C\apps\tcp"
-nssm set HC-TCP-Tearsheet AppStdout     "C:\H&C\logs\tcp\tcp_stdout.log"
-nssm set HC-TCP-Tearsheet AppStderr     "C:\H&C\logs\tcp\tcp_stderr.log"
-nssm set HC-TCP-Tearsheet AppRotateFiles 1
-nssm set HC-TCP-Tearsheet AppRotateBytes 10485760
-nssm set HC-TCP-Tearsheet Start          SERVICE_AUTO_START
-nssm set HC-TCP-Tearsheet ObjectName     ".\svc_hc_tearsheets" <password>
-nssm set HC-TCP-Tearsheet AppEnvironmentExtra <contents of config\tcp.env + secrets\tcp.env + secrets\ingest.env>
-nssm set HC-TCP-Tearsheet AppExit Default Restart
-nssm set HC-TCP-Tearsheet AppThrottle   10000
-nssm set HC-TCP-Tearsheet AppStopMethodConsole 5000
+nssm install HC-TCP-Public "C:\H&C\apps\shared\.venv310\Scripts\python.exe"
+nssm set HC-TCP-Public AppParameters "C:\H&C\apps\tcp\tcp_ts_v2.py"
+nssm set HC-TCP-Public AppDirectory  "C:\H&C\apps\tcp"
+nssm set HC-TCP-Public AppStdout     "C:\H&C\logs\tcp\tcp_stdout.log"
+nssm set HC-TCP-Public AppStderr     "C:\H&C\logs\tcp\tcp_stderr.log"
+nssm set HC-TCP-Public AppRotateFiles 1
+nssm set HC-TCP-Public AppRotateBytes 10485760
+nssm set HC-TCP-Public Start          SERVICE_AUTO_START
+nssm set HC-TCP-Public ObjectName     ".\svc_hc_tearsheets" <password>
+nssm set HC-TCP-Public AppEnvironmentExtra <contents of config\tcp.env + secrets\tcp.env + secrets\ingest.env>
+nssm set HC-TCP-Public AppExit Default Restart
+nssm set HC-TCP-Public AppThrottle   10000
+nssm set HC-TCP-Public AppStopMethodConsole 5000
 ```
 
 Three settings matter specifically for these apps:
@@ -292,7 +293,7 @@ Three settings matter specifically for these apps:
 
 Do **not** create `HC-TCP-Staff` yet. Port 8322 has no listener today, `Manager\startup_contract.json` classifies it as manual only, and running a staff process alongside the public one is an unnecessary variable during a pilot.
 
-**Verification:** `nssm dump HC-TCP-Tearsheet` reviewed before first start. Confirm no secret value appears in any log.
+**Verification:** `nssm dump HC-TCP-Public` reviewed before first start. Confirm no secret value appears in any log.
 
 ---
 
@@ -300,7 +301,7 @@ Do **not** create `HC-TCP-Staff` yet. Port 8322 has no listener today, `Manager\
 
 Not executed. **Private means loopback and RDP only. No tunnel, no DNS, no public hostname.**
 
-1. `nssm start HC-TCP-Tearsheet`
+1. `nssm start HC-TCP-Public`
 2. `Get-NetTCPConnection -State Listen | Where LocalPort -eq 8302` — confirm it is bound to **127.0.0.1**, not `0.0.0.0`.
 3. `Invoke-WebRequest http://127.0.0.1:8302/healthz` from an RDP session.
 4. Read `C:\H&C\logs\tcp\tcp_stderr.log` end to end. Confirm no `StateNotFound`, no `StateLoadError`, no workbook-fallback warning, and no benchmark warnings beyond the expected skip-fetch notice.
@@ -369,7 +370,7 @@ Not executed.
 
 Pick one route before touching the VPS:
 
-- **Route A (recommended): merge the path-portability work.** `feature/vps-portability-completion` adds `tearsheet_paths.py` with `HC_TKP_SOURCE_WORKBOOK` and `HC_TKP_STATE_PATH`, already targeting `C:\H&C`. It comes with tests and documentation. This is a code change to production and belongs in its own reviewed change, not inside a deployment step.
+- **Route A (recommended): deploy from the integrated branch.** `feature/ovh-tkp-tcp-agm-ready` already contains the path-portability work (`tearsheet_paths.py` with `HC_TKP_SOURCE_WORKBOOK` / `HC_TKP_STATE_PATH`, plus `HC_APP_ENV=vps-production` → `C:\H&C\data\tkp`). This was executed and verified on the branch: under the VPS profile the TKP state resolves to `C:\H&C\data\tkp\daily_returns_secret_state.json` and the workbook to `C:\H&C\data\tkp\tkp_source_workbook.xlsx`, and an explicit VPS workbook override does **not** fall back to the protected folder. The `sys.exit(1)` import blocker on `live-main` is therefore resolved by this branch. Kevin still supplies the workbook *file* itself (data, not code) via `C:\AI_HANDOFF`.
 - **Route B: supply the workbook.** Kevin places the file in `C:\AI_HANDOFF`, it is copied to `C:\H&C\data\tkp\tkp_source_workbook.xlsx`, and the single literal in `tkp_ts.py` is pointed at it. Smaller change, but it leaves a hardcoded absolute path in production.
 
 Route A is better. It also fixes AGM's path situation for free in step 11b.
