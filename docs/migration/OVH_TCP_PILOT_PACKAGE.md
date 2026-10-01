@@ -237,9 +237,144 @@ Compare the VPS to `OVH_TKP_TCP_AGM_RECONCILIATION_BASELINE.json`. Every row mus
 `port` 8312 (env not applied, preview default won); or any state-value mismatch that is not explained
 by a documented new-data re-sync.
 
+**Reconciliation alone does not authorize production ingest.** Passing §7 is required for the private
+pilot, but Glenn cutover is a separate mandatory gate (§8). Do not enable VPS ingest until Phase 3
+of that lifecycle is executed deliberately.
+
 ---
 
-## 8. Validation performed on this branch (laptop, read-only)
+## 8. Glenn uploader cutover — mandatory gate
+
+This section is part of the TCP pilot contract. The VPS pilot **deliberately** starts with
+`GLENN_UPLOADER_INGEST_ENABLED=false`. Ingest stays off until Phase 3 of this lifecycle.
+
+### Production data path (confirmed by migration audit)
+
+```
+Glenn uploader (Fly.io)
+  → TCP_INGEST_URL (Fly config)
+  → POST /api/uploader/ingest-daily-row
+  → Authorization: Bearer GLENN_UPLOADER_INGEST_TOKEN
+  → TCP (tcp_ts_v2.py / tearsheet_uploader_ingest.py)
+  → tcp_daily_returns_secret_state.json
+  → apply_tcp_recalculation()
+```
+
+On the VPS, the bearer token is configured as `GLENN_UPLOADER_INGEST_TOKEN` in
+`C:\H&C\secrets\ingest.env` (name only in git — **never commit the value**). Glenn's Fly
+configuration must use the matching downstream token (`DOWNSTREAM_INGEST_TOKEN` / equivalent in
+uploader settings) without recording it in this repository.
+
+### Phase 1 — Private pilot
+
+- **Laptop remains authoritative** for TCP state and for ingest.
+- **Glenn continues** sending production updates to the **existing** TCP production target (today:
+  laptop tunnel + `tcp-ts.hcresearch.ltd` path to loopback TCP).
+- **VPS TCP ingest remains DISABLED** (`GLENN_UPLOADER_INGEST_ENABLED=false`).
+- VPS state is only a **reconciled copy** (§7); it must not receive Glenn writes.
+- **No dual writers** — at most one host may persist ingest rows at any time.
+
+Covers private boot, loopback `/healthz`, visual parity, and reboot tests before any public cutover.
+
+### Phase 2 — Pre-cutover resync
+
+Do **not** make cutover decisions from an old reconciliation baseline alone.
+
+1. On the **laptop** (authoritative), capture the **latest** TCP state:
+   - latest completed date
+   - record count
+   - `state_revision`
+   - SHA-256 of `tcp_daily_returns_secret_state.json`
+2. Record those values in a fresh capture (update or supersede
+   `OVH_TKP_TCP_AGM_RECONCILIATION_BASELINE.json` for TCP, or a dated cutover worksheet).
+3. **Re-copy / resync** that authoritative file to `C:\H&C\data\tcp\` on the VPS.
+4. **Reconcile the VPS again** (§7 checks against the **new** capture, not the original pilot
+   snapshot).
+5. **Glenn VPS ingest remains disabled** throughout Phase 2.
+
+### Phase 3 — Glenn cutover
+
+**Preflight (required before enabling production ingest on the VPS):**
+
+From `uploader/backend/` on a machine with Glenn's Fly settings available, run the read-only probe:
+
+```text
+python scripts/verify_downstream_ingest.py
+python scripts/verify_downstream_ingest.py --strict
+```
+
+`verify_downstream_ingest.py` POSTs **`dry_run: true`** probe payloads to each configured ingest URL
+(TCP/TKP/AGM). It does not export rows or mark uploader rows exported. For TCP cutover, the TCP
+probe must succeed against the **intended production URL** while ingest is still disabled on the VPS
+(expect `ingest_disabled` until Phase 3 enablement — plan the probe sequence accordingly: routing
+and token checks against the target host, then enable ingest, then re-probe without expecting
+`ingest_disabled`). See `docs/downstream_export_go_live_runbook.md` for the full go-live procedure.
+
+**URL strategy — prefer unchanged hostname:**
+
+Determine whether production can keep:
+
+`https://tcp-ts.hcresearch.ltd/api/uploader/ingest-daily-row`
+
+If **Cloudflare** can preserve `tcp-ts.hcresearch.ltd` and route it to the **new VPS** tunnel
+(instead of the laptop), **prefer that design** — Glenn may need **no** `TCP_INGEST_URL` change on
+Fly.io (only tunnel/DNS/backend target changes on the infrastructure side).
+
+If a **different hostname** is required (e.g. staging hostname first, or a VPS-only name), document
+that Fly.io **`TCP_INGEST_URL`** must be updated at cutover to the new HTTPS origin with the same
+`/api/uploader/ingest-daily-row` path suffix.
+
+**Cutover rules (non-negotiable):**
+
+| Rule | Requirement |
+|---|---|
+| Token parity | `GLENN_UPLOADER_INGEST_TOKEN` on the VPS must match Glenn's downstream bearer token. Never record the value in git. |
+| Single authoritative ingest target | There must **never** be two authoritative TCP ingest targets. |
+| Stop old authority | Laptop (or prior tunnel target) must **stop** being authoritative as the VPS becomes authoritative. |
+| Enable VPS ingest only in cutover | Set `GLENN_UPLOADER_INGEST_ENABLED=true` on the VPS **only** as part of the controlled cutover, after resync and preflight — not during Phase 1 or 2. |
+| Disable laptop ingest | Set `GLENN_UPLOADER_INGEST_ENABLED=false` on the **laptop** and restart **before or in the same window as** VPS enablement so Glenn cannot double-write. |
+
+Suggested ordering within Phase 3 (adjust only with an explicit rollback plan):
+
+1. Final Phase 2 resync immediately before the window.
+2. Repoint Cloudflare / tunnel so `tcp-ts.hcresearch.ltd` → VPS loopback TCP (if using hostname preservation).
+3. Disable ingest on the laptop; confirm laptop does not accept new Glenn writes.
+4. Run `verify_downstream_ingest.py` (dry-run) against the production URL with VPS routing live.
+5. Set `GLENN_UPLOADER_INGEST_ENABLED=true` on the VPS; restart `HC-TCP-Public`.
+6. Update `TCP_INGEST_URL` on Fly **only if** the hostname changed in step 2.
+
+### Phase 4 — First live ingest test
+
+After Phase 3, use Glenn to send or submit the **first intended TCP row** through the normal
+production workflow (not a manual JSON edit on disk).
+
+Verify **all** of the following:
+
+| Check | Pass criterion |
+|---|---|
+| HTTP response | Indicates **persisted** success (not dry-run, not rejected) |
+| Payload | Correct **date** and correct **NLV / input values** for that row |
+| State revision | Increments **exactly** as expected vs pre-ingest `/healthz` |
+| Record count | Changes as expected (new date vs update-in-place) |
+| State file | `C:\H&C\data\tcp\tcp_daily_returns_secret_state.json` updated on disk |
+| Recalculation | `apply_tcp_recalculation()` completed; dashboard/chart metrics coherent |
+| Public display | Public TCP page reflects the new row / "data current to" label |
+| Audit | `C:\H&C\logs\ingest\glenn_uploader_ingest_tcp_audit.jsonl` contains the event |
+| Laptop isolation | **Old laptop state did NOT** receive the new write (revision/hash unchanged on laptop) |
+
+**If the first live ingest fails:**
+
+- Do **not** manually create competing rows on laptop and VPS.
+- Preserve evidence: HTTP response body, NSSM stderr log, audit JSONL tail, `/healthz` before/after.
+- Either correct routing/configuration and retry once the single-authority contract is restored, or
+  **roll back** the ingest target per the deployment plan (disable VPS ingest, re-enable laptop
+  ingest, repoint Cloudflare/tunnel and `TCP_INGEST_URL` if changed).
+
+Production TCP is not "live on VPS" until Phase 4 passes.
+
+---
+
+## 9. Validation performed on this branch (laptop, read-only)
 
 | Suite | Result |
 |---|---|
@@ -257,7 +392,7 @@ logic regressions.
 
 ---
 
-## 9. Hard stop
+## 10. Hard stop
 
 This package ends at **"ready to deploy."** It does not touch the OVH VPS, does not RDP, does not
 change DNS/Cloudflare/SiteGround, does not generate secrets, does not enable ingest, and does not

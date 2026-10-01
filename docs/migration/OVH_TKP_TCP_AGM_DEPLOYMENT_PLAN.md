@@ -358,6 +358,71 @@ Not executed. This step validates the capability the laptop does not have.
 6. Re-run the step 9 checks after the reboot. The state hash must be unchanged — a resident app with ingest disabled must not have written anything.
 7. Take an OVH snapshot and label it as the known-good pilot baseline.
 
+Steps 8–10 are **Phase 1 (private pilot)** of the Glenn uploader lifecycle below. Passing step 9 does **not** permit enabling VPS ingest.
+
+---
+
+## Glenn uploader lifecycle — mandatory gate (TCP)
+
+**Plan only — not executed.** This gate is mandatory for TCP production cutover. Full detail and checklists
+also live in `OVH_TCP_PILOT_PACKAGE.md` §8. The VPS pilot keeps
+`GLENN_UPLOADER_INGEST_ENABLED=false` until Phase 3.
+
+### Production path (migration audit)
+
+```
+Glenn uploader (Fly.io) → TCP_INGEST_URL
+  → POST https://<host>/api/uploader/ingest-daily-row
+  → Bearer GLENN_UPLOADER_INGEST_TOKEN
+  → TCP → tcp_daily_returns_secret_state.json → apply_tcp_recalculation()
+```
+
+### Phase 1 — Private pilot
+
+- Laptop remains **authoritative**; Glenn keeps sending to the **existing** production TCP target.
+- VPS ingest **disabled**; VPS state is a reconciled copy only (**no dual writers**).
+- Maps to steps 8–10 (private start, reconcile, reboot-test).
+
+### Phase 2 — Pre-cutover resync
+
+- Do not cut over using an **old** baseline snapshot.
+- Capture latest laptop TCP state: latest date, record count, `state_revision`, state file SHA-256.
+- Re-copy authoritative state to the VPS; reconcile again against the **new** capture.
+- Glenn on VPS remains **disabled**.
+
+### Phase 3 — Glenn cutover
+
+**URL:** Prefer keeping  
+`https://tcp-ts.hcresearch.ltd/api/uploader/ingest-daily-row`  
+if Cloudflare can route that hostname to the VPS (Glenn may need **no** `TCP_INGEST_URL` change). If a
+different hostname is required, document that Fly.io **`TCP_INGEST_URL`** must change at cutover (same
+path suffix).
+
+**Contract:**
+
+- `GLENN_UPLOADER_INGEST_TOKEN` on the VPS must match Glenn's downstream bearer token; **never** commit values.
+- **One** authoritative ingest target only; laptop must stop being authoritative as VPS becomes authoritative.
+- Enable `GLENN_UPLOADER_INGEST_ENABLED=true` on the VPS **only** in this controlled window (after Phase 2 resync).
+- Disable ingest on the laptop in the same window.
+
+**Preflight utility (required):** `uploader/backend/scripts/verify_downstream_ingest.py` — read-only
+`dry_run: true` probes per program; does not export or mark rows exported. Run from `uploader/backend/`
+before and after routing changes; use `--strict` for go-live. See
+`docs/downstream_export_go_live_runbook.md`. Run safe preflight **before** enabling production ingest on
+the VPS (token/URL/routing); re-run after `GLENN_UPLOADER_INGEST_ENABLED=true` to confirm TCP accepts
+probes without `ingest_disabled`.
+
+### Phase 4 — First live ingest test
+
+After cutover, submit the first real TCP row through Glenn's normal workflow. Verify: persisted HTTP
+response; correct date/NLV; `state_revision` and record count; VPS state file updated; recalculation and
+public display; ingest audit line; **laptop state did not** take the write.
+
+On failure: no competing manual rows; preserve logs/responses; fix config or execute documented rollback
+(disable VPS ingest, restore laptop ingest authority, revert Cloudflare/`TCP_INGEST_URL` if changed).
+
+**Production TCP on the VPS is not declared live until Phase 4 passes.**
+
 ---
 
 ## Step 11 — Deploy the remaining two tearsheets
@@ -436,20 +501,39 @@ This step changes nothing about existing DNS or existing tunnels. The live hostn
 
 ## Step 14 — Prepare production cutover
 
-Not executed. **This step produces a plan and a rehearsal, not a cutover.**
+Not executed. **This step executes Glenn lifecycle Phases 2–4 for TCP** (see mandatory gate above). It is
+not a substitute for that gate.
 
 Per-app cutover sequence, one app at a time, starting with TCP:
 
 1. Announce a freeze window. Confirm no uploader export is in flight.
-2. **Final data re-sync.** Re-hash the laptop state file, compare to what is on the VPS, and re-copy if it has moved. This is the step that actually matters — everything up to here used a snapshot that is by then days old.
-3. Set `GLENN_UPLOADER_INGEST_ENABLED=true` on the VPS and restart that service. Remove the benchmark cache-only flags (`TCP_V2_SKIP_BENCHMARK_FETCH`, `AGM_BENCHMARK_CACHE_ONLY`) so live data resumes.
-4. Set `GLENN_UPLOADER_INGEST_ENABLED=false` on the **laptop** and restart it. **Exactly one host may accept ingest at any moment.** Both enabled means silent divergence; both disabled means a lost day.
-5. Update the single matching uploader setting — `TCP_INGEST_URL`, `TKP_INGEST_URL`, or `AGM_INGEST_URL` in the Fly configuration for `uploader/backend/app/config.py` — to the VPS hostname with the same `/api/uploader/ingest-daily-row` suffix. Leave `DOWNSTREAM_INGEST_TOKEN` unchanged unless you are also rotating it.
-6. Run the designed preflight: `uploader/backend/scripts/verify_downstream_ingest.py`, which reads the same `Settings`. Use the dry-run path (`GLENN_UPLOADER_INGEST_DRY_RUN_ALLOWED` is `true`) so the check does not mutate state.
-7. Repoint the production Cloudflare hostname (`tcp-ts.hcresearch.ltd`) from the laptop tunnel to the VPS tunnel.
-8. Watch for one full business day: `/healthz` revision increments after the day's ingest, the audit JSONL grows, `recovery_status` stays `normal`, no `.tmp` files accumulate, and the public page shows the new date.
-9. Keep the laptop running read-only, ingest disabled, as a warm rollback for at least one week. Rollback is: flip the uploader URL back, re-enable ingest on the laptop, repoint DNS.
-10. Only after all three apps are cut over and stable should the staff services, the retirement of `Manager\launch_all_services.py` for these three entries, and the `C:\H&C\backups` job be considered.
+2. **Phase 2 — final resync.** Re-hash laptop `tcp_daily_returns_secret_state.json`; record latest date,
+   record count, `state_revision`, and SHA-256; re-copy to the VPS if anything moved; reconcile against
+   the **new** capture (not the original pilot baseline).
+3. **Routing decision.** Prefer repointing Cloudflare so `tcp-ts.hcresearch.ltd` → VPS tunnel (ingest URL
+   unchanged). If hostname must change, plan the Fly.io `TCP_INGEST_URL` update for step 7.
+4. Run `uploader/backend/scripts/verify_downstream_ingest.py` (and `--strict` when appropriate) with
+   dry-run probes **before** enabling VPS ingest — confirms URL, token, and routing without mutating
+   uploader export state.
+5. Repoint production Cloudflare (`tcp-ts.hcresearch.ltd`) from laptop tunnel to VPS tunnel when using
+   hostname preservation.
+6. Set `GLENN_UPLOADER_INGEST_ENABLED=false` on the **laptop** and restart. Then set
+   `GLENN_UPLOADER_INGEST_ENABLED=true` on the VPS and restart `HC-TCP-Public`. **Exactly one host may
+   accept ingest.** Remove `TCP_V2_SKIP_BENCHMARK_FETCH` on the VPS when live benchmarks are desired.
+7. Update Fly.io `TCP_INGEST_URL` **only if** step 3 required a new hostname (same
+   `/api/uploader/ingest-daily-row` suffix). Do not rotate `DOWNSTREAM_INGEST_TOKEN` unless planned;
+   VPS `GLENN_UPLOADER_INGEST_TOKEN` must stay in sync — never commit token values.
+8. Re-run `verify_downstream_ingest.py` after VPS ingest is enabled; then execute **Phase 4 — first live
+   ingest test** (one real Glenn row; verify persistence, revision, recalculation, public page, audit,
+   and that laptop state did not update).
+9. Watch for one full business day: `/healthz` revision increments after the day's ingest, the audit
+   JSONL grows, `recovery_status` stays `normal`, no `.tmp` files accumulate, and the public page shows
+   the new date.
+10. Keep the laptop running read-only, ingest disabled, as a warm rollback for at least one week.
+    Rollback: disable VPS ingest, re-enable laptop ingest, repoint Cloudflare (and `TCP_INGEST_URL` if
+    changed).
+11. Only after all three apps are cut over and stable should the staff services, the retirement of
+    `Manager\launch_all_services.py` for these three entries, and the `C:\H&C\backups` job be considered.
 
 ### Cutover risks to have an answer for in advance
 
