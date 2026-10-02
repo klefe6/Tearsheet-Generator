@@ -10,6 +10,7 @@ curl_cffi==0.11.1
 cycler==0.12.1
 dash==3.0.4
 dash-bootstrap-components==2.0.3
+et-xmlfile==2.0.0
 Flask==3.0.3
 fonttools==4.58.0
 frozendict==2.4.6
