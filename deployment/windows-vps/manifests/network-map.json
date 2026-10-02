@@ -1,0 +1,108 @@
+{
+  "schema_version": "1.0.0",
+  "description": "Hostname and port mapping for future Cloudflare Tunnel / DNS cutover. Not configured in this phase.",
+  "provider_neutral": true,
+  "bindings": [
+    {
+      "application": "marketing_homepage",
+      "hostname": "hughesandco.ltd",
+      "internal_port": null,
+      "bind_expectation": "static_site",
+      "classification": "public",
+      "cloudflare_access": false,
+      "iis_proxy": true,
+      "public_homepage_linkage": "approved_for_homepage"
+    },
+    {
+      "application": "marketing_homepage",
+      "hostname": "www.hughesandco.ltd",
+      "internal_port": null,
+      "bind_expectation": "static_site",
+      "classification": "public",
+      "cloudflare_access": false,
+      "iis_proxy": true,
+      "public_homepage_linkage": "approved_for_homepage"
+    },
+    {
+      "application": "tkp",
+      "hostname": "tkp.hughesandco.ltd",
+      "internal_port": 8301,
+      "bind_expectation": "127.0.0.1",
+      "classification": "public_tearsheet",
+      "cloudflare_access": false,
+      "iis_proxy": true,
+      "public_homepage_linkage": "configured-for-future-use_not-approved-for-public-homepage-linking"
+    },
+    {
+      "application": "tcp",
+      "hostname": "tcp.hughesandco.ltd",
+      "internal_port": 8302,
+      "bind_expectation": "127.0.0.1",
+      "classification": "public_tearsheet",
+      "cloudflare_access": false,
+      "iis_proxy": true,
+      "public_homepage_linkage": "configured-for-future-use_not-approved-for-public-homepage-linking"
+    },
+    {
+      "application": "yq",
+      "hostname": "yq.hughesandco.ltd",
+      "internal_port": 8303,
+      "bind_expectation": "127.0.0.1",
+      "classification": "public_tearsheet",
+      "cloudflare_access": false,
+      "iis_proxy": true,
+      "public_homepage_linkage": "configured-for-future-use_not-approved-for-public-homepage-linking"
+    },
+    {
+      "application": "agm",
+      "hostname": "agm.hughesandco.ltd",
+      "internal_port": 8304,
+      "bind_expectation": "127.0.0.1",
+      "classification": "public_tearsheet",
+      "cloudflare_access": false,
+      "iis_proxy": true,
+      "public_homepage_linkage": "configured-for-future-use_not-approved-for-public-homepage-linking"
+    },
+    {
+      "application": "tkp_staff",
+      "hostname": "admin-tkp.hughesandco.ltd",
+      "internal_port": 8321,
+      "bind_expectation": "127.0.0.1",
+      "classification": "staff_admin",
+      "cloudflare_access": true,
+      "iis_proxy": true,
+      "public_homepage_linkage": "never"
+    },
+    {
+      "application": "tcp_staff",
+      "hostname": "admin-tcp.hughesandco.ltd",
+      "internal_port": 8322,
+      "bind_expectation": "127.0.0.1",
+      "classification": "staff_admin",
+      "cloudflare_access": true,
+      "iis_proxy": true,
+      "public_homepage_linkage": "never"
+    },
+    {
+      "application": "agm_staff",
+      "hostname": "admin-agm.hughesandco.ltd",
+      "internal_port": 8324,
+      "bind_expectation": "127.0.0.1",
+      "classification": "staff_admin",
+      "cloudflare_access": true,
+      "iis_proxy": true,
+      "public_homepage_linkage": "never"
+    },
+    {
+      "application": "dashboard",
+      "hostname": null,
+      "internal_port": 8006,
+      "bind_expectation": "127.0.0.1",
+      "classification": "internal_operator",
+      "cloudflare_access": true,
+      "iis_proxy": false,
+      "public_homepage_linkage": "never",
+      "notes": "Port 8006 must NOT automatically become public."
+    }
+  ]
+}

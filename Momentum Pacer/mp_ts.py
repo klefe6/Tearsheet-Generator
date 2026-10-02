@@ -49,6 +49,7 @@ from tearsheet_gate_auth import (
 )
 from tcp_admin import AdminAuthManager
 from tearsheet_runtime_mode import apply_runtime_session_config, resolve_agm_bind_port
+from tearsheet_paths import resolve_agm_fee_workbook, resolve_agm_manual_state_path
 from tearsheet_portal import render_portal_page
 from tearsheet_date_defaults import default_add_row_date_str
 from tearsheet_local_admin import is_direct_admin_request
@@ -88,7 +89,9 @@ from flask import jsonify, redirect, session
 # PATHS
 # ==============================================================================
 BASE_DIR  = Path(__file__).parent
-EXCEL_PATH = BASE_DIR / "Momentum Fee Calculation.xlsx"
+# Authoritative fee workbook. Centrally resolved so the VPS profile can relocate
+# it to C:\HC\data\agm without editing source; unset HC_* keeps BASE_DIR.
+EXCEL_PATH = resolve_agm_fee_workbook(deploy_root=_TS_ROOT)
 
 # ==============================================================================
 # BRAND / STYLE  (mirrors Y&Q tearsheet conventions)
@@ -1269,7 +1272,10 @@ AGM_MANUAL_DAILY_ROWS_FILENAME = "momentum_pacer_manual_daily_rows.json"
 
 
 def _agm_manual_daily_rows_path():
-    return os.path.join(os.path.dirname(os.path.abspath(__file__)), AGM_MANUAL_DAILY_ROWS_FILENAME)
+    # Centrally resolved authoritative manual-rows state. Laptop default is the
+    # filename beside this module; the VPS profile relocates it to
+    # C:\HC\data\agm\ without any source edit.
+    return str(resolve_agm_manual_state_path(deploy_root=Path(__file__).resolve().parent.parent))
 
 
 def _load_agm_manual_daily_rows():
@@ -3587,6 +3593,8 @@ def _uploader_ingest_apply_agm(payload, dry_run):
     return _ingest.IngestOutcome(action="created", before=None, after=after)
 
 
+from tearsheet_paths import resolve_agm_ingest_audit_path  # noqa: E402
+
 import tearsheet_uploader_ingest as _ingest  # noqa: E402  (route framework)
 
 _ingest.register_uploader_ingest(
@@ -3596,8 +3604,9 @@ _ingest.register_uploader_ingest(
         required_fields=("tradestation_nlv",),
         optional_fields=("cash_transfer", "fee"),
         apply=_uploader_ingest_apply_agm,
-        audit_path=Path(__file__).resolve().parent
-        / "glenn_uploader_ingest_agm_audit.jsonl",
+        audit_path=resolve_agm_ingest_audit_path(
+            deploy_root=Path(__file__).resolve().parent.parent
+        ),
         storage_target=_agm_manual_rows_storage_target(),
         on_persisted=_on_agm_persisted,
     ),
