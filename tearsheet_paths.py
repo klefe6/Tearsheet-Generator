@@ -100,13 +100,15 @@ INGEST_AUDIT_TKP_FILENAME = "glenn_uploader_ingest_tkp_audit.jsonl"
 
 # VPS layout (not active until HC_APP_ENV selects a vps-* profile).
 #
-# Canonical provider-neutral root is ``C:\H&C`` — the system volume that every
+# Canonical provider-neutral root is ``C:\HC`` — the system volume that every
 # conventional Windows Server VPS exposes (AWS Lightsail, OVHcloud, Azure, etc.).
 # A data disk is intentionally NOT assumed: operators who attach one can point
 # ``HC_DATA_ROOT`` (and siblings) at it without editing source. This deliberately
 # supersedes the earlier E:\H&C draft from the TKP path lane, which assumed a
-# second volume that some providers do not provision by default.
-VPS_ROOT = Path(r"C:\H&C")
+# second volume that some providers do not provision by default, and the later
+# ``C:\H&C`` draft, whose ``&`` needs quoting in service definitions, NSSM
+# AppEnvironmentExtra values, and shell invocations.
+VPS_ROOT = Path(r"C:\HC")
 VPS_APPS_ROOT = VPS_ROOT / "apps"
 VPS_DATA_ROOT = VPS_ROOT / "data"
 VPS_CONFIG_ROOT = VPS_ROOT / "config"
@@ -378,28 +380,28 @@ def _resolve_root(
 def resolve_apps_root(
     *, env: Optional[Mapping[str, str]] = None, deploy_root: Optional[Union[str, Path]] = None
 ) -> Path:
-    """Application-code root (``C:\\H&C\\apps`` on VPS; checkout on laptop)."""
+    """Application-code root (``C:\\HC\\apps`` on VPS; checkout on laptop)."""
     return _resolve_root(HC_APPS_ROOT_ENV, "apps_root", env=env, deploy_root=deploy_root)
 
 
 def resolve_config_root(
     *, env: Optional[Mapping[str, str]] = None, deploy_root: Optional[Union[str, Path]] = None
 ) -> Path:
-    """Non-secret configuration root (``C:\\H&C\\config`` on VPS)."""
+    """Non-secret configuration root (``C:\\HC\\config`` on VPS)."""
     return _resolve_root(HC_CONFIG_ROOT_ENV, "config_root", env=env, deploy_root=deploy_root)
 
 
 def resolve_secrets_root(
     *, env: Optional[Mapping[str, str]] = None, deploy_root: Optional[Union[str, Path]] = None
 ) -> Path:
-    """Secret material root (``C:\\H&C\\secrets`` on VPS). Never committed to Git."""
+    """Secret material root (``C:\\HC\\secrets`` on VPS). Never committed to Git."""
     return _resolve_root(HC_SECRETS_ROOT_ENV, "secrets_root", env=env, deploy_root=deploy_root)
 
 
 def resolve_website_root(
     *, env: Optional[Mapping[str, str]] = None, deploy_root: Optional[Union[str, Path]] = None
 ) -> Path:
-    """Static website/publishing root (``C:\\H&C\\website`` on VPS)."""
+    """Static website/publishing root (``C:\\HC\\website`` on VPS)."""
     return _resolve_root(HC_WEBSITE_ROOT_ENV, "website_root", env=env, deploy_root=deploy_root)
 
 
@@ -409,7 +411,7 @@ def resolve_tcp_data_root(
     """TCP persistent-state root.
 
     Precedence: ``HC_TCP_DATA_ROOT`` → profile ``tcp_data_root`` (checkout on
-    laptop, ``C:\\H&C\\data\\tcp`` on VPS). The active/backup/lock filenames and
+    laptop, ``C:\\HC\\data\\tcp`` on VPS). The active/backup/lock filenames and
     any ``TCP_V2_STATE_*`` per-file overrides continue to resolve relative to
     this base inside ``tcp_config.resolve_state_paths``.
     """
@@ -425,7 +427,7 @@ def resolve_program_log_dir(
     """Per-program log directory under the resolved log root (``<log_root>/<program>``).
 
     On laptop this is the checkout root (current behaviour: logs sit beside the
-    app); on VPS it becomes ``C:\\H&C\\logs\\<program>``. This helper never
+    app); on VPS it becomes ``C:\\HC\\logs\\<program>``. This helper never
     creates directories — call ``ensure_non_authoritative_directories`` for that.
     """
     environ = _environ_dict(env)

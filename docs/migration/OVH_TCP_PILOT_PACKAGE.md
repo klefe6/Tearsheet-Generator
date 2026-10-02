@@ -18,16 +18,37 @@ Companion documents (same folder):
 | Item | Value |
 |---|---|
 | Deployment-ready branch | `feature/ovh-tkp-tcp-agm-ready` |
-| Branch tip | `49f8864` (`fix: complete Windows VPS runtime dependencies`) |
+| Branch tip | `9e17622` (`docs: make Glenn uploader cutover a mandatory TCP pilot gate`) |
+| Canonical VPS root | `C:\HC` — see "Canonical root" below |
 | Base production commit | `live-main @ 3cfda4fdde5eaa8fae42c87b56d30d34aa717f68` |
 | Integrated portability work | 6 commits `6ce7feb → 38eb0a2` (central path config, TKP title reconcile, TKP state/workbook configurable, portable data paths, VPS layout docs/build) |
 | Dependency fix | `49f8864` — adds `openpyxl==3.1.5` and `dash-bootstrap-components==2.0.3` to `requirements.txt` |
+| Documentation commits after `49f8864` | `a3c61b3`, `a938b0b`, `9e17622` (migration inventory carry-forward, pilot package + plan alignment, Glenn cutover gate) |
 | Reconciliation baseline captured | `2026-10-01T11:35-04:00` (laptop production, authoritative) |
+
+`49f8864` was the branch tip when this package was first written and remains the authoritative
+*dependency* commit; it is no longer the branch tip. Three documentation commits landed after it.
 
 **Business-logic safety:** the integrated diff is path-centralization plus two pre-approved TKP
 chart *title* strings plus the Y&Q resolver delegation (no behavior change when `HC_*` is unset).
 No NAV / return / fee / drawdown / benchmark math, chart values, state schema, uploader payload,
 or auth logic was changed. Verified by diff review and by the resolver test suite (123 passed).
+
+### Canonical root
+
+| Root | Status |
+|---|---|
+| `C:\HC` | **Current authoritative OVH VPS root.** Every path in this package resolves under it. |
+| `C:\H&C` | Superseded earlier *planned* root. Never created on the live VPS. |
+| `E:\H&C` | Abandoned original TKP-lane draft, which assumed a second volume. |
+
+`tearsheet_paths.VPS_ROOT` is the single constant that defines the root; every other VPS path
+derives from it, so the root is changed in exactly one place. The earlier `C:\H&C` draft was
+superseded because its `&` requires quoting in NSSM `AppEnvironmentExtra` values, service
+definitions, and shell invocations.
+
+Historical audit documents that record `C:\H&C` as the design of record at the time they were
+written are deliberately left unchanged; they describe a past design, not the live contract.
 
 ---
 
@@ -47,7 +68,7 @@ Source: the deployment-ready branch worktree
 `C:\Coding Projects\Tearsheet Generator\.worktrees\ovh-tkp-tcp-agm-ready`
 (authoritative tip `49f8864`). Copy *from this branch*, not from the dev checkout.
 
-### 2a. TCP application modules → `C:\H&C\apps\tcp\`
+### 2a. TCP application modules → `C:\HC\apps\tcp\`
 
 ```
 tcp_ts_v2.py            entry point (bind 8302 in production)
@@ -65,7 +86,7 @@ tcp_public_sections.py
 tcp_uploader_ingest.py
 ```
 
-### 2b. Shared modules → `C:\H&C\apps\shared\`
+### 2b. Shared modules → `C:\HC\apps\shared\`
 
 ```
 tearsheet_paths.py          ← NEW required shared module (central path resolver).
@@ -84,7 +105,7 @@ assets\styles.css           (the only static asset the app needs)
 requirements.txt            (now complete — see §4)
 ```
 
-`PYTHONPATH` for the service = `C:\H&C\apps\shared;C:\H&C\apps\tcp` (Option A in the plan).
+`PYTHONPATH` for the service = `C:\HC\apps\shared;C:\HC\apps\tcp` (Option A in the plan).
 
 ### 2c. Must NOT copy
 
@@ -102,14 +123,14 @@ the baseline and re-copy; it is not a VPS defect.
 
 | File | Source (laptop) | VPS destination | Size | Hash | Copy? |
 |---|---|---|---|---|---|
-| `tcp_daily_returns_secret_state.json` | `%LOCALAPPDATA%\HughesCompany\TCP\state\` | `C:\H&C\data\tcp\` | 81,311 B | `7094B6B513999B39F32304350016C6A9EAC4C07321D515821357159FD7934386` | **YES (authoritative)** |
-| `tcp_daily_returns_secret_state.backup.json` | same | `C:\H&C\data\tcp\` | 80,894 B | `91D0A1EFC8A8EE9252BF31AB5349CBF0B0819C07DB87EC04C768CA97394F9FAB` | optional (app recreates) |
+| `tcp_daily_returns_secret_state.json` | `%LOCALAPPDATA%\HughesCompany\TCP\state\` | `C:\HC\data\tcp\` | 81,311 B | `7094B6B513999B39F32304350016C6A9EAC4C07321D515821357159FD7934386` | **YES (authoritative)** |
+| `tcp_daily_returns_secret_state.backup.json` | same | `C:\HC\data\tcp\` | 80,894 B | `91D0A1EFC8A8EE9252BF31AB5349CBF0B0819C07DB87EC04C768CA97394F9FAB` | optional (app recreates) |
 | `tcp_daily_returns_secret_state.lock` | same | — | 83 B | — | **NO — runtime artifact, create locally** |
-| `tcp_benchmark_cache.json` (^SP500TR) | `%LOCALAPPDATA%\HughesCompany\TCP\benchmark\` | `C:\H&C\data\tcp\benchmark\` | 797,185 B | regenerable | YES (enables offline first boot) |
-| `tcp_benchmark_btc_cache.json` (BTC-USD) | same | `C:\H&C\data\tcp\benchmark\` | 357,558 B | regenerable | YES |
-| `tcp_benchmark_eth_cache.json` (ETH-USD) | same | `C:\H&C\data\tcp\benchmark\` | 263,740 B | regenerable | YES |
+| `tcp_benchmark_cache.json` (^SP500TR) | `%LOCALAPPDATA%\HughesCompany\TCP\benchmark\` | `C:\HC\data\tcp\benchmark\` | 797,185 B | regenerable | YES (enables offline first boot) |
+| `tcp_benchmark_btc_cache.json` (BTC-USD) | same | `C:\HC\data\tcp\benchmark\` | 357,558 B | regenerable | YES |
+| `tcp_benchmark_eth_cache.json` (ETH-USD) | same | `C:\HC\data\tcp\benchmark\` | 263,740 B | regenerable | YES |
 | `tcp_alex.xlsx` | — | — | — | — | **NO — workbook fallback is disabled on the VPS** |
-| `glenn_uploader_ingest_tcp_audit.jsonl` | live worktree root | archive to `C:\H&C\backups\tcp\` | 21,279 B | — | NO (VPS starts a fresh file) |
+| `glenn_uploader_ingest_tcp_audit.jsonl` | live worktree root | archive to `C:\HC\backups\tcp\` | 21,279 B | — | NO (VPS starts a fresh file) |
 
 **Authoritative state facts (reconciliation anchors):**
 182 records, `state_revision` 83, schema_version 1, first date `2026-01-20`, latest date `2026-09-30`,
@@ -117,7 +138,7 @@ latest `NLV` `60667.74`, `nav-x1` `52743.467`, `HWM` `52836.417`.
 Record fields: `Date, #, Trading Days, NLV, Cash Balance, Cash Transfers, Day PnL, $PL, Inc. Fee, cumm fee, Loss Carry, HWM, %Net, S net cummulative %, nav-x1`.
 
 **Path resolution is proven.** Under `HC_APP_ENV=vps-production` the central resolver maps
-TCP state to `C:\H&C\data\tcp` and the ingest audit to `C:\H&C\logs\ingest` with no code change
+TCP state to `C:\HC\data\tcp` and the ingest audit to `C:\HC\logs\ingest` with no code change
 (executed and verified against the resolver on the branch). Explicit `TCP_V2_*` overrides take
 precedence over the resolver if set (see §5).
 
@@ -128,7 +149,7 @@ precedence over the resolver if set (see §5).
 | Item | Value |
 |---|---|
 | Python | **3.10.x 64-bit** to `C:\Python310` (production baseline is 3.10.0; do not use 3.12/3.13) |
-| Virtual env | one shared venv `C:\H&C\apps\shared\.venv310` |
+| Virtual env | one shared venv `C:\HC\apps\shared\.venv310` |
 | Install | `pip install -r requirements.txt` — **now complete** |
 | Dependency fix | `openpyxl==3.1.5` and `dash-bootstrap-components==2.0.3` are included in `requirements.txt` on this branch (commit `49f8864`). On `live-main` they were missing and had to be installed by hand; that gap is closed. |
 | Native deps | none beyond the wheels above; TCP uses stdlib `msvcrt` for file locking (Windows built-in) |
@@ -140,17 +161,17 @@ precedence over the resolver if set (see §5).
 
 Split by sensitivity. **Names only** below — no secret values are recorded anywhere in git.
 
-### 5a. Non-secret → `C:\H&C\config\tcp.env`
+### 5a. Non-secret → `C:\HC\config\tcp.env`
 
 ```
 TCP_V2_STATE_MODE=json_active
 TCP_V2_BIND_PORT=8302
-TCP_V2_STATE_PATH=C:\H&C\data\tcp\tcp_daily_returns_secret_state.json
-TCP_V2_STATE_BACKUP_PATH=C:\H&C\data\tcp\tcp_daily_returns_secret_state.backup.json
-TCP_V2_STATE_LOCK_PATH=C:\H&C\data\tcp\tcp_daily_returns_secret_state.lock
-TCP_V2_BENCHMARK_CACHE_PATH=C:\H&C\data\tcp\benchmark\tcp_benchmark_cache.json
-TCP_V2_BENCHMARK_BTC_CACHE_PATH=C:\H&C\data\tcp\benchmark\tcp_benchmark_btc_cache.json
-TCP_V2_BENCHMARK_ETH_CACHE_PATH=C:\H&C\data\tcp\benchmark\tcp_benchmark_eth_cache.json
+TCP_V2_STATE_PATH=C:\HC\data\tcp\tcp_daily_returns_secret_state.json
+TCP_V2_STATE_BACKUP_PATH=C:\HC\data\tcp\tcp_daily_returns_secret_state.backup.json
+TCP_V2_STATE_LOCK_PATH=C:\HC\data\tcp\tcp_daily_returns_secret_state.lock
+TCP_V2_BENCHMARK_CACHE_PATH=C:\HC\data\tcp\benchmark\tcp_benchmark_cache.json
+TCP_V2_BENCHMARK_BTC_CACHE_PATH=C:\HC\data\tcp\benchmark\tcp_benchmark_btc_cache.json
+TCP_V2_BENCHMARK_ETH_CACHE_PATH=C:\HC\data\tcp\benchmark\tcp_benchmark_eth_cache.json
 TCP_V2_ALLOW_WORKBOOK_FALLBACK=false
 TCP_V2_SKIP_BENCHMARK_FETCH=1
 TEARSHEET_MODE=public
@@ -159,7 +180,7 @@ GLENN_UPLOADER_INGEST_ENABLED=false
 ```
 
 Optional/alternative: setting `HC_APP_ENV=vps-production` makes the central resolver derive the
-same `C:\H&C\data\tcp` and `C:\H&C\logs\ingest` locations automatically. The explicit
+same `C:\HC\data\tcp` and `C:\HC\logs\ingest` locations automatically. The explicit
 `TCP_V2_*` overrides above win over the resolver, so they are the primary, unambiguous contract.
 
 Deliberate deviations from the laptop (each intentional):
@@ -169,7 +190,7 @@ Deliberate deviations from the laptop (each intentional):
 - `GLENN_UPLOADER_INGEST_ENABLED=false` — **critical**; only one host may accept ingest. Enable only at cutover.
 - Do **not** set `TEARSHEET_LOCAL_DIRECT_ADMIN` (laptop-only dev convenience).
 
-### 5b. Secret → `C:\H&C\secrets\tcp.env` and `C:\H&C\secrets\ingest.env` (ACL: service account + Administrators only)
+### 5b. Secret → `C:\HC\secrets\tcp.env` and `C:\HC\secrets\ingest.env` (ACL: service account + Administrators only)
 
 ```
 TCP_V2_ADMIN_TOKEN            # tcp.env   — required in production
@@ -188,16 +209,16 @@ secret values at deploy time; this gate does not generate them.
 ## 6. NSSM service contract — `HC-TCP-Public`
 
 ```
-nssm install HC-TCP-Public "C:\H&C\apps\shared\.venv310\Scripts\python.exe"
-nssm set HC-TCP-Public AppParameters "C:\H&C\apps\tcp\tcp_ts_v2.py"
-nssm set HC-TCP-Public AppDirectory  "C:\H&C\apps\tcp"
-nssm set HC-TCP-Public AppStdout     "C:\H&C\logs\tcp\tcp_stdout.log"
-nssm set HC-TCP-Public AppStderr     "C:\H&C\logs\tcp\tcp_stderr.log"
+nssm install HC-TCP-Public "C:\HC\apps\shared\.venv310\Scripts\python.exe"
+nssm set HC-TCP-Public AppParameters "C:\HC\apps\tcp\tcp_ts_v2.py"
+nssm set HC-TCP-Public AppDirectory  "C:\HC\apps\tcp"
+nssm set HC-TCP-Public AppStdout     "C:\HC\logs\tcp\tcp_stdout.log"
+nssm set HC-TCP-Public AppStderr     "C:\HC\logs\tcp\tcp_stderr.log"
 nssm set HC-TCP-Public AppRotateFiles 1
 nssm set HC-TCP-Public AppRotateBytes 10485760
 nssm set HC-TCP-Public Start          SERVICE_AUTO_START
 nssm set HC-TCP-Public ObjectName     ".\svc_hc_tearsheets" <password>
-nssm set HC-TCP-Public AppEnvironmentExtra <config\tcp.env + secrets\tcp.env + secrets\ingest.env + PYTHONPATH=C:\H&C\apps\shared;C:\H&C\apps\tcp>
+nssm set HC-TCP-Public AppEnvironmentExtra <config\tcp.env + secrets\tcp.env + secrets\ingest.env + PYTHONPATH=C:\HC\apps\shared;C:\HC\apps\tcp>
 nssm set HC-TCP-Public AppExit Default Restart
 nssm set HC-TCP-Public AppThrottle   10000
 nssm set HC-TCP-Public AppStopMethodConsole 5000
@@ -261,7 +282,7 @@ Glenn uploader (Fly.io)
 ```
 
 On the VPS, the bearer token is configured as `GLENN_UPLOADER_INGEST_TOKEN` in
-`C:\H&C\secrets\ingest.env` (name only in git — **never commit the value**). Glenn's Fly
+`C:\HC\secrets\ingest.env` (name only in git — **never commit the value**). Glenn's Fly
 configuration must use the matching downstream token (`DOWNSTREAM_INGEST_TOKEN` / equivalent in
 uploader settings) without recording it in this repository.
 
@@ -287,7 +308,7 @@ Do **not** make cutover decisions from an old reconciliation baseline alone.
    - SHA-256 of `tcp_daily_returns_secret_state.json`
 2. Record those values in a fresh capture (update or supersede
    `OVH_TKP_TCP_AGM_RECONCILIATION_BASELINE.json` for TCP, or a dated cutover worksheet).
-3. **Re-copy / resync** that authoritative file to `C:\H&C\data\tcp\` on the VPS.
+3. **Re-copy / resync** that authoritative file to `C:\HC\data\tcp\` on the VPS.
 4. **Reconcile the VPS again** (§7 checks against the **new** capture, not the original pilot
    snapshot).
 5. **Glenn VPS ingest remains disabled** throughout Phase 2.
@@ -356,10 +377,10 @@ Verify **all** of the following:
 | Payload | Correct **date** and correct **NLV / input values** for that row |
 | State revision | Increments **exactly** as expected vs pre-ingest `/healthz` |
 | Record count | Changes as expected (new date vs update-in-place) |
-| State file | `C:\H&C\data\tcp\tcp_daily_returns_secret_state.json` updated on disk |
+| State file | `C:\HC\data\tcp\tcp_daily_returns_secret_state.json` updated on disk |
 | Recalculation | `apply_tcp_recalculation()` completed; dashboard/chart metrics coherent |
 | Public display | Public TCP page reflects the new row / "data current to" label |
-| Audit | `C:\H&C\logs\ingest\glenn_uploader_ingest_tcp_audit.jsonl` contains the event |
+| Audit | `C:\HC\logs\ingest\glenn_uploader_ingest_tcp_audit.jsonl` contains the event |
 | Laptop isolation | **Old laptop state did NOT** receive the new write (revision/hash unchanged on laptop) |
 
 **If the first live ingest fails:**
@@ -380,13 +401,13 @@ Production TCP is not "live on VPS" until Phase 4 passes.
 |---|---|
 | Resolver / portability / config / Y&Q (`test_tearsheet_paths`, `test_tkp_paths`, `test_vps_portability_paths`, `test_windows_vps_deployment_layout`, `test_tcp_config`, `test_yq_data_current`) | **123 passed** |
 | TCP core reconciliation logic (`test_tcp_config`, `test_tcp_calculations`, `test_tcp_golden_fixtures`, `test_tcp_parity_acceptance`) | **61 passed, 13 skipped** (skips are `local_workbook`-marked tests needing the absent local xlsx) |
-| Resolver executed under `vps-production` | TCP → `C:\H&C\data\tcp`, audit → `C:\H&C\logs\ingest`; explicit override precedence confirmed |
+| Resolver executed under `vps-production` | TCP → `C:\HC\data\tcp`, audit → `C:\HC\logs\ingest`; explicit override precedence confirmed |
 | Byte-compile of all 7 modified runtime modules | **clean** |
 
 Not run on this laptop (by design): the full TKP app test set and any test that imports `tkp_ts`
 — `tkp_ts.py` opens its source workbook at module import, and on the laptop that path resolves into
 the protected H&C Documents folder. Those run on the VPS, where the workbook lives at
-`C:\H&C\data\tkp`. A few TCP app tests are network-/sleep-bound (`test_tcp_benchmarks` live fetch,
+`C:\HC\data\tkp`. A few TCP app tests are network-/sleep-bound (`test_tcp_benchmarks` live fetch,
 resilience lock timing) and were not forced to completion here; they are environment-bound, not
 logic regressions.
 
@@ -396,4 +417,4 @@ logic regressions.
 
 This package ends at **"ready to deploy."** It does not touch the OVH VPS, does not RDP, does not
 change DNS/Cloudflare/SiteGround, does not generate secrets, does not enable ingest, and does not
-create a real `C:\H&C` on this laptop. Execution begins only on Kevin's go.
+create a real `C:\HC` on this laptop. Execution begins only on Kevin's go.

@@ -8,7 +8,7 @@ Operational checklist for migrating the H&C tearsheet system to a Windows VPS.
 ## Before server purchase
 
 - [ ] Review `SERVER_MAP.md` and `manifests\` with stakeholders
-- [ ] Confirm provider-neutral `C:\H&C\` layout is acceptable
+- [ ] Confirm provider-neutral `C:\HC\` layout is acceptable
 - [ ] Identify backup retention policy for `data\` and `backups\`
 - [ ] Confirm Cloudflare Tunnel + Access strategy for staff ports
 - [ ] Confirm homepage migration plan (SiteGround → `website\`)
@@ -22,24 +22,24 @@ Operational checklist for migrating the H&C tearsheet system to a Windows VPS.
 
 ## Base Windows configuration
 
-- [ ] Create `C:\H&C\` layout: `Initialize-HCServerLayout.ps1 -Root "C:\H&C"`
-- [ ] Validate: `Test-HCServerLayout.ps1 -Root "C:\H&C"`
+- [ ] Create `C:\HC\` layout: `Initialize-HCServerLayout.ps1 -Root "C:\HC"`
+- [ ] Validate: `Test-HCServerLayout.ps1 -Root "C:\HC"`
 - [ ] Install Python (same major version as laptop production)
 - [ ] Create dedicated service account (optional but recommended)
 
 ## Copy application source
 
-- [ ] Deploy Tearsheet Generator code to `C:\H&C\apps\tkp`, `tcp`, `agm`, `yq`
-- [ ] Copy shared modules to `C:\H&C\apps\shared`
-- [ ] Deploy Manager dashboard to `C:\H&C\apps\dashboard`
+- [ ] Deploy Tearsheet Generator code to `C:\HC\apps\tkp`, `tcp`, `agm`, `yq`
+- [ ] Copy shared modules to `C:\HC\apps\shared`
+- [ ] Deploy Manager dashboard to `C:\HC\apps\dashboard`
 - [ ] Install Python dependencies (`pip install -r requirements.txt`)
 
 ## Copy production data
 
-- [ ] Copy TKP state + workbook → `C:\H&C\data\tkp\`
-- [ ] Copy TCP state + workbook → `C:\H&C\data\tcp\`
-- [ ] Copy AGM state + workbook + pinned CSV → `C:\H&C\data\agm\`
-- [ ] Copy Y&Q CSV (+ xlsx source) → `C:\H&C\data\yq\`
+- [ ] Copy TKP state + workbook → `C:\HC\data\tkp\`
+- [ ] Copy TCP state + workbook → `C:\HC\data\tcp\`
+- [ ] Copy AGM state + workbook + pinned CSV → `C:\HC\data\agm\`
+- [ ] Copy Y&Q CSV (+ xlsx source) → `C:\HC\data\yq\`
 - [ ] Verify file hashes against laptop production
 
 ## Configure environment
@@ -91,7 +91,7 @@ Operational checklist for migrating the H&C tearsheet system to a Windows VPS.
 
 ## Homepage migration
 
-- [ ] Export SiteGround site to `C:\H&C\website\`
+- [ ] Export SiteGround site to `C:\HC\website\`
 - [ ] Validate static assets and links
 - [ ] Point `hughesandco.ltd` / `www` to VPS website root
 - [ ] Do **not** link compliance-sensitive tear-sheet hostnames from homepage until approved

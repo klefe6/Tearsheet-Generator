@@ -58,6 +58,21 @@ Use the OVH control panel for the current public IPv4 and IPv6 assignments. This
 
 ---
 
+## Canonical filesystem root
+
+| Field | Value |
+|-------|--------|
+| Canonical OVH root | `C:\HC` |
+| Superseded planned root | `C:\H&C` (never created on this VPS) |
+| Abandoned draft root | `E:\H&C` (assumed a second volume) |
+
+`C:\HC` is authoritative for all TKP / TCP / AGM deployment paths on this server. It is defined
+once by `tearsheet_paths.VPS_ROOT`; all app, data, config, secrets, log, and backup roots derive
+from that constant. Older migration records that cite `C:\H&C` describe the earlier planned
+design and are retained as historical audit material.
+
+---
+
 ## Backup / recovery
 
 | Field | Value |
@@ -93,7 +108,7 @@ Do **not** commit or paste into migration docs:
 - Cloudflare tunnel tokens or API keys
 - Application admin tokens, session secrets, or Glenn uploader ingest tokens
 
-Store credentials in a password manager or OVH/Cloudflare secret stores. On the VPS, use `C:\H&C\secrets\` with restrictive ACLs as described in the deployment plan.
+Store credentials in a password manager or OVH/Cloudflare secret stores. On the VPS, use `C:\HC\secrets\` with restrictive ACLs as described in the deployment plan.
 
 ---
 
@@ -103,9 +118,9 @@ Private deployment and reconciliation (pilot order per deployment plan):
 
 | Program | Public port (loopback) | Entry point (on VPS, planned) |
 |---------|------------------------|-------------------------------|
-| **TKP** | 8301 | `C:\H&C\apps\tkp\tkp_ts.py` |
-| **TCP** | 8302 (pilot first) | `C:\H&C\apps\tcp\tcp_ts_v2.py` |
-| **AGM** / Momentum Pacer | 8304 | `C:\H&C\apps\agm\Momentum Pacer\mp_ts.py` |
+| **TKP** | 8301 | `C:\HC\apps\tkp\tkp_ts.py` |
+| **TCP** | 8302 (pilot first) | `C:\HC\apps\tcp\tcp_ts_v2.py` |
+| **AGM** / Momentum Pacer | 8304 | `C:\HC\apps\agm\Momentum Pacer\mp_ts.py` |
 
 Staff/admin ports 8321 / 8322 / 8324 are optional and deferred unless explicitly required later.
 
@@ -124,7 +139,7 @@ Staff/admin ports 8321 / 8322 / 8324 are optional and deferred unless explicitly
 ## Secret-handling rule
 
 1. Migration documentation may name environment variables and configuration **keys** only.
-2. Secret **values** live outside git: OVH panel, Fly secrets, `C:\H&C\secrets\` on the VPS, or operator password manager.
+2. Secret **values** live outside git: OVH panel, Fly secrets, `C:\HC\secrets\` on the VPS, or operator password manager.
 3. If a path under protected business document folders is required for TKP, supply files via `C:\AI_HANDOFF` or merge path-portability code — do not reference or copy from restricted folders in automation.
 
 ---

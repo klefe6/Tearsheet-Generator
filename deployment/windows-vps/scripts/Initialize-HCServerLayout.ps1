@@ -8,12 +8,12 @@
     no ACL changes, no software installation.
 
     Intended future invocation on the VPS:
-        .\Initialize-HCServerLayout.ps1 -Root "C:\H&C"
+        .\Initialize-HCServerLayout.ps1 -Root "C:\HC"
 
     Safe to run twice; existing directories are left untouched.
 
 .PARAMETER Root
-    Root path for the H&C layout (e.g. C:\H&C).
+    Root path for the H&C layout (e.g. C:\HC).
 
 .PARAMETER WhatIf
     Show what would be created without creating directories.

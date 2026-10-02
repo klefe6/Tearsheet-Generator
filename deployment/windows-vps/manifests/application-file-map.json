@@ -1,16 +1,16 @@
 {
   "schema_version": "1.0.0",
-  "description": "Future VPS application source layout. Maps current repository modules to C:\\H&C\\apps\\. No data files or secrets.",
+  "description": "Future VPS application source layout. Maps current repository modules to C:\\HC\\apps\\. No data files or secrets.",
   "repository": "Tearsheet Generator",
-  "shared_modules_target": "C:\\H&C\\apps\\shared",
+  "shared_modules_target": "C:\\HC\\apps\\shared",
   "applications": {
     "tkp": {
-      "target": "C:\\H&C\\apps\\tkp",
+      "target": "C:\\HC\\apps\\tkp",
       "source_checkout_subpath": ".",
       "entry_point": "tkp_ts.py",
       "staff_entry_point": "tkp_ts.py",
       "staff_runtime_mode": "TEARSHEET_MODE=staff",
-      "working_directory": "C:\\H&C\\apps\\tkp",
+      "working_directory": "C:\\HC\\apps\\tkp",
       "ports": { "public": 8301, "staff": 8321 },
       "primary_modules": [
         "tkp_ts.py",
@@ -32,15 +32,15 @@
         "apps/shared/logos/tkp_logo.png"
       ],
       "requirements": "requirements.txt (repo root)",
-      "notes": "State and workbook live under C:\\H&C\\data\\tkp, not in apps\\tkp."
+      "notes": "State and workbook live under C:\\HC\\data\\tkp, not in apps\\tkp."
     },
     "tcp": {
-      "target": "C:\\H&C\\apps\\tcp",
+      "target": "C:\\HC\\apps\\tcp",
       "source_checkout_subpath": ".",
       "entry_point": "tcp_ts_v2.py",
       "staff_entry_point": "tcp_ts_v2.py",
       "staff_runtime_mode": "TEARSHEET_MODE=staff",
-      "working_directory": "C:\\H&C\\apps\\tcp",
+      "working_directory": "C:\\HC\\apps\\tcp",
       "ports": { "public": 8302, "staff": 8322 },
       "primary_modules": [
         "tcp_ts_v2.py",
@@ -64,15 +64,15 @@
         "apps/shared/logos/tcp_logo.png"
       ],
       "requirements": "requirements.txt (repo root)",
-      "notes": "JSON state files live under C:\\H&C\\data\\tcp. Benchmark cache under data\\tcp\\_runtime."
+      "notes": "JSON state files live under C:\\HC\\data\\tcp. Benchmark cache under data\\tcp\\_runtime."
     },
     "agm": {
-      "target": "C:\\H&C\\apps\\agm",
+      "target": "C:\\HC\\apps\\agm",
       "source_checkout_subpath": "Momentum Pacer",
       "entry_point": "mp_ts.py",
       "staff_entry_point": "mp_ts.py",
       "staff_runtime_mode": "TEARSHEET_MODE=staff",
-      "working_directory": "C:\\H&C\\apps\\agm\\Momentum Pacer",
+      "working_directory": "C:\\HC\\apps\\agm\\Momentum Pacer",
       "ports": { "public": 8304, "staff": 8324 },
       "primary_modules": [
         "Momentum Pacer/mp_ts.py",
@@ -105,14 +105,14 @@
         "Momentum Pacer/logo.png"
       ],
       "requirements": "requirements.txt (repo root)",
-      "notes": "Persistent state and fee workbook live under C:\\H&C\\data\\agm."
+      "notes": "Persistent state and fee workbook live under C:\\HC\\data\\agm."
     },
     "yq": {
-      "target": "C:\\H&C\\apps\\yq",
+      "target": "C:\\HC\\apps\\yq",
       "source_checkout_subpath": ".",
       "entry_point": "yq_ts.py",
       "staff_entry_point": null,
-      "working_directory": "C:\\H&C\\apps\\yq",
+      "working_directory": "C:\\HC\\apps\\yq",
       "ports": { "public": 8303 },
       "primary_modules": [
         "yq_ts.py",
@@ -126,19 +126,19 @@
         "apps/shared/logos/yq_logo.png"
       ],
       "requirements": "requirements.txt (repo root)",
-      "notes": "Authoritative yq.csv lives under C:\\H&C\\data\\yq."
+      "notes": "Authoritative yq.csv lives under C:\\HC\\data\\yq."
     },
     "dashboard": {
-      "target": "C:\\H&C\\apps\\dashboard",
+      "target": "C:\\HC\\apps\\dashboard",
       "source_repository": "Manager (external repo)",
       "source_hint": "External Manager repository — not part of Tearsheet Generator",
       "entry_point": "TBD — landing/dashboard launcher",
-      "working_directory": "C:\\H&C\\apps\\dashboard",
+      "working_directory": "C:\\HC\\apps\\dashboard",
       "ports": { "internal": 8006 },
       "notes": "Dashboard is not in the Tearsheet Generator repo. Port 8006 should remain private (not public homepage)."
     },
     "shared": {
-      "target": "C:\\H&C\\apps\\shared",
+      "target": "C:\\HC\\apps\\shared",
       "purpose": "Cross-application Python modules, logos, and static assets copied once for all tearsheet apps.",
       "modules": [
         "tearsheet_paths.py",

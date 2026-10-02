@@ -90,7 +90,7 @@ from flask import jsonify, redirect, session
 # ==============================================================================
 BASE_DIR  = Path(__file__).parent
 # Authoritative fee workbook. Centrally resolved so the VPS profile can relocate
-# it to C:\H&C\data\agm without editing source; unset HC_* keeps BASE_DIR.
+# it to C:\HC\data\agm without editing source; unset HC_* keeps BASE_DIR.
 EXCEL_PATH = resolve_agm_fee_workbook(deploy_root=_TS_ROOT)
 
 # ==============================================================================
@@ -1274,7 +1274,7 @@ AGM_MANUAL_DAILY_ROWS_FILENAME = "momentum_pacer_manual_daily_rows.json"
 def _agm_manual_daily_rows_path():
     # Centrally resolved authoritative manual-rows state. Laptop default is the
     # filename beside this module; the VPS profile relocates it to
-    # C:\H&C\data\agm\ without any source edit.
+    # C:\HC\data\agm\ without any source edit.
     return str(resolve_agm_manual_state_path(deploy_root=Path(__file__).resolve().parent.parent))
 
 

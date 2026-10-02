@@ -4,7 +4,7 @@ Covers the path keys added to complete Windows VPS portability:
   * new layout roots (apps/config/secrets/website + per-program TCP data root)
   * AGM manual-state JSON and fee workbook
   * per-program log directory helper
-  * VPS ingest-audit coherence under C:\\H&C\\logs
+  * VPS ingest-audit coherence under C:\\HC\\logs
   * default (laptop) parity for every new key
   * consumer wiring (AST, no heavy Dash imports)
 
@@ -27,7 +27,7 @@ VPS = {tp.HC_APP_ENV_VAR: "vps-production"}
 # Canonical root + new layout roots
 # ---------------------------------------------------------------------------
 def test_canonical_vps_root_is_c_hc():
-    assert str(tp.VPS_ROOT) == r"C:\H&C"
+    assert str(tp.VPS_ROOT) == r"C:\HC"
 
 
 def test_new_roots_default_parity():
@@ -48,7 +48,7 @@ def test_new_roots_vps_layout_under_c_hc():
         "backup_root", "website_root", "tcp_data_root", "agm_data_root",
         "yq_data_root", "tkp_data_root",
     ):
-        assert str(getattr(paths, field)).startswith(r"C:\H&C"), field
+        assert str(getattr(paths, field)).startswith(r"C:\HC"), field
 
 
 @pytest.mark.parametrize("app_env", ["local-dev", "local-production"])
