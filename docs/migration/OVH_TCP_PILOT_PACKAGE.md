@@ -1,6 +1,13 @@
 # OVH TCP Pilot Package
 
-**Status: DEPLOYMENT INPUTS ONLY. Nothing here has been executed on the VPS.**
+**Status: VPS GROUNDWORK BEGUN — no tearsheet has been deployed or started.**
+
+VPS work to date on `HC-PROD-VPS01` is limited to: Git + Python 3.10.11 toolchain install, the
+shared venv at `C:\HC\apps\shared\.venv310` with the pinned dependency set installed, a read-only
+source checkout, TCP/shared source staged into `C:\HC\apps\`, and NSSM placed in
+`C:\HC\deployment\tools\`. **No service has been created or started, no production state or
+workbook has been copied, no secret has been created, and Glenn ingest remains disabled.**
+Everything below is still the forward-looking input set for the pilot.
 
 This is the exact, self-contained input set for the **first private OVH migration (TCP pilot)**.
 It is produced from the reviewed deployment-ready branch and is the authoritative answer to
@@ -18,16 +25,19 @@ Companion documents (same folder):
 | Item | Value |
 |---|---|
 | Deployment-ready branch | `feature/ovh-tkp-tcp-agm-ready` |
-| Branch tip | `9e17622` (`docs: make Glenn uploader cutover a mandatory TCP pilot gate`) |
+| VPS path normalization | `1bc440b` (`refactor: normalize OVH VPS root to C:\HC`) — the commit this revision builds on |
 | Canonical VPS root | `C:\HC` — see "Canonical root" below |
 | Base production commit | `live-main @ 3cfda4fdde5eaa8fae42c87b56d30d34aa717f68` |
 | Integrated portability work | 6 commits `6ce7feb → 38eb0a2` (central path config, TKP title reconcile, TKP state/workbook configurable, portable data paths, VPS layout docs/build) |
 | Dependency fix | `49f8864` — adds `openpyxl==3.1.5` and `dash-bootstrap-components==2.0.3` to `requirements.txt` |
+| Dependency reproducibility | `fix: make OVH Python environment reproducible` — adds `et-xmlfile==2.0.0`; documents the QuantStats/yfinance metadata conflict and the undeclared IPython requirement (see §4) |
 | Documentation commits after `49f8864` | `a3c61b3`, `a938b0b`, `9e17622` (migration inventory carry-forward, pilot package + plan alignment, Glenn cutover gate) |
+| Canonical source checkout on VPS | `C:\HC\deployment\source\Tearsheet-Generator` (clone of `klefebvre6/Tearsheet-Generator`) |
 | Reconciliation baseline captured | `2026-10-01T11:35-04:00` (laptop production, authoritative) |
 
-`49f8864` was the branch tip when this package was first written and remains the authoritative
-*dependency* commit; it is no longer the branch tip. Three documentation commits landed after it.
+`49f8864` was the branch tip when this package was first written and is no longer the branch tip.
+Three documentation commits landed after it, then the VPS path normalization, then the dependency
+reproducibility commit above — which supersedes `49f8864` as the authoritative *dependency* commit.
 
 **Business-logic safety:** the integrated diff is path-centralization plus two pre-approved TKP
 chart *title* strings plus the Y&Q resolver delegation (no behavior change when `HC_*` is unset).
@@ -64,9 +74,11 @@ surface. All four independent row counts agree (182) — the cleanest reconcilia
 
 ## 2. Code to deploy
 
-Source: the deployment-ready branch worktree
-`C:\Coding Projects\Tearsheet Generator\.worktrees\ovh-tkp-tcp-agm-ready`
-(authoritative tip `49f8864`). Copy *from this branch*, not from the dev checkout.
+Source: the authoritative checkout of this branch on the VPS,
+`C:\HC\deployment\source\Tearsheet-Generator` (cloned from
+`https://github.com/klefebvre6/Tearsheet-Generator.git`, branch
+`feature/ovh-tkp-tcp-agm-ready`). Copy *from this branch*, not from the dev checkout.
+The original authoring worktree on the laptop is no longer the staging source for the VPS.
 
 ### 2a. TCP application modules → `C:\HC\apps\tcp\`
 
@@ -102,7 +114,7 @@ tearsheet_portal.py
 tearsheet_date_defaults.py
 tearsheet_uploader_ingest.py
 assets\styles.css           (the only static asset the app needs)
-requirements.txt            (now complete — see §4)
+requirements.txt            (install with --no-deps — see §4)
 ```
 
 `PYTHONPATH` for the service = `C:\HC\apps\shared;C:\HC\apps\tcp` (Option A in the plan).
@@ -150,10 +162,68 @@ precedence over the resolver if set (see §5).
 |---|---|
 | Python | **3.10.x 64-bit** to `C:\Python310` (production baseline is 3.10.0; do not use 3.12/3.13) |
 | Virtual env | one shared venv `C:\HC\apps\shared\.venv310` |
-| Install | `pip install -r requirements.txt` — **now complete** |
+| Install | `pip install --no-deps -r requirements.txt` — see "Resolver note" below for why `--no-deps` is used |
 | Dependency fix | `openpyxl==3.1.5` and `dash-bootstrap-components==2.0.3` are included in `requirements.txt` on this branch (commit `49f8864`). On `live-main` they were missing and had to be installed by hand; that gap is closed. |
+| Dependency fix | `et-xmlfile==2.0.0` added to `requirements.txt`. `openpyxl 3.1.5` declares `Requires: et-xmlfile`, but the pin was absent, so `import openpyxl` failed on a clean VPS install until it was installed by hand. `openpyxl` itself is unchanged. |
 | Native deps | none beyond the wheels above; TCP uses stdlib `msvcrt` for file locking (Windows built-in) |
 | Import smoke test | `...\.venv310\Scripts\python.exe -c "import dash, dash_bootstrap_components, flask, pandas, numpy, plotly, openpyxl; import tearsheet_paths, tcp_config; print('ok')"` |
+
+### Resolver note — QuantStats 0.0.64 vs yfinance 0.2.61 and numpy 2.2.6
+
+`pip install -r requirements.txt` fails with `ResolutionImpossible`, and after installing with
+`--no-deps` `pip check` reports exactly two conflicts:
+
+```
+quantstats 0.0.64 has requirement numpy<2.0.0,>=1.21.0, but you have numpy 2.2.6.
+quantstats 0.0.64 has requirement yfinance>=0.2.65, but you have yfinance 0.2.61.
+```
+
+**This is a packaging/reproducibility warning, not a runtime blocker for the TCP pilot.** The pins
+are not wrong and must not be "fixed" by upgrading.
+
+*Cause.* PyPI serves **two different wheels for the same version string `0.0.64`**, because the
+project was re-uploaded under a differently-cased name:
+
+| Wheel | Uploaded | Size | Declares |
+|---|---|---|---|
+| `QuantStats-0.0.64-py2.py3-none-any.whl` | 2024-10-25 | 45,751 B | `numpy>=1.16.5`, `yfinance>=0.1.70` |
+| `quantstats-0.0.64-py2.py3-none-any.whl` | 2025-07-14 | 78,735 B | `numpy<2.0.0,>=1.21.0`, `yfinance>=0.2.65` |
+
+The 2024 wheel's requirements are **satisfied** by the pinned `numpy==2.2.6` and
+`yfinance==0.2.61`. The 2025 re-upload tightened them, and modern pip prefers the normalized
+lowercase name, so a fresh install picks the 2025 wheel and the pinned set then looks
+self-contradictory. The conflict is an artifact-selection problem, not a version problem.
+
+*Known-working in production.* `OVH_TKP_TCP_AGM_CURRENT_STATE.md` §"Verified installed versions"
+records, queried from the live laptop venv, `numpy==2.2.6`, `yfinance==0.2.61`,
+`quantstats==0.0.64` — the exact trio pip metadata rejects. That environment is the one the
+reconciliation baseline was produced under. **The pair is therefore documented as
+known-working-but-metadata-incompatible, and both pins are left unchanged.** (The laptop venv
+cannot be inspected from the VPS; this rests on that recorded verification, not on a live query.)
+
+*Why the pilot is unaffected.* QuantStats is never imported at TCP boot:
+
+- the import is lazy, inside `QuantstatsBenchmarkProvider.download_returns()` (`tcp_benchmarks.py`);
+- that provider is only constructed on the **live** fetch path, in `load_symbol_benchmark()`;
+- with `TCP_V2_SKIP_BENCHMARK_FETCH=1` the pilot routes to the cache-only loaders
+  (`tcp_ts_v2.py`), which read the copied caches and never touch QuantStats;
+- the live path wraps the fetch in `except Exception`, so even an outright import failure degrades
+  to benchmark status `unavailable` rather than crashing the app (verified on this VPS);
+- `use_quantstats` in `tcp_drawdown.py` only selects a drawdown formula — it imports nothing;
+- `yfinance` appears in the staged TCP modules only inside a docstring.
+
+### Open gap — QuantStats needs IPython, which nothing declares
+
+Separately discovered on the VPS and **not yet fixed**: `from quantstats import utils` fails with
+`ModuleNotFoundError: No module named 'IPython'`. `quantstats/__init__.py` imports `reports`, and
+`reports.py` imports from IPython inside a `try/except ImportError` whose fallback *also* imports
+from IPython — so IPython is mandatory. **Both** 0.0.64 wheels do this, and **neither** declares
+IPython in `Requires-Dist`, so `requirements.txt` cannot have caught it.
+
+Consequence: live benchmark fetching on this VPS would return `unavailable` permanently once
+`TCP_V2_SKIP_BENCHMARK_FETCH` is removed. It does **not** block the pilot, which boots cache-only.
+Resolution deferred pending approval, since it means adding a dependency rather than correcting a
+pin; the laptop venv evidently has IPython present through some other install.
 
 ---
 
