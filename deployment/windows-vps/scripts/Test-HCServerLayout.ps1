@@ -6,10 +6,10 @@
     Read-only validator. Does not create, modify, or delete anything.
 
     Intended future invocation on the VPS:
-        .\Test-HCServerLayout.ps1 -Root "C:\H&C"
+        .\Test-HCServerLayout.ps1 -Root "C:\HC"
 
 .PARAMETER Root
-    Root path to validate (e.g. C:\H&C).
+    Root path to validate (e.g. C:\HC).
 
 .OUTPUTS
     Exit code 0 when valid; 1 when required paths are missing.

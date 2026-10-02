@@ -5,16 +5,16 @@ Primary reference for how the future Windows Server VPS will be organized.
 **This is a layout contract, not a live deployment.** On the laptop, open the
 visual preview at:
 
-`deployment\windows-vps\filesystem-preview\H&C\`
+`deployment\windows-vps\filesystem-preview\HC\`
 
-On the VPS (future), the same structure will exist at `C:\H&C\`.
+On the VPS (future), the same structure will exist at `C:\HC\`.
 
 ---
 
 ## Visual layout
 
 ```text
-C:\H&C\
+C:\HC\
 │
 ├── apps\              SOURCE — replaceable from Git/deployment package
 │   ├── tkp\           TKP Dash application (tkp_ts.py)
@@ -123,8 +123,8 @@ and **not approved for public homepage linking** until explicitly approved.
 On the VPS (future):
 
 ```powershell
-.\deployment\windows-vps\scripts\Initialize-HCServerLayout.ps1 -Root "C:\H&C"
-.\deployment\windows-vps\scripts\Test-HCServerLayout.ps1 -Root "C:\H&C"
+.\deployment\windows-vps\scripts\Initialize-HCServerLayout.ps1 -Root "C:\HC"
+.\deployment\windows-vps\scripts\Test-HCServerLayout.ps1 -Root "C:\HC"
 ```
 
 Environment template: `config-templates\hc-vps.env.example`

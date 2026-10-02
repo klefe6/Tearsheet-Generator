@@ -4,7 +4,7 @@
 #>
 param(
     [string]$RepoRoot = '',
-    [string]$TargetRoot = 'C:\H&C'
+    [string]$TargetRoot = 'C:\HC'
 )
 
 $ErrorActionPreference = 'Stop'

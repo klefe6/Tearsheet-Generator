@@ -11,21 +11,21 @@
   "staff_port": 8321,
   "health_endpoint": "/healthz",
   "service_name": "HC-TKP-Tearsheet",
-  "target_app_directory": "C:\\H&C\\apps\\tkp",
+  "target_app_directory": "C:\\HC\\apps\\tkp",
   "persistent_data_paths": [
     {
       "logical": "state_json",
       "env": "HC_TKP_STATE_PATH",
-      "vps_default": "C:\\H&C\\data\\tkp\\daily_returns_secret_state.json"
+      "vps_default": "C:\\HC\\data\\tkp\\daily_returns_secret_state.json"
     },
     {
       "logical": "source_workbook",
       "env": "HC_TKP_SOURCE_WORKBOOK",
-      "vps_default": "C:\\H&C\\data\\tkp\\tkp_source_workbook.xlsx"
+      "vps_default": "C:\\HC\\data\\tkp\\tkp_source_workbook.xlsx"
     }
   ],
   "config_env_files": [
-    "C:\\H&C\\config\\tkp.env"
+    "C:\\HC\\config\\tkp.env"
   ],
   "secret_variable_names": [
     "TKP_ADMIN_TOKEN",
@@ -33,8 +33,8 @@
     "GLENN_UPLOADER_INGEST_TOKEN"
   ],
   "log_paths": [
-    "C:\\H&C\\logs\\tkp\\tkp_stdout.log",
-    "C:\\H&C\\logs\\tkp\\tkp_stderr.log"
+    "C:\\HC\\logs\\tkp\\tkp_stdout.log",
+    "C:\\HC\\logs\\tkp\\tkp_stderr.log"
   ],
   "source_files": [
     "tkp_ts.py",

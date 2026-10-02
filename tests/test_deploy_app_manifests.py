@@ -20,6 +20,9 @@ def test_app_manifest_json(name: str):
     for rel in data["source_files"]:
         src = REPO_ROOT / rel.replace("/", "\\")
         assert src.is_file(), f"missing source for {name}: {rel}"
+    if "target_app_directory" in data:
+        assert r"C:\HC" in data["target_app_directory"]
+        assert r"C:\H&C" not in data["target_app_directory"]
 
 
 def test_manifests_exclude_legacy_tcp_monolith():

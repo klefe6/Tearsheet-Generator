@@ -9,21 +9,21 @@
   "port": 8303,
   "health_endpoint": null,
   "service_name": "HC-YQ-Tearsheet",
-  "target_app_directory": "C:\\H&C\\apps\\yq",
+  "target_app_directory": "C:\\HC\\apps\\yq",
   "persistent_data_paths": [
     {
       "logical": "yq_csv",
       "env": "YQ_CSV_PATH",
-      "vps_default": "C:\\H&C\\data\\yq\\yq.csv"
+      "vps_default": "C:\\HC\\data\\yq\\yq.csv"
     }
   ],
   "config_env_files": [
-    "C:\\H&C\\config\\yq.env"
+    "C:\\HC\\config\\yq.env"
   ],
   "secret_variable_names": [],
   "log_paths": [
-    "C:\\H&C\\logs\\yq\\yq_stdout.log",
-    "C:\\H&C\\logs\\yq\\yq_stderr.log"
+    "C:\\HC\\logs\\yq\\yq_stdout.log",
+    "C:\\HC\\logs\\yq\\yq_stderr.log"
   ],
   "source_files": [
     "yq_ts.py",

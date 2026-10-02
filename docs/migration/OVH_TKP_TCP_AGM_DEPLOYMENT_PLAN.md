@@ -2,9 +2,13 @@
 
 **Status: PLAN ONLY. Nothing in this document has been executed.**
 
-Companion to `OVH_TKP_TCP_AGM_CURRENT_STATE.md`, `OVH_TKP_TCP_AGM_FILE_MANIFEST.json`, and **`OVH_VPS_TARGET.md`** (authoritative purchased-server record).
+Companion to `OVH_TKP_TCP_AGM_CURRENT_STATE.md`, `OVH_TKP_TCP_AGM_FILE_MANIFEST.json`, **`OVH_VPS_TARGET.md`** (authoritative purchased-server record), and **`OVH_TCP_PILOT_PACKAGE.md`** (exact first-pilot deployment inputs).
 
 **Pilot: TCP.** Then TKP, then AGM. The reasoning is in the current-state report; the short version is that TCP is the only one of the three whose production data paths are already environment-driven and whose state already lives outside the repository, so it can boot on a clean VPS with zero code changes.
+
+### Integration status (deployment-ready branch)
+
+The code for this migration is integrated on branch **`feature/ovh-tkp-tcp-agm-ready`** (tip `49f8864`), built on `live-main @ 3cfda4f`. It folds in the six path-portability commits (`6ce7feb → 38eb0a2`) that centralize all data paths through `tearsheet_paths.py`, plus one dependency-completeness commit (`49f8864`) that adds the two missing packages to `requirements.txt`. The integrated diff is path-centralization only (plus two pre-approved TKP chart *title* strings and a no-op Y&Q resolver delegation) — no NAV/return/fee/drawdown/benchmark math, chart values, state schema, uploader payload, or auth logic changed. Validated read-only on the laptop: resolver/portability/config suite **123 passed**, TCP core reconciliation logic **61 passed / 13 skipped** (local-workbook skips), all modified modules byte-compile, and the resolver was executed under `vps-production` to confirm the `C:\HC` mappings. Deploy *from this branch*, not from `live-main`.
 
 ### Official OVH target (purchased)
 
@@ -30,7 +34,7 @@ Public IPv4/IPv6 are assigned in the OVH control panel and are **not** recorded 
 ## Target filesystem layout
 
 ```
-C:\H&C\
+C:\HC\
 ├── apps\
 │   ├── shared\
 │   │   ├── .venv310\                       one shared Python 3.10 environment
@@ -126,7 +130,7 @@ C:\H&C\
 
 **`shared\` must be importable, and that includes the TCP modules.** All three apps use flat `import tcp_admin`-style imports with no package structure. Because `tcp_admin` transitively imports `tcp_config`, `tcp_public_sections`, `tcp_calculations`, `tcp_ledger`, `tcp_dashboard`, and `tcp_drawdown`, TKP and AGM cannot import at all unless that TCP module set is on the path. Two workable options:
 
-- **Option A (recommended for the pilot):** set `PYTHONPATH=C:\H&C\apps\shared;C:\H&C\apps\tcp` in each NSSM service environment. One copy of every module, no duplication.
+- **Option A (recommended for the pilot):** set `PYTHONPATH=C:\HC\apps\shared;C:\HC\apps\tcp` in each NSSM service environment. One copy of every module, no duplication.
 - **Option B:** copy the shared and TCP module set into each app directory. Simpler path handling, but three copies to patch.
 
 Decide this at step 4 and keep it consistent across all three apps.
@@ -150,21 +154,21 @@ Not executed. Target instance: **`vps-c0d9d928.vps.ovh.us`** (`os-us-east-va-2`,
 
 ---
 
-## Step 2 — Create `C:\H&C`
+## Step 2 — Create `C:\HC`
 
 Not executed. **Do not create this directory until step 1 is signed off** (hard safety rule 22 applies to the current inventory phase, not to the future execution of this plan).
 
 1. Create the full tree exactly as laid out above.
 2. ACLs:
-   - `C:\H&C\apps` — read and execute for the service account; write for Administrators only.
-   - `C:\H&C\data` — read and write for the service account. All three apps write here.
-   - `C:\H&C\logs` — read and write for the service account.
-   - `C:\H&C\config` — read for the service account.
-   - **`C:\H&C\secrets` — read for the service account only, plus Administrators. Remove inherited permissions and remove `Users`.** This directory holds the admin tokens, session secrets, and the ingest token.
-   - `C:\H&C\backups` — write for Administrators and whatever backup job you add.
-3. Exclude `C:\H&C\data` from any file-sync or indexing agent. The whole point of this migration is to get authoritative state out of a sync-managed folder.
+   - `C:\HC\apps` — read and execute for the service account; write for Administrators only.
+   - `C:\HC\data` — read and write for the service account. All three apps write here.
+   - `C:\HC\logs` — read and write for the service account.
+   - `C:\HC\config` — read for the service account.
+   - **`C:\HC\secrets` — read for the service account only, plus Administrators. Remove inherited permissions and remove `Users`.** This directory holds the admin tokens, session secrets, and the ingest token.
+   - `C:\HC\backups` — write for Administrators and whatever backup job you add.
+3. Exclude `C:\HC\data` from any file-sync or indexing agent. The whole point of this migration is to get authoritative state out of a sync-managed folder.
 
-**Verification:** `icacls C:\H&C\secrets` shows no `Users` entry.
+**Verification:** `icacls C:\HC\secrets` shows no `Users` entry.
 
 ---
 
@@ -174,18 +178,16 @@ Not executed.
 
 1. Install **Python 3.10.x 64-bit** to `C:\Python310`, matching production. Do not install 3.12 or 3.13 — the current reconciliation baseline was produced under `numpy 2.2.6` / `pandas 2.2.3` / `quantstats 0.0.64` on 3.10.0, and changing the interpreter during a migration means you can no longer tell a migration bug from a version bug.
 2. Create the shared virtual environment:
-   `C:\Python310\python.exe -m venv C:\H&C\apps\shared\.venv310`
+   `C:\Python310\python.exe -m venv C:\HC\apps\shared\.venv310`
 3. `python -m pip install --upgrade pip`
-4. `pip install -r C:\H&C\deployment\requirements.txt`
-5. **Install the two packages missing from `requirements.txt`:**
-   `pip install openpyxl==3.1.5 dash-bootstrap-components==2.0.3`
-   Without these, every app fails at import. This is a real gap in the current requirements file, not an optional extra.
-6. Download `nssm.exe` to `C:\H&C\deployment\nssm\`.
-7. `pip freeze > C:\H&C\deployment\vps_freeze.txt` and diff it against a `pip freeze` taken from the laptop venv. Investigate any difference before proceeding.
+4. `pip install -r C:\HC\deployment\requirements.txt`
+5. **`openpyxl==3.1.5` and `dash-bootstrap-components==2.0.3` are now in `requirements.txt`** on the deployment-ready branch (commit `49f8864`), so step 4 installs them. Without them every app fails at import. (On `live-main` they were missing and had to be installed by hand — that gap is closed on this branch. If you ever deploy from `live-main` directly, install them manually.)
+6. Download `nssm.exe` to `C:\HC\deployment\nssm\`.
+7. `pip freeze > C:\HC\deployment\vps_freeze.txt` and diff it against a `pip freeze` taken from the laptop venv. Investigate any difference before proceeding.
 
 **Decision point:** one shared venv, as recommended. All three apps are pinned to an identical dependency set, there are no conflicts to isolate, and TKP and AGM already import TCP modules — per-app environments would mean three copies of the same packages and triple the patching surface for no benefit.
 
-**Verification:** `C:\H&C\apps\shared\.venv310\Scripts\python.exe -c "import dash, dash_bootstrap_components, flask, pandas, numpy, plotly, openpyxl, yfinance, quantstats; print('ok')"`
+**Verification:** `C:\HC\apps\shared\.venv310\Scripts\python.exe -c "import dash, dash_bootstrap_components, flask, pandas, numpy, plotly, openpyxl, yfinance, quantstats; print('ok')"`
 
 ---
 
@@ -193,16 +195,15 @@ Not executed.
 
 Not executed.
 
-1. Source of truth is the live worktree at commit `3cfda4fdde5eaa8fae42c87b56d30d34aa717f68` on branch `live-main`:
-   `C:\Coding Projects\Tearsheet Generator\.worktrees\live-deploy-main`
-2. Copy the TCP code package per the manifest: `tcp_ts_v2.py` plus the twelve `tcp_*` modules into `C:\H&C\apps\tcp\`.
-3. Copy the shared module package into `C:\H&C\apps\shared\`, including `assets\styles.css` **from the live worktree, not the dev checkout** — the dev checkout copy is modified and differs.
+1. Source of truth is the **deployment-ready branch `feature/ovh-tkp-tcp-agm-ready` (tip `49f8864`)**, based on `live-main @ 3cfda4fdde5eaa8fae42c87b56d30d34aa717f68`. Use the branch worktree, which already contains the portability + dependency work. The exact file list is in `OVH_TCP_PILOT_PACKAGE.md` §2.
+2. Copy the TCP code package per the manifest: `tcp_ts_v2.py` plus the twelve `tcp_*` modules into `C:\HC\apps\tcp\`.
+3. Copy the shared module package into `C:\HC\apps\shared\`, **including the central resolver `tearsheet_paths.py`** (now required — `tcp_ts_v2.py` and `tcp_config.py` import it) and `assets\styles.css` from the branch, not the dev checkout.
 4. **Resolve all reparse points.** The live worktree contains five links back into the dev checkout. Use a link-following copy or copy from the real targets. A plain `xcopy` or a non-link-aware robocopy will produce zero-byte files.
 5. Explicitly do **not** copy: `tcp_ts.py` (legacy monolith whose `__main__` block would bind 8302 and conflict), `.git`, `.worktrees/`, `__pycache__/`, `tests/`, `backups/`, `_runtime/`, `_restart_logs/`, any `reboot_*` launcher, any `.env` file, or any other application.
 6. Set the `PYTHONPATH` decision from the layout section.
-7. Verify no file in `C:\H&C\apps` is zero bytes and that no reparse points survived the copy.
+7. Verify no file in `C:\HC\apps` is zero bytes and that no reparse points survived the copy.
 
-**Verification:** `C:\H&C\apps\shared\.venv310\Scripts\python.exe -c "import tcp_config; print(tcp_config.load_config())"` with the config env loaded — it should print a `TCPConfig` without touching the network or the workbook.
+**Verification:** `C:\HC\apps\shared\.venv310\Scripts\python.exe -c "import tcp_config; print(tcp_config.load_config())"` with the config env loaded — it should print a `TCPConfig` without touching the network or the workbook.
 
 ---
 
@@ -215,12 +216,12 @@ Not executed. **Copy, never move. The laptop remains authoritative until cutover
    `C:\Users\H&CDanHughes\AppData\Local\HughesCompany\TCP\state\tcp_daily_returns_secret_state.json`
    expected `7094B6B513999B39F32304350016C6A9EAC4C07321D515821357159FD7934386` (81,311 bytes, 182 records, revision 83).
    **If the hash has changed, the laptop has taken new data since the baseline. Re-capture the baseline before continuing.**
-3. Copy to `C:\H&C\data\tcp\tcp_daily_returns_secret_state.json`.
-4. Copy the backup file to `C:\H&C\data\tcp\tcp_daily_returns_secret_state.backup.json` (optional; the app recreates it on first write).
+3. Copy to `C:\HC\data\tcp\tcp_daily_returns_secret_state.json`.
+4. Copy the backup file to `C:\HC\data\tcp\tcp_daily_returns_secret_state.backup.json` (optional; the app recreates it on first write).
 5. **Do not copy the `.lock` file.** It is a runtime artifact and must be created locally.
-6. Copy the three benchmark caches from `...\HughesCompany\TCP\benchmark\` to `C:\H&C\data\tcp\benchmark\`. This lets you first-boot with `TCP_V2_SKIP_BENCHMARK_FETCH=1` and no outbound market-data dependency. Do **not** copy the stale July duplicates from `_runtime\`.
+6. Copy the three benchmark caches from `...\HughesCompany\TCP\benchmark\` to `C:\HC\data\tcp\benchmark\`. This lets you first-boot with `TCP_V2_SKIP_BENCHMARK_FETCH=1` and no outbound market-data dependency. Do **not** copy the stale July duplicates from `_runtime\`.
 7. Do not copy `tcp_alex.xlsx`. In `json_active` mode the workbook is only a fallback, and step 6 below disables that fallback deliberately.
-8. Do not copy the ingest audit JSONL. Archive it to `C:\H&C\backups\tcp\` for retention if you want the history; the VPS starts a fresh file.
+8. Do not copy the ingest audit JSONL. Archive it to `C:\HC\backups\tcp\` for retention if you want the history; the VPS starts a fresh file.
 9. Re-hash the destination and confirm it matches the source byte for byte.
 
 **Verification:** source and destination SHA-256 match.
@@ -231,17 +232,17 @@ Not executed. **Copy, never move. The laptop remains authoritative until cutover
 
 Not executed.
 
-Create `C:\H&C\config\tcp.env` with non-secret values:
+Create `C:\HC\config\tcp.env` with non-secret values:
 
 ```
 TCP_V2_STATE_MODE=json_active
 TCP_V2_BIND_PORT=8302
-TCP_V2_STATE_PATH=C:\H&C\data\tcp\tcp_daily_returns_secret_state.json
-TCP_V2_STATE_BACKUP_PATH=C:\H&C\data\tcp\tcp_daily_returns_secret_state.backup.json
-TCP_V2_STATE_LOCK_PATH=C:\H&C\data\tcp\tcp_daily_returns_secret_state.lock
-TCP_V2_BENCHMARK_CACHE_PATH=C:\H&C\data\tcp\benchmark\tcp_benchmark_cache.json
-TCP_V2_BENCHMARK_BTC_CACHE_PATH=C:\H&C\data\tcp\benchmark\tcp_benchmark_btc_cache.json
-TCP_V2_BENCHMARK_ETH_CACHE_PATH=C:\H&C\data\tcp\benchmark\tcp_benchmark_eth_cache.json
+TCP_V2_STATE_PATH=C:\HC\data\tcp\tcp_daily_returns_secret_state.json
+TCP_V2_STATE_BACKUP_PATH=C:\HC\data\tcp\tcp_daily_returns_secret_state.backup.json
+TCP_V2_STATE_LOCK_PATH=C:\HC\data\tcp\tcp_daily_returns_secret_state.lock
+TCP_V2_BENCHMARK_CACHE_PATH=C:\HC\data\tcp\benchmark\tcp_benchmark_cache.json
+TCP_V2_BENCHMARK_BTC_CACHE_PATH=C:\HC\data\tcp\benchmark\tcp_benchmark_btc_cache.json
+TCP_V2_BENCHMARK_ETH_CACHE_PATH=C:\HC\data\tcp\benchmark\tcp_benchmark_eth_cache.json
 TCP_V2_ALLOW_WORKBOOK_FALLBACK=false
 TCP_V2_SKIP_BENCHMARK_FETCH=1
 TEARSHEET_MODE=public
@@ -256,11 +257,11 @@ Four of those lines are deliberate changes from the laptop and each has a reason
 - **`TCP_V2_SKIP_BENCHMARK_FETCH=1`** — for the first private boot, so the app comes up on copied caches with no network dependency. Remove it once reconciliation passes.
 - **`GLENN_UPLOADER_INGEST_ENABLED=false`** — **critical.** The VPS must not accept ingest while the laptop is still authoritative, or the two will diverge. Enable it only at cutover.
 
-Create `C:\H&C\secrets\tcp.env` containing `TCP_V2_ADMIN_TOKEN` and `TCP_V2_SESSION_SECRET`. Transfer the values out of band (password manager, not chat, not a file copy). Create `C:\H&C\secrets\ingest.env` with `GLENN_UPLOADER_INGEST_TOKEN`, ready but inert while ingest is disabled.
+Create `C:\HC\secrets\tcp.env` containing `TCP_V2_ADMIN_TOKEN` and `TCP_V2_SESSION_SECRET`. Transfer the values out of band (password manager, not chat, not a file copy). Create `C:\HC\secrets\ingest.env` with `GLENN_UPLOADER_INGEST_TOKEN`, ready but inert while ingest is disabled.
 
 Do **not** set `TEARSHEET_LOCAL_DIRECT_ADMIN`. It is set to `1` on the laptop via `.local_dev.env` and has no business on a server.
 
-**Verification:** `icacls C:\H&C\secrets\tcp.env` shows only the service account and Administrators.
+**Verification:** `icacls C:\HC\secrets\tcp.env` shows only the service account and Administrators.
 
 ---
 
@@ -269,19 +270,19 @@ Do **not** set `TEARSHEET_LOCAL_DIRECT_ADMIN`. It is set to `1` on the laptop vi
 Not executed.
 
 ```
-nssm install HC-TCP-Tearsheet "C:\H&C\apps\shared\.venv310\Scripts\python.exe"
-nssm set HC-TCP-Tearsheet AppParameters "C:\H&C\apps\tcp\tcp_ts_v2.py"
-nssm set HC-TCP-Tearsheet AppDirectory  "C:\H&C\apps\tcp"
-nssm set HC-TCP-Tearsheet AppStdout     "C:\H&C\logs\tcp\tcp_stdout.log"
-nssm set HC-TCP-Tearsheet AppStderr     "C:\H&C\logs\tcp\tcp_stderr.log"
-nssm set HC-TCP-Tearsheet AppRotateFiles 1
-nssm set HC-TCP-Tearsheet AppRotateBytes 10485760
-nssm set HC-TCP-Tearsheet Start          SERVICE_AUTO_START
-nssm set HC-TCP-Tearsheet ObjectName     ".\svc_hc_tearsheets" <password>
-nssm set HC-TCP-Tearsheet AppEnvironmentExtra <contents of config\tcp.env + secrets\tcp.env + secrets\ingest.env>
-nssm set HC-TCP-Tearsheet AppExit Default Restart
-nssm set HC-TCP-Tearsheet AppThrottle   10000
-nssm set HC-TCP-Tearsheet AppStopMethodConsole 5000
+nssm install HC-TCP-Public "C:\HC\apps\shared\.venv310\Scripts\python.exe"
+nssm set HC-TCP-Public AppParameters "C:\HC\apps\tcp\tcp_ts_v2.py"
+nssm set HC-TCP-Public AppDirectory  "C:\HC\apps\tcp"
+nssm set HC-TCP-Public AppStdout     "C:\HC\logs\tcp\tcp_stdout.log"
+nssm set HC-TCP-Public AppStderr     "C:\HC\logs\tcp\tcp_stderr.log"
+nssm set HC-TCP-Public AppRotateFiles 1
+nssm set HC-TCP-Public AppRotateBytes 10485760
+nssm set HC-TCP-Public Start          SERVICE_AUTO_START
+nssm set HC-TCP-Public ObjectName     ".\svc_hc_tearsheets" <password>
+nssm set HC-TCP-Public AppEnvironmentExtra <contents of config\tcp.env + secrets\tcp.env + secrets\ingest.env>
+nssm set HC-TCP-Public AppExit Default Restart
+nssm set HC-TCP-Public AppThrottle   10000
+nssm set HC-TCP-Public AppStopMethodConsole 5000
 ```
 
 Three settings matter specifically for these apps:
@@ -292,7 +293,7 @@ Three settings matter specifically for these apps:
 
 Do **not** create `HC-TCP-Staff` yet. Port 8322 has no listener today, `Manager\startup_contract.json` classifies it as manual only, and running a staff process alongside the public one is an unnecessary variable during a pilot.
 
-**Verification:** `nssm dump HC-TCP-Tearsheet` reviewed before first start. Confirm no secret value appears in any log.
+**Verification:** `nssm dump HC-TCP-Public` reviewed before first start. Confirm no secret value appears in any log.
 
 ---
 
@@ -300,10 +301,10 @@ Do **not** create `HC-TCP-Staff` yet. Port 8322 has no listener today, `Manager\
 
 Not executed. **Private means loopback and RDP only. No tunnel, no DNS, no public hostname.**
 
-1. `nssm start HC-TCP-Tearsheet`
+1. `nssm start HC-TCP-Public`
 2. `Get-NetTCPConnection -State Listen | Where LocalPort -eq 8302` — confirm it is bound to **127.0.0.1**, not `0.0.0.0`.
 3. `Invoke-WebRequest http://127.0.0.1:8302/healthz` from an RDP session.
-4. Read `C:\H&C\logs\tcp\tcp_stderr.log` end to end. Confirm no `StateNotFound`, no `StateLoadError`, no workbook-fallback warning, and no benchmark warnings beyond the expected skip-fetch notice.
+4. Read `C:\HC\logs\tcp\tcp_stderr.log` end to end. Confirm no `StateNotFound`, no `StateLoadError`, no workbook-fallback warning, and no benchmark warnings beyond the expected skip-fetch notice.
 5. Load `http://127.0.0.1:8302/` in a browser on the server and confirm the page renders, the title is `H&C - TCP`, the NAV chart draws, and the drawdown table populates.
 6. Confirm the firewall still blocks inbound 8302.
 
@@ -353,9 +354,74 @@ Not executed. This step validates the capability the laptop does not have.
 2. Hard-kill test: `Stop-Process` the listener PID. Confirm NSSM restarts it within the throttle window and `/healthz` recovers.
 3. Kill the venv stub parent rather than the child and confirm no orphan is left holding port 8302. This is where a missing process-tree-kill setting shows up.
 4. Verify log rotation triggers and that stdout and stderr are both captured.
-5. Confirm `tcp_daily_returns_secret_state.lock` is created and released cleanly and that no `.tmp` files are left in `C:\H&C\data\tcp\`.
+5. Confirm `tcp_daily_returns_secret_state.lock` is created and released cleanly and that no `.tmp` files are left in `C:\HC\data\tcp\`.
 6. Re-run the step 9 checks after the reboot. The state hash must be unchanged — a resident app with ingest disabled must not have written anything.
 7. Take an OVH snapshot and label it as the known-good pilot baseline.
+
+Steps 8–10 are **Phase 1 (private pilot)** of the Glenn uploader lifecycle below. Passing step 9 does **not** permit enabling VPS ingest.
+
+---
+
+## Glenn uploader lifecycle — mandatory gate (TCP)
+
+**Plan only — not executed.** This gate is mandatory for TCP production cutover. Full detail and checklists
+also live in `OVH_TCP_PILOT_PACKAGE.md` §8. The VPS pilot keeps
+`GLENN_UPLOADER_INGEST_ENABLED=false` until Phase 3.
+
+### Production path (migration audit)
+
+```
+Glenn uploader (Fly.io) → TCP_INGEST_URL
+  → POST https://<host>/api/uploader/ingest-daily-row
+  → Bearer GLENN_UPLOADER_INGEST_TOKEN
+  → TCP → tcp_daily_returns_secret_state.json → apply_tcp_recalculation()
+```
+
+### Phase 1 — Private pilot
+
+- Laptop remains **authoritative**; Glenn keeps sending to the **existing** production TCP target.
+- VPS ingest **disabled**; VPS state is a reconciled copy only (**no dual writers**).
+- Maps to steps 8–10 (private start, reconcile, reboot-test).
+
+### Phase 2 — Pre-cutover resync
+
+- Do not cut over using an **old** baseline snapshot.
+- Capture latest laptop TCP state: latest date, record count, `state_revision`, state file SHA-256.
+- Re-copy authoritative state to the VPS; reconcile again against the **new** capture.
+- Glenn on VPS remains **disabled**.
+
+### Phase 3 — Glenn cutover
+
+**URL:** Prefer keeping  
+`https://tcp-ts.hcresearch.ltd/api/uploader/ingest-daily-row`  
+if Cloudflare can route that hostname to the VPS (Glenn may need **no** `TCP_INGEST_URL` change). If a
+different hostname is required, document that Fly.io **`TCP_INGEST_URL`** must change at cutover (same
+path suffix).
+
+**Contract:**
+
+- `GLENN_UPLOADER_INGEST_TOKEN` on the VPS must match Glenn's downstream bearer token; **never** commit values.
+- **One** authoritative ingest target only; laptop must stop being authoritative as VPS becomes authoritative.
+- Enable `GLENN_UPLOADER_INGEST_ENABLED=true` on the VPS **only** in this controlled window (after Phase 2 resync).
+- Disable ingest on the laptop in the same window.
+
+**Preflight utility (required):** `uploader/backend/scripts/verify_downstream_ingest.py` — read-only
+`dry_run: true` probes per program; does not export or mark rows exported. Run from `uploader/backend/`
+before and after routing changes; use `--strict` for go-live. See
+`docs/downstream_export_go_live_runbook.md`. Run safe preflight **before** enabling production ingest on
+the VPS (token/URL/routing); re-run after `GLENN_UPLOADER_INGEST_ENABLED=true` to confirm TCP accepts
+probes without `ingest_disabled`.
+
+### Phase 4 — First live ingest test
+
+After cutover, submit the first real TCP row through Glenn's normal workflow. Verify: persisted HTTP
+response; correct date/NLV; `state_revision` and record count; VPS state file updated; recalculation and
+public display; ingest audit line; **laptop state did not** take the write.
+
+On failure: no competing manual rows; preserve logs/responses; fix config or execute documented rollback
+(disable VPS ingest, restore laptop ingest authority, revert Cloudflare/`TCP_INGEST_URL` if changed).
+
+**Production TCP on the VPS is not declared live until Phase 4 passes.**
 
 ---
 
@@ -369,12 +435,12 @@ Not executed.
 
 Pick one route before touching the VPS:
 
-- **Route A (recommended): merge the path-portability work.** `feature/vps-portability-completion` adds `tearsheet_paths.py` with `HC_TKP_SOURCE_WORKBOOK` and `HC_TKP_STATE_PATH`, already targeting `C:\H&C`. It comes with tests and documentation. This is a code change to production and belongs in its own reviewed change, not inside a deployment step.
-- **Route B: supply the workbook.** Kevin places the file in `C:\AI_HANDOFF`, it is copied to `C:\H&C\data\tkp\tkp_source_workbook.xlsx`, and the single literal in `tkp_ts.py` is pointed at it. Smaller change, but it leaves a hardcoded absolute path in production.
+- **Route A (recommended): deploy from the integrated branch.** `feature/ovh-tkp-tcp-agm-ready` already contains the path-portability work (`tearsheet_paths.py` with `HC_TKP_SOURCE_WORKBOOK` / `HC_TKP_STATE_PATH`, plus `HC_APP_ENV=vps-production` → `C:\HC\data\tkp`). This was executed and verified on the branch: under the VPS profile the TKP state resolves to `C:\HC\data\tkp\daily_returns_secret_state.json` and the workbook to `C:\HC\data\tkp\tkp_source_workbook.xlsx`, and an explicit VPS workbook override does **not** fall back to the protected folder. The `sys.exit(1)` import blocker on `live-main` is therefore resolved by this branch. Kevin still supplies the workbook *file* itself (data, not code) via `C:\AI_HANDOFF`.
+- **Route B: supply the workbook.** Kevin places the file in `C:\AI_HANDOFF`, it is copied to `C:\HC\data\tkp\tkp_source_workbook.xlsx`, and the single literal in `tkp_ts.py` is pointed at it. Smaller change, but it leaves a hardcoded absolute path in production.
 
 Route A is better. It also fixes AGM's path situation for free in step 11b.
 
-Then: copy `tkp_ts.py`, copy the state JSON (431,598 bytes, SHA-256 `93575C2F...`, 896 records), place the workbook, create `C:\H&C\config\tkp.env` and `C:\H&C\secrets\tkp.env` with `TKP_ADMIN_TOKEN` and `TKP_SESSION_SECRET`, install `HC-TKP-Tearsheet` on 8301 with ingest disabled, and start privately.
+Then: copy `tkp_ts.py`, copy the state JSON (431,598 bytes, SHA-256 `93575C2F...`, 896 records), place the workbook, create `C:\HC\config\tkp.env` and `C:\HC\secrets\tkp.env` with `TKP_ADMIN_TOKEN` and `TKP_SESSION_SECRET`, install `HC-TKP-Tearsheet` on 8301 with ingest disabled, and start privately.
 
 Two TKP-specific cautions:
 
@@ -383,13 +449,13 @@ Two TKP-specific cautions:
 
 ### 11b — AGM (third)
 
-1. Copy `Momentum Pacer\mp_ts.py` into `C:\H&C\apps\agm\Momentum Pacer\` and the eleven root-level `algominds_*` and `program_account_stats` modules into `C:\H&C\apps\agm\`. **Preserve that parent-child relationship** — `algominds_daily_balances.py` and `algominds_benchmark_daily.py` build paths as `Path(__file__).parent / "Momentum Pacer" / "data" / ...`.
+1. Copy `Momentum Pacer\mp_ts.py` into `C:\HC\apps\agm\Momentum Pacer\` and the eleven root-level `algominds_*` and `program_account_stats` modules into `C:\HC\apps\agm\`. **Preserve that parent-child relationship** — `algominds_daily_balances.py` and `algominds_benchmark_daily.py` build paths as `Path(__file__).parent / "Momentum Pacer" / "data" / ...`.
 2. Do not copy `Momentum Pacer\calc_engine.py` (legacy, unimported).
 3. **Resolve the fee workbook symlink.** The live-worktree entry is a 0-byte `SymbolicLink`; the real 365,554-byte file is at `C:\Coding Projects\Tearsheet Generator\Momentum Pacer\Momentum Fee Calculation.xlsx`. Copy from the real target. Hash the destination and confirm it is **not** `B63A1CBEA8A7F81803D695784FF2DD38383DA6BCE84F50CFEB98C9CCFE851A1E` — that is the hash of an empty file.
 4. Copy the manual rows JSON (7,658 bytes, SHA-256 `62612BD2...`, 59 rows), the pinned CSV (17,852 bytes, SHA-256 `D4B5B781...`), and the two benchmark CSVs.
-5. **Generate real AGM secrets.** `AGM_ADMIN_TOKEN` and `AGM_SESSION_SECRET` are not set in production today and fall back to code defaults. Create `C:\H&C\secrets\agm.env` with fresh values — this is a security improvement, so verify the admin login still works afterwards.
-6. Create `C:\H&C\config\agm.env` with `MP_TS_PRODUCTION=1`, `AGM_BIND_PORT=8304`, `AGM_BENCHMARK_CACHE_ONLY=1` for the first boot, `PYTHONIOENCODING=utf-8`, and `GLENN_UPLOADER_INGEST_ENABLED=false`.
-7. Install `HC-AGM-Tearsheet` with `AppDirectory` set to `C:\H&C\apps\agm\Momentum Pacer` — the current launcher `cd`s there before starting, and the working directory matters.
+5. **Generate real AGM secrets.** `AGM_ADMIN_TOKEN` and `AGM_SESSION_SECRET` are not set in production today and fall back to code defaults. Create `C:\HC\secrets\agm.env` with fresh values — this is a security improvement, so verify the admin login still works afterwards.
+6. Create `C:\HC\config\agm.env` with `MP_TS_PRODUCTION=1`, `AGM_BIND_PORT=8304`, `AGM_BENCHMARK_CACHE_ONLY=1` for the first boot, `PYTHONIOENCODING=utf-8`, and `GLENN_UPLOADER_INGEST_ENABLED=false`.
+7. Install `HC-AGM-Tearsheet` with `AppDirectory` set to `C:\HC\apps\agm\Momentum Pacer` — the current launcher `cd`s there before starting, and the working directory matters.
 8. Start privately and reconcile.
 
 ---
@@ -435,20 +501,39 @@ This step changes nothing about existing DNS or existing tunnels. The live hostn
 
 ## Step 14 — Prepare production cutover
 
-Not executed. **This step produces a plan and a rehearsal, not a cutover.**
+Not executed. **This step executes Glenn lifecycle Phases 2–4 for TCP** (see mandatory gate above). It is
+not a substitute for that gate.
 
 Per-app cutover sequence, one app at a time, starting with TCP:
 
 1. Announce a freeze window. Confirm no uploader export is in flight.
-2. **Final data re-sync.** Re-hash the laptop state file, compare to what is on the VPS, and re-copy if it has moved. This is the step that actually matters — everything up to here used a snapshot that is by then days old.
-3. Set `GLENN_UPLOADER_INGEST_ENABLED=true` on the VPS and restart that service. Remove the benchmark cache-only flags (`TCP_V2_SKIP_BENCHMARK_FETCH`, `AGM_BENCHMARK_CACHE_ONLY`) so live data resumes.
-4. Set `GLENN_UPLOADER_INGEST_ENABLED=false` on the **laptop** and restart it. **Exactly one host may accept ingest at any moment.** Both enabled means silent divergence; both disabled means a lost day.
-5. Update the single matching uploader setting — `TCP_INGEST_URL`, `TKP_INGEST_URL`, or `AGM_INGEST_URL` in the Fly configuration for `uploader/backend/app/config.py` — to the VPS hostname with the same `/api/uploader/ingest-daily-row` suffix. Leave `DOWNSTREAM_INGEST_TOKEN` unchanged unless you are also rotating it.
-6. Run the designed preflight: `uploader/backend/scripts/verify_downstream_ingest.py`, which reads the same `Settings`. Use the dry-run path (`GLENN_UPLOADER_INGEST_DRY_RUN_ALLOWED` is `true`) so the check does not mutate state.
-7. Repoint the production Cloudflare hostname (`tcp-ts.hcresearch.ltd`) from the laptop tunnel to the VPS tunnel.
-8. Watch for one full business day: `/healthz` revision increments after the day's ingest, the audit JSONL grows, `recovery_status` stays `normal`, no `.tmp` files accumulate, and the public page shows the new date.
-9. Keep the laptop running read-only, ingest disabled, as a warm rollback for at least one week. Rollback is: flip the uploader URL back, re-enable ingest on the laptop, repoint DNS.
-10. Only after all three apps are cut over and stable should the staff services, the retirement of `Manager\launch_all_services.py` for these three entries, and the `C:\H&C\backups` job be considered.
+2. **Phase 2 — final resync.** Re-hash laptop `tcp_daily_returns_secret_state.json`; record latest date,
+   record count, `state_revision`, and SHA-256; re-copy to the VPS if anything moved; reconcile against
+   the **new** capture (not the original pilot baseline).
+3. **Routing decision.** Prefer repointing Cloudflare so `tcp-ts.hcresearch.ltd` → VPS tunnel (ingest URL
+   unchanged). If hostname must change, plan the Fly.io `TCP_INGEST_URL` update for step 7.
+4. Run `uploader/backend/scripts/verify_downstream_ingest.py` (and `--strict` when appropriate) with
+   dry-run probes **before** enabling VPS ingest — confirms URL, token, and routing without mutating
+   uploader export state.
+5. Repoint production Cloudflare (`tcp-ts.hcresearch.ltd`) from laptop tunnel to VPS tunnel when using
+   hostname preservation.
+6. Set `GLENN_UPLOADER_INGEST_ENABLED=false` on the **laptop** and restart. Then set
+   `GLENN_UPLOADER_INGEST_ENABLED=true` on the VPS and restart `HC-TCP-Public`. **Exactly one host may
+   accept ingest.** Remove `TCP_V2_SKIP_BENCHMARK_FETCH` on the VPS when live benchmarks are desired.
+7. Update Fly.io `TCP_INGEST_URL` **only if** step 3 required a new hostname (same
+   `/api/uploader/ingest-daily-row` suffix). Do not rotate `DOWNSTREAM_INGEST_TOKEN` unless planned;
+   VPS `GLENN_UPLOADER_INGEST_TOKEN` must stay in sync — never commit token values.
+8. Re-run `verify_downstream_ingest.py` after VPS ingest is enabled; then execute **Phase 4 — first live
+   ingest test** (one real Glenn row; verify persistence, revision, recalculation, public page, audit,
+   and that laptop state did not update).
+9. Watch for one full business day: `/healthz` revision increments after the day's ingest, the audit
+   JSONL grows, `recovery_status` stays `normal`, no `.tmp` files accumulate, and the public page shows
+   the new date.
+10. Keep the laptop running read-only, ingest disabled, as a warm rollback for at least one week.
+    Rollback: disable VPS ingest, re-enable laptop ingest, repoint Cloudflare (and `TCP_INGEST_URL` if
+    changed).
+11. Only after all three apps are cut over and stable should the staff services, the retirement of
+    `Manager\launch_all_services.py` for these three entries, and the `C:\HC\backups` job be considered.
 
 ### Cutover risks to have an answer for in advance
 

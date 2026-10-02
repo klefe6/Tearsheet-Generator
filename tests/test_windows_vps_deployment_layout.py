@@ -14,7 +14,7 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEPLOY = REPO_ROOT / "deployment" / "windows-vps"
-PREVIEW_ROOT = DEPLOY / "filesystem-preview" / "H&C"
+PREVIEW_ROOT = DEPLOY / "filesystem-preview" / "HC"
 INIT_SCRIPT = DEPLOY / "scripts" / "Initialize-HCServerLayout.ps1"
 TEST_SCRIPT = DEPLOY / "scripts" / "Test-HCServerLayout.ps1"
 ENV_EXAMPLE = DEPLOY / "config-templates" / "hc-vps.env.example"
@@ -70,7 +70,7 @@ def test_env_template_has_no_secret_values():
     text = ENV_EXAMPLE.read_text(encoding="utf-8")
     assert "DO NOT COMMIT A POPULATED VERSION" in text
     assert "HC_APP_ENV=vps-production" in text
-    assert "HC_TKP_STATE_PATH=C:\\H&C\\data\\tkp" in text
+    assert "HC_TKP_STATE_PATH=C:\\HC\\data\\tkp" in text
     # Secret keys present but empty
     for line in text.splitlines():
         if line.startswith("TCP_V2_ADMIN_TOKEN="):
@@ -133,7 +133,7 @@ def test_vps_mappings_are_provider_neutral():
     combined = "\n".join(blobs)
     for forbidden in FORBIDDEN_VPS_SUBSTRINGS:
         assert forbidden not in combined, f"forbidden substring in VPS mappings: {forbidden}"
-    assert r"C:\H&C" in combined
+    assert r"C:\HC" in combined
 
 
 def test_initialize_script_creates_layout_in_temp_dir():
@@ -177,5 +177,5 @@ def test_vps_resolver_profile_still_coherent():
         env={tp.HC_APP_ENV_VAR: "vps-production"},
         module_dir=REPO_ROOT,
     )
-    assert str(paths.data_root).startswith(r"C:\H&C")
-    assert str(paths.tkp_state_path).startswith(r"C:\H&C\data\tkp")
+    assert str(paths.data_root).startswith(r"C:\HC")
+    assert str(paths.tkp_state_path).startswith(r"C:\HC\data\tkp")

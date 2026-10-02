@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  Copy application SOURCE from this repository to a VPS-style layout (default C:\H&C\apps).
+  Copy application SOURCE from this repository to a VPS-style layout (default C:\HC\apps).
 
 .SAFETY
   - Defaults to -WhatIf (dry run). Pass -ConfirmDeploy to write files.
@@ -10,7 +10,7 @@
 [CmdletBinding(SupportsShouldProcess = $true)]
 param(
     [Parameter(Mandatory)][ValidateSet('tkp', 'tcp', 'agm', 'yq', 'shared')][string]$App,
-    [string]$TargetRoot = 'C:\H&C',
+    [string]$TargetRoot = 'C:\HC',
     [switch]$ConfirmDeploy,
     [switch]$AllowOverwriteData
 )
@@ -29,7 +29,7 @@ if ($whatIf) {
     Write-Host "SAFE MODE: dry run only. Pass -ConfirmDeploy to copy files to $TargetRoot"
 }
 
-if ($ConfirmDeploy -and $TargetRoot -eq 'C:\H&C' -and $env:COMPUTERNAME -notmatch 'OVH|VPS|HC-') {
+if ($ConfirmDeploy -and $TargetRoot -eq 'C:\HC' -and $env:COMPUTERNAME -notmatch 'OVH|VPS|HC-') {
     Write-Warning "ConfirmDeploy targets $TargetRoot on host $($env:COMPUTERNAME). Ensure this is intentional."
 }
 

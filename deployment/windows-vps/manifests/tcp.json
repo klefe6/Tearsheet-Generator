@@ -11,31 +11,31 @@
   "staff_port": 8322,
   "health_endpoint": "/healthz",
   "service_name": "HC-TCP-Tearsheet",
-  "target_app_directory": "C:\\H&C\\apps\\tcp",
+  "target_app_directory": "C:\\HC\\apps\\tcp",
   "persistent_data_paths": [
     {
       "logical": "state_active",
       "env": "TCP_V2_STATE_PATH",
-      "vps_default": "C:\\H&C\\data\\tcp\\tcp_daily_returns_secret_state.json"
+      "vps_default": "C:\\HC\\data\\tcp\\tcp_daily_returns_secret_state.json"
     },
     {
       "logical": "state_backup",
       "env": "TCP_V2_STATE_BACKUP_PATH",
-      "vps_default": "C:\\H&C\\data\\tcp\\tcp_daily_returns_secret_state.backup.json"
+      "vps_default": "C:\\HC\\data\\tcp\\tcp_daily_returns_secret_state.backup.json"
     },
     {
       "logical": "state_lock",
       "env": "TCP_V2_STATE_LOCK_PATH",
-      "vps_default": "C:\\H&C\\data\\tcp\\tcp_daily_returns_secret_state.lock"
+      "vps_default": "C:\\HC\\data\\tcp\\tcp_daily_returns_secret_state.lock"
     },
     {
       "logical": "source_workbook",
       "env": "TCP_V2_WORKBOOK_PATH",
-      "vps_default": "C:\\H&C\\data\\tcp\\tcp_alex.xlsx"
+      "vps_default": "C:\\HC\\data\\tcp\\tcp_alex.xlsx"
     }
   ],
   "config_env_files": [
-    "C:\\H&C\\config\\tcp.env"
+    "C:\\HC\\config\\tcp.env"
   ],
   "config_variable_names": [
     "TCP_V2_BIND_PORT",
@@ -47,8 +47,8 @@
     "GLENN_UPLOADER_INGEST_TOKEN"
   ],
   "log_paths": [
-    "C:\\H&C\\logs\\tcp\\tcp_stdout.log",
-    "C:\\H&C\\logs\\tcp\\tcp_stderr.log"
+    "C:\\HC\\logs\\tcp\\tcp_stdout.log",
+    "C:\\HC\\logs\\tcp\\tcp_stderr.log"
   ],
   "source_files": [
     "tcp_ts_v2.py",

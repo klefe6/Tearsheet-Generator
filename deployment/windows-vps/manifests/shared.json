@@ -2,7 +2,7 @@
   "schema_version": "1.0.0",
   "app": "shared",
   "display_name": "Shared tearsheet modules",
-  "target_app_directory": "C:\\H&C\\apps\\shared",
+  "target_app_directory": "C:\\HC\\apps\\shared",
   "source_files": [
     "tearsheet_paths.py",
     "tearsheet_disclosure.py",

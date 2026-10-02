@@ -200,7 +200,7 @@ class PreviewState:
 
 
 def _tcp_state_base() -> Path:
-    # Central TCP state root: checkout on laptop (parity), C:\H&C\data\tcp on the
+    # Central TCP state root: checkout on laptop (parity), C:\HC\data\tcp on the
     # VPS profile. Per-file TCP_V2_STATE_* overrides still win inside
     # resolve_state_paths, so production launch env is unaffected.
     return resolve_tcp_data_root(deploy_root=REPO_ROOT)

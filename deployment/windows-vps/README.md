@@ -6,7 +6,7 @@ on a conventional Windows Server VPS.
 ## What this is
 
 - A **visual filesystem preview** you can browse in Windows Explorer
-- **Scripts** to create and validate the `C:\H&C\` layout on a real VPS
+- **Scripts** to create and validate the `C:\HC\` layout on a real VPS
 - **Manifests** describing apps, data, services, ports, and hostnames
 - **Configuration templates** (no secret values)
 
@@ -21,7 +21,7 @@ on a conventional Windows Server VPS.
 Open in Windows Explorer:
 
 ```text
-deployment\windows-vps\filesystem-preview\H&C\
+deployment\windows-vps\filesystem-preview\HC\
 ```
 
 Read the server map:
@@ -34,7 +34,7 @@ deployment\windows-vps\SERVER_MAP.md
 
 | Path | Purpose |
 |------|---------|
-| `filesystem-preview\H&C\` | Visual mirror of future `C:\H&C\` (README placeholders only) |
+| `filesystem-preview\HC\` | Visual mirror of future `C:\HC\` (README placeholders only) |
 | `scripts\` | `Initialize-HCServerLayout.ps1`, `Test-HCServerLayout.ps1` |
 | `config-templates\` | `hc-vps.env.example` (copy on VPS; never commit populated) |
 | `manifests\` | JSON maps for apps, data, services, network |
@@ -45,10 +45,10 @@ deployment\windows-vps\SERVER_MAP.md
 
 ```powershell
 # Create empty layout (on VPS only — not on laptop)
-.\deployment\windows-vps\scripts\Initialize-HCServerLayout.ps1 -Root "C:\H&C"
+.\deployment\windows-vps\scripts\Initialize-HCServerLayout.ps1 -Root "C:\HC"
 
 # Validate layout
-.\deployment\windows-vps\scripts\Test-HCServerLayout.ps1 -Root "C:\H&C"
+.\deployment\windows-vps\scripts\Test-HCServerLayout.ps1 -Root "C:\HC"
 ```
 
 ## Related documentation

@@ -29,8 +29,8 @@ Install Python 3.10.x (64-bit) and ensure `py -3.10` works.
 ## 4. Create shared virtual environment
 
 ```powershell
-py -3.10 -m venv C:\H&C\apps\shared\.venv310
-C:\H&C\apps\shared\.venv310\Scripts\pip install -r C:\src\Tearsheet-Generator\requirements.txt
+py -3.10 -m venv C:\HC\apps\shared\.venv310
+C:\HC\apps\shared\.venv310\Scripts\pip install -r C:\src\Tearsheet-Generator\requirements.txt
 ```
 
 ## 5. Create empty HC layout
@@ -38,27 +38,27 @@ C:\H&C\apps\shared\.venv310\Scripts\pip install -r C:\src\Tearsheet-Generator\re
 From the clone:
 
 ```powershell
-.\deployment\windows-vps\scripts\Initialize-HCServerLayout.ps1 -Root C:\H&C
-.\deployment\windows-vps\scripts\Test-HCServerLayout.ps1 -Root C:\H&C
+.\deployment\windows-vps\scripts\Initialize-HCServerLayout.ps1 -Root C:\\HC
+.\deployment\windows-vps\scripts\Test-HCServerLayout.ps1 -Root C:\\HC
 ```
 
 ## 6. Deploy application source (dry run first)
 
 ```powershell
-.\deployment\windows-vps\scripts\deploy-all.ps1 -TargetRoot C:\H&C
-.\deployment\windows-vps\scripts\deploy-all.ps1 -TargetRoot C:\H&C -ConfirmDeploy
+.\deployment\windows-vps\scripts\deploy-all.ps1 -TargetRoot C:\\HC
+.\deployment\windows-vps\scripts\deploy-all.ps1 -TargetRoot C:\\HC -ConfirmDeploy
 ```
 
 This copies **source only**. It does not copy financial JSON, CSV, XLSX, or secrets.
 
 ## 7. Restore production data (separate operation)
 
-Copy authoritative files into `C:\H&C\data\...` per `deployment\windows-vps\manifests\persistent-data-map.json`.
+Copy authoritative files into `C:\HC\data\...` per `deployment\windows-vps\manifests\persistent-data-map.json`.
 Use encrypted transfer; verify SHA-256 after copy.
 
 ## 8. Install secrets (separate operation)
 
-Create populated files under `C:\H&C\secrets\` and `C:\H&C\config\` from
+Create populated files under `C:\HC\secrets\` and `C:\HC\config\` from
 `deployment\windows-vps\config-templates\hc-vps.env.example` — **never commit populated values**.
 
 ## 9. Create Windows services (separate operation)

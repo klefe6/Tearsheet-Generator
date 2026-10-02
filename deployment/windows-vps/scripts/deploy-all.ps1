@@ -4,7 +4,7 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$TargetRoot = 'C:\H&C',
+    [string]$TargetRoot = 'C:\HC',
     [switch]$ConfirmDeploy,
     [switch]$AllowOverwriteData
 )

@@ -1,53 +1,53 @@
 {
-  "$comment": "Machine-readable Windows VPS deployment contract for the H&C tearsheet system. Contains NO credentials. Generated for HC_APP_ENV=vps-production. Paths are the canonical C:\\H&C layout resolved by tearsheet_paths.py; laptop defaults are reproduced exactly when HC_APP_ENV is unset.",
+  "$comment": "Machine-readable Windows VPS deployment contract for the H&C tearsheet system. Contains NO credentials. Generated for HC_APP_ENV=vps-production. Paths are the canonical C:\\HC layout resolved by tearsheet_paths.py; laptop defaults are reproduced exactly when HC_APP_ENV is unset.",
   "schema_version": "1.0.0",
   "app_env": "vps-production",
-  "canonical_root": "C:\\H&C",
+  "canonical_root": "C:\\HC",
   "provider_neutral": true,
   "apps": {
-    "root": "C:\\H&C\\apps",
-    "tkp": "C:\\H&C\\apps\\tkp",
-    "tcp": "C:\\H&C\\apps\\tcp",
-    "agm": "C:\\H&C\\apps\\agm",
-    "yq": "C:\\H&C\\apps\\yq",
-    "dashboard": "C:\\H&C\\apps\\dashboard",
-    "shared": "C:\\H&C\\apps\\shared"
+    "root": "C:\\HC\\apps",
+    "tkp": "C:\\HC\\apps\\tkp",
+    "tcp": "C:\\HC\\apps\\tcp",
+    "agm": "C:\\HC\\apps\\agm",
+    "yq": "C:\\HC\\apps\\yq",
+    "dashboard": "C:\\HC\\apps\\dashboard",
+    "shared": "C:\\HC\\apps\\shared"
   },
   "data": {
-    "root": "C:\\H&C\\data",
-    "tkp": "C:\\H&C\\data\\tkp",
-    "tcp": "C:\\H&C\\data\\tcp",
-    "agm": "C:\\H&C\\data\\agm",
-    "yq": "C:\\H&C\\data\\yq"
+    "root": "C:\\HC\\data",
+    "tkp": "C:\\HC\\data\\tkp",
+    "tcp": "C:\\HC\\data\\tcp",
+    "agm": "C:\\HC\\data\\agm",
+    "yq": "C:\\HC\\data\\yq"
   },
   "config": {
-    "root": "C:\\H&C\\config"
+    "root": "C:\\HC\\config"
   },
   "secrets": {
-    "root": "C:\\H&C\\secrets",
+    "root": "C:\\HC\\secrets",
     "policy": "No secret values are stored here in Git. Injected at deploy time via NSSM service environment or read from this directory at runtime."
   },
   "logs": {
-    "root": "C:\\H&C\\logs",
-    "tkp": "C:\\H&C\\logs\\tkp",
-    "tcp": "C:\\H&C\\logs\\tcp",
-    "agm": "C:\\H&C\\logs\\agm",
-    "yq": "C:\\H&C\\logs\\yq",
-    "dashboard": "C:\\H&C\\logs\\dashboard",
-    "ingest": "C:\\H&C\\logs\\ingest"
+    "root": "C:\\HC\\logs",
+    "tkp": "C:\\HC\\logs\\tkp",
+    "tcp": "C:\\HC\\logs\\tcp",
+    "agm": "C:\\HC\\logs\\agm",
+    "yq": "C:\\HC\\logs\\yq",
+    "dashboard": "C:\\HC\\logs\\dashboard",
+    "ingest": "C:\\HC\\logs\\ingest"
   },
   "backups": {
-    "root": "C:\\H&C\\backups",
-    "tkp": "C:\\H&C\\backups\\tkp",
-    "tcp": "C:\\H&C\\backups\\tcp",
-    "agm": "C:\\H&C\\backups\\agm",
-    "yq": "C:\\H&C\\backups\\yq"
+    "root": "C:\\HC\\backups",
+    "tkp": "C:\\HC\\backups\\tkp",
+    "tcp": "C:\\HC\\backups\\tcp",
+    "agm": "C:\\HC\\backups\\agm",
+    "yq": "C:\\HC\\backups\\yq"
   },
   "website": {
-    "root": "C:\\H&C\\website"
+    "root": "C:\\HC\\website"
   },
   "deployment": {
-    "root": "C:\\H&C\\deployment"
+    "root": "C:\\HC\\deployment"
   },
   "ports": {
     "dashboard": 8006,
@@ -62,95 +62,95 @@
   "services": {
     "$comment": "Predictable inputs for future NSSM service definitions. This phase does NOT create services. working_directory is the app dir; data lives separately under data\\. No NSSM/IIS/Cloudflare changes are performed here.",
     "tkp_public": {
-      "app_dir": "C:\\H&C\\apps\\tkp",
-      "working_directory": "C:\\H&C\\apps\\tkp",
+      "app_dir": "C:\\HC\\apps\\tkp",
+      "working_directory": "C:\\HC\\apps\\tkp",
       "script": "tkp_ts.py",
       "port": 8301,
       "env_profile": "vps-production",
       "runtime_mode": "public",
-      "log_dir": "C:\\H&C\\logs\\tkp"
+      "log_dir": "C:\\HC\\logs\\tkp"
     },
     "tcp_public": {
-      "app_dir": "C:\\H&C\\apps\\tcp",
-      "working_directory": "C:\\H&C\\apps\\tcp",
+      "app_dir": "C:\\HC\\apps\\tcp",
+      "working_directory": "C:\\HC\\apps\\tcp",
       "script": "tcp_ts_v2.py",
       "port": 8302,
       "env_profile": "vps-production",
       "runtime_mode": "public",
-      "log_dir": "C:\\H&C\\logs\\tcp"
+      "log_dir": "C:\\HC\\logs\\tcp"
     },
     "yq_public": {
-      "app_dir": "C:\\H&C\\apps\\yq",
-      "working_directory": "C:\\H&C\\apps\\yq",
+      "app_dir": "C:\\HC\\apps\\yq",
+      "working_directory": "C:\\HC\\apps\\yq",
       "script": "yq_ts.py",
       "port": 8303,
       "env_profile": "vps-production",
       "runtime_mode": "public",
-      "log_dir": "C:\\H&C\\logs\\yq"
+      "log_dir": "C:\\HC\\logs\\yq"
     },
     "agm_public": {
-      "app_dir": "C:\\H&C\\apps\\agm",
-      "working_directory": "C:\\H&C\\apps\\agm\\Momentum Pacer",
+      "app_dir": "C:\\HC\\apps\\agm",
+      "working_directory": "C:\\HC\\apps\\agm\\Momentum Pacer",
       "script": "mp_ts.py",
       "port": 8304,
       "env_profile": "vps-production",
       "runtime_mode": "public",
-      "log_dir": "C:\\H&C\\logs\\agm"
+      "log_dir": "C:\\HC\\logs\\agm"
     },
     "tkp_staff": {
-      "app_dir": "C:\\H&C\\apps\\tkp",
-      "working_directory": "C:\\H&C\\apps\\tkp",
+      "app_dir": "C:\\HC\\apps\\tkp",
+      "working_directory": "C:\\HC\\apps\\tkp",
       "script": "tkp_ts.py",
       "port": 8321,
       "env_profile": "vps-production",
       "runtime_mode": "staff",
-      "log_dir": "C:\\H&C\\logs\\tkp"
+      "log_dir": "C:\\HC\\logs\\tkp"
     },
     "tcp_staff": {
-      "app_dir": "C:\\H&C\\apps\\tcp",
-      "working_directory": "C:\\H&C\\apps\\tcp",
+      "app_dir": "C:\\HC\\apps\\tcp",
+      "working_directory": "C:\\HC\\apps\\tcp",
       "script": "tcp_ts_v2.py",
       "port": 8322,
       "env_profile": "vps-production",
       "runtime_mode": "staff",
-      "log_dir": "C:\\H&C\\logs\\tcp"
+      "log_dir": "C:\\HC\\logs\\tcp"
     },
     "agm_staff": {
-      "app_dir": "C:\\H&C\\apps\\agm",
-      "working_directory": "C:\\H&C\\apps\\agm\\Momentum Pacer",
+      "app_dir": "C:\\HC\\apps\\agm",
+      "working_directory": "C:\\HC\\apps\\agm\\Momentum Pacer",
       "script": "mp_ts.py",
       "port": 8324,
       "env_profile": "vps-production",
       "runtime_mode": "staff",
-      "log_dir": "C:\\H&C\\logs\\agm"
+      "log_dir": "C:\\HC\\logs\\agm"
     },
     "dashboard": {
-      "app_dir": "C:\\H&C\\apps\\dashboard",
-      "working_directory": "C:\\H&C\\apps\\dashboard",
+      "app_dir": "C:\\HC\\apps\\dashboard",
+      "working_directory": "C:\\HC\\apps\\dashboard",
       "script": "TBD (Manager landing app, external to this repo)",
       "port": 8006,
       "env_profile": "vps-production",
       "runtime_mode": "public",
-      "log_dir": "C:\\H&C\\logs\\dashboard",
+      "log_dir": "C:\\HC\\logs\\dashboard",
       "note": "Dashboard/launcher currently lives in the external Manager repo and was intentionally not modified in this phase."
     }
   },
   "environment_variables": {
     "profile_selector": "HC_APP_ENV=vps-production",
     "roots": {
-      "HC_APPS_ROOT": "C:\\H&C\\apps",
-      "HC_DATA_ROOT": "C:\\H&C\\data",
-      "HC_CONFIG_ROOT": "C:\\H&C\\config",
-      "HC_SECRETS_ROOT": "C:\\H&C\\secrets",
-      "HC_LOG_ROOT": "C:\\H&C\\logs",
-      "HC_BACKUP_ROOT": "C:\\H&C\\backups",
-      "HC_WEBSITE_ROOT": "C:\\H&C\\website"
+      "HC_APPS_ROOT": "C:\\HC\\apps",
+      "HC_DATA_ROOT": "C:\\HC\\data",
+      "HC_CONFIG_ROOT": "C:\\HC\\config",
+      "HC_SECRETS_ROOT": "C:\\HC\\secrets",
+      "HC_LOG_ROOT": "C:\\HC\\logs",
+      "HC_BACKUP_ROOT": "C:\\HC\\backups",
+      "HC_WEBSITE_ROOT": "C:\\HC\\website"
     },
     "per_program_data_roots": {
-      "HC_TKP_DATA_ROOT": "C:\\H&C\\data\\tkp",
-      "HC_TCP_DATA_ROOT": "C:\\H&C\\data\\tcp",
-      "HC_AGM_DATA_ROOT": "C:\\H&C\\data\\agm",
-      "HC_YQ_DATA_ROOT": "C:\\H&C\\data\\yq"
+      "HC_TKP_DATA_ROOT": "C:\\HC\\data\\tkp",
+      "HC_TCP_DATA_ROOT": "C:\\HC\\data\\tcp",
+      "HC_AGM_DATA_ROOT": "C:\\HC\\data\\agm",
+      "HC_YQ_DATA_ROOT": "C:\\HC\\data\\yq"
     },
     "secret_env_keys_no_values": [
       "TCP_V2_ADMIN_TOKEN",
@@ -161,77 +161,77 @@
   "persistent_files": {
     "tkp_state": {
       "program": "TKP",
-      "vps_path": "C:\\H&C\\data\\tkp\\daily_returns_secret_state.json",
+      "vps_path": "C:\\HC\\data\\tkp\\daily_returns_secret_state.json",
       "read_write": "read/write",
       "backup_required": true,
       "env_key": "HC_TKP_STATE_PATH"
     },
     "tkp_source_workbook": {
       "program": "TKP",
-      "vps_path": "C:\\H&C\\data\\tkp\\tkp_source_workbook.xlsx",
+      "vps_path": "C:\\HC\\data\\tkp\\tkp_source_workbook.xlsx",
       "read_write": "read",
       "backup_required": true,
       "env_key": "HC_TKP_SOURCE_WORKBOOK"
     },
     "tcp_state": {
       "program": "TCP",
-      "vps_path": "C:\\H&C\\data\\tcp\\tcp_daily_returns_secret_state.json",
+      "vps_path": "C:\\HC\\data\\tcp\\tcp_daily_returns_secret_state.json",
       "read_write": "read/write",
       "backup_required": true,
       "env_key": "HC_TCP_DATA_ROOT (base) or TCP_V2_STATE_PATH (explicit)"
     },
     "tcp_source_workbook": {
       "program": "TCP",
-      "vps_path": "C:\\H&C\\data\\tcp\\tcp_alex.xlsx",
+      "vps_path": "C:\\HC\\data\\tcp\\tcp_alex.xlsx",
       "read_write": "read",
       "backup_required": true,
       "env_key": "TCP_V2_WORKBOOK_PATH"
     },
     "agm_manual_state": {
       "program": "AGM",
-      "vps_path": "C:\\H&C\\data\\agm\\momentum_pacer_manual_daily_rows.json",
+      "vps_path": "C:\\HC\\data\\agm\\momentum_pacer_manual_daily_rows.json",
       "read_write": "read/write",
       "backup_required": true,
       "env_key": "HC_AGM_MANUAL_STATE_PATH"
     },
     "agm_fee_workbook": {
       "program": "AGM",
-      "vps_path": "C:\\H&C\\data\\agm\\Momentum Fee Calculation.xlsx",
+      "vps_path": "C:\\HC\\data\\agm\\Momentum Fee Calculation.xlsx",
       "read_write": "read",
       "backup_required": true,
       "env_key": "HC_AGM_FEE_WORKBOOK"
     },
     "agm_pinned_csv": {
       "program": "AGM",
-      "vps_path": "C:\\H&C\\data\\agm\\data\\daily_balances\\balances_210TGG51_20OCT2025_07JUL2026.csv",
+      "vps_path": "C:\\HC\\data\\agm\\data\\daily_balances\\balances_210TGG51_20OCT2025_07JUL2026.csv",
       "read_write": "read",
       "backup_required": true,
       "env_key": "HC_AGM_PINNED_CSV"
     },
     "agm_benchmark_cache": {
       "program": "AGM",
-      "vps_path": "C:\\H&C\\data\\agm\\data\\benchmarks",
+      "vps_path": "C:\\HC\\data\\agm\\data\\benchmarks",
       "read_write": "read/write",
       "backup_required": false,
       "env_key": "HC_AGM_BENCHMARK_CACHE_DIR"
     },
     "yq_csv": {
       "program": "Y&Q",
-      "vps_path": "C:\\H&C\\data\\yq\\yq.csv",
+      "vps_path": "C:\\HC\\data\\yq\\yq.csv",
       "read_write": "read",
       "backup_required": true,
       "env_key": "YQ_CSV_PATH / HC_YQ_DATA_ROOT"
     },
     "tcp_ingest_audit": {
       "program": "TCP",
-      "vps_path": "C:\\H&C\\logs\\ingest\\glenn_uploader_ingest_tcp_audit.jsonl",
+      "vps_path": "C:\\HC\\logs\\ingest\\glenn_uploader_ingest_tcp_audit.jsonl",
       "read_write": "append",
       "backup_required": false,
       "env_key": "HC_TCP_INGEST_AUDIT_PATH"
     },
     "agm_ingest_audit": {
       "program": "AGM",
-      "vps_path": "C:\\H&C\\logs\\ingest\\glenn_uploader_ingest_agm_audit.jsonl",
+      "vps_path": "C:\\HC\\logs\\ingest\\glenn_uploader_ingest_agm_audit.jsonl",
       "read_write": "append",
       "backup_required": false,
       "env_key": "HC_AGM_INGEST_AUDIT_PATH"

@@ -1,4 +1,4 @@
-# Windows VPS Filesystem Layout — `C:\H&C\`
+# Windows VPS Filesystem Layout — `C:\HC\`
 
 Canonical, provider-neutral filesystem contract for deploying the Hughes &
 Company tearsheet system to a conventional Windows Server VPS (AWS Lightsail
@@ -16,7 +16,7 @@ unchanged.
 ## Canonical tree
 
 ```text
-C:\H&C\
+C:\HC\
 │
 ├── apps\                # Application source (code only — no authoritative state)
 │   ├── tkp\
@@ -60,7 +60,7 @@ C:\H&C\
 `C:` is the one volume every conventional Windows Server VPS exposes by default.
 AWS Lightsail Windows, OVHcloud, and Azure Windows Server do **not** all attach a
 second data volume automatically. Anchoring the canonical contract on
-`C:\H&C\` is therefore the most provider-neutral choice and supersedes the
+`C:\HC\` is therefore the most provider-neutral choice and supersedes the
 earlier `E:\H&C` draft from the TKP path lane.
 
 Operators who *do* attach a dedicated data disk can point the data tree at it

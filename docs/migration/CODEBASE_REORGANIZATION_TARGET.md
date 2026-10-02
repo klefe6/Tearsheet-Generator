@@ -2,10 +2,10 @@
 
 ## Goals
 
-1. One obvious home per application on the VPS (`C:\H&C\apps\<app>`).
-2. One shared module tree (`C:\H&C\apps\shared` + per-app copies or PYTHONPATH).
+1. One obvious home per application on the VPS (`C:\\HC\apps\<app>`).
+2. One shared module tree (`C:\\HC\apps\shared` + per-app copies or PYTHONPATH).
 3. Zero live financial data in Git or under `apps\*\` source trees on VPS.
-4. Secrets only under `C:\H&C\secrets\` (never committed).
+4. Secrets only under `C:\\HC\secrets\` (never committed).
 5. Paths via `tearsheet_paths.load_tearsheet_paths()` and `HC_APP_ENV` profiles.
 6. Same Git checkout on laptop and VPS; differences = env files only.
 7. Frozen entrypoint **filenames** at repo root until shims prove stable.
@@ -38,7 +38,7 @@ Physical `git mv` into `apps/tkp/` etc. follows `docs/reorganization/file-classi
 ## VPS tree (`HC_APP_ENV=vps-production`)
 
 ```
-C:\H&C\
+C:\\HC\
 ├── apps\tkp|tcp|agm|yq|shared|uploader
 ├── data\tkp|tcp|agm|yq
 ├── config\*.env
@@ -48,7 +48,7 @@ C:\H&C\
 └── deployment\                  # Copied from repo or second clone
 ```
 
-Note: User brief used `C:\HC\`; this repo standardizes on **`C:\H&C\`** (ampersand) to match existing OVH documentation and `tearsheet_paths.VPS_ROOT`.
+Canonical OVH VPS root is **`C:\HC\`** (`tearsheet_paths.VPS_ROOT`). The superseded `C:\H&C\` draft required extra quoting in NSSM and shell; see historical notes in `tearsheet_paths.py` and `OVH_VPS_TARGET.md`.
 
 ## Environment profiles
 
@@ -56,8 +56,8 @@ Note: User brief used `C:\HC\`; this repo standardizes on **`C:\H&C\`** (ampersa
 |--------------|-------------|-----------|
 | `local-production` (default) | Repo / worktree checkout | Beside checkout (legacy) |
 | `local-dev` | Repo checkout | Beside checkout / overrides |
-| `vps-production` | `C:\H&C\apps\<app>` | `C:\H&C\data\...` |
-| `vps-sandbox` | Same layout | `C:\H&C\data\sandbox\...` |
+| `vps-production` | `C:\HC\apps\<app>` | `C:\HC\data\...` |
+| `vps-sandbox` | Same layout | `C:\HC\data\sandbox\...` |
 
 Override any root with `HC_DEPLOY_ROOT`, `HC_DATA_ROOT`, `HC_TKP_STATE_PATH`, etc.
 
@@ -66,8 +66,8 @@ Override any root with `HC_DEPLOY_ROOT`, `HC_DATA_ROOT`, `HC_TKP_STATE_PATH`, et
 | Operation | Tooling |
 |-----------|---------|
 | Code deploy | `deploy-app.ps1 -ConfirmDeploy` |
-| Data migration | Manual / encrypted copy to `C:\H&C\data` |
-| Secrets | Manual files under `C:\H&C\secrets` |
+| Data migration | Manual / encrypted copy to `C:\\HC\data` |
+| Secrets | Manual files under `C:\\HC\secrets` |
 | Service install/restart | NSSM — **not** invoked by deploy scripts |
 | Public cutover | Cloudflare/DNS — out of scope |
 
