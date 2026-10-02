@@ -151,7 +151,7 @@ def test_downstream_export_production_fails_closed_without_ingest_config():
         body = r.json()
         result = body["downstream"]["results"]["AGM"]
         assert result["status"] == "failure"
-        assert "AGM_INGEST_URL is not configured" in result["date_results"][0]["reason"]
+        assert "INGEST_URL is not set" in result["date_results"][0]["reason"]
         assert body["external_calls_made"] == 0
         # A failed row must NOT be marked exported -> stays retry-able.
         rows = client.get("/api/rows/AGM").json()["rows"]

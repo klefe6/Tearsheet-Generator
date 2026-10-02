@@ -87,7 +87,7 @@ def test_tkp_should_not_show_total_column():
 
 def test_tcp_should_not_show_total_column():
     stats = pas.ProgramAccountStats(
-        proprietary=_bucket(nominal=50_000, opened=2, open_now=2),
+        proprietary=_bucket(nominal=100_000, opened=2, open_now=2),
         client=_bucket(nominal=0, opened=0, open_now=0),
     )
     assert pas.should_show_total_column(stats) is False

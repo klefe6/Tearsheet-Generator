@@ -4,7 +4,7 @@
 // failure/Failed/Dry run/Exported-to-sandbox/Y&Q-skipped requirements) is
 // easy to read and test in isolation.
 
-import type { ApiDownstreamProgramResult, ApiExportResult } from '../api/client'
+import type { ApiDownstreamProgramResult, ApiExportLatestBatch, ApiExportResult } from '../api/client'
 import type { ExportOverallStatus, ExportProgramStatus, ExportUiState } from '../types'
 
 /** Authoritative dry-run flag — prefers real_writes_enabled over legacy dry_run. */
@@ -61,6 +61,42 @@ function overallDownstreamStatus(
   return targetEnv === 'production' ? 'pushed' : 'sandbox_success'
 }
 
+/** Whether the UI may offer "undo last export". Production downstream writes
+ *  cannot be reversed from the uploader (no tearsheet delete route); sandbox
+ *  rollback requires EXPORT_ROLLBACK_ENABLED + admin token. */
+export function exportCanUndo(data: {
+  downstream?: ApiExportResult['downstream']
+  real_writes_enabled?: boolean
+  dry_run?: boolean
+}): boolean {
+  if (!data.downstream) {
+    return false
+  }
+  const target = data.downstream.target_env
+  const live =
+    typeof data.real_writes_enabled === 'boolean'
+      ? data.real_writes_enabled
+      : !data.downstream.dry_run && !data.dry_run
+  if (target === 'production' && live) {
+    return false
+  }
+  return false
+}
+
+export function undoActionMessage(exportState: ExportUiState): string {
+  if (exportState.targetEnv === 'production' && exportState.dryRun === false) {
+    return (
+      'Production tearsheets were updated by Export All. The uploader cannot undo that ' +
+      'from here — use each tearsheet admin “Delete last row” (or ops) to remove a bad day. ' +
+      'This button only clears the export status banner on this page.'
+    )
+  }
+  return (
+    'Clears the export status banner on this page only. It does not change saved rows ' +
+    'or production tearsheets.'
+  )
+}
+
 /** Build the next ExportUiState from a successful POST /api/export/all response. */
 export function deriveExportState(data: ApiExportResult, exportedAt: Date): ExportUiState {
   const eligibleCount =
@@ -75,7 +111,7 @@ export function deriveExportState(data: ApiExportResult, exportedAt: Date): Expo
     return {
       lastExportAt: exportedAt,
       overallStatus: eligibleCount === 0 ? 'no_eligible' : 'saved',
-      canUndo: true,
+      canUndo: exportCanUndo(data),
       rowCount: data.total_rows,
       programStatuses: [],
       eligibleCount,
@@ -92,6 +128,12 @@ export function deriveExportState(data: ApiExportResult, exportedAt: Date): Expo
     status: r.status,
     reason: firstReason(r),
     verification: programVerification(r),
+    dateResults: r.date_results.map((d) => ({
+      date: d.date,
+      status: d.status,
+      reason: d.reason,
+      verification: d.verification,
+    })),
   }))
 
   const dryRunHadFailure = Object.entries(results).some(
@@ -117,7 +159,7 @@ export function deriveExportState(data: ApiExportResult, exportedAt: Date): Expo
   return {
     lastExportAt: exportedAt,
     overallStatus,
-    canUndo: true,
+    canUndo: exportCanUndo(data),
     rowCount: data.total_rows,
     programStatuses,
     targetEnv,
@@ -126,6 +168,30 @@ export function deriveExportState(data: ApiExportResult, exportedAt: Date): Expo
     exportedCount,
     dryRun,
   }
+}
+
+/** Hydrate export badge state from GET /api/export/latest after a page reload. */
+export function deriveExportStateFromLatestBatch(
+  batch: ApiExportLatestBatch,
+  configured: { real_writes_enabled?: boolean } | null,
+): ExportUiState {
+  const exportedAt = new Date(batch.ts)
+  const realWrites =
+    typeof configured?.real_writes_enabled === 'boolean'
+      ? configured.real_writes_enabled
+      : !batch.dry_run
+  const data = {
+    dry_run: !realWrites,
+    total_rows: batch.row_count,
+    eligible_count: batch.eligible_count,
+    exported_count: batch.exported_count,
+    downstream: batch.downstream,
+    real_writes_enabled: realWrites,
+  } as ApiExportResult
+  const state = deriveExportState(data, exportedAt)
+  state.eligibleCount = batch.eligible_count
+  state.exportedCount = batch.exported_count
+  return state
 }
 
 /**
@@ -196,7 +262,7 @@ export function offlineMockExportState(rowCount: number, exportedAt: Date): Expo
   return {
     lastExportAt: exportedAt,
     overallStatus: 'offline_mock',
-    canUndo: true,
+    canUndo: false,
     rowCount,
     programStatuses: [],
   }

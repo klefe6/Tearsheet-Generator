@@ -1176,7 +1176,7 @@ if SHOW_PLACEHOLDERS:
 # Account Stats table: (label, proprietary_display, client_display). Used to build
 # the Account Stats table; formatting: currency $ and commas, integers plain, N/A uppercase.
 ACCOUNT_STATS = [
-    ("Nominal Assets Being Traded in the Program", "$50,000", "0"),
+    ("Nominal Assets Being Traded in the Program", "$100,000", "0"),
     ("Total Accounts/Tranches Opened", "2", "0"),
     ("Accounts/Tranches Currently Open", "2", "0"),
     ("Accounts/Tranches Closed Profitably", "0", "0"),

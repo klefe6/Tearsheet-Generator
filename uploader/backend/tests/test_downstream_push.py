@@ -146,13 +146,14 @@ def test_real_push_marks_exported_and_is_idempotent_at_uploader_level(mock_inges
         assert body["downstream"]["results"]["AGM"]["status"] == "success"
         assert all(req["auth"] == f"Bearer {TOKEN}" for req in server.requests)
         assert client.get("/api/rows/TKP").json()["rows"][0]["exported"] is True
+        assert len(server.requests) == 5  # 3 preflight dry-runs + 2 real pushes
 
         # Second Export All: nothing unexported -> no rows sent, no calls.
         r2 = client.post("/api/export/all")
         body2 = r2.json()
         assert body2["external_calls_made"] == 0
         assert body2["downstream"]["results"]["TKP"]["status"] == "no_rows"
-        assert len(server.requests) == 2  # no new HTTP traffic
+        assert len(server.requests) == 5  # no new HTTP traffic
     finally:
         client.close()
 
@@ -196,7 +197,7 @@ def test_downstream_rejection_is_a_failure_not_marked_exported(mock_ingest):
         body = r.json()
         result = body["downstream"]["results"]["TCP"]
         assert result["status"] == "failure"
-        assert body["external_calls_made"] == 1  # call made, rejected downstream
+        assert body["external_calls_made"] == 0  # blocked at preflight (bad token)
         assert client.get("/api/rows/TCP").json()["rows"][0]["exported"] is False
     finally:
         client.close()
@@ -238,7 +239,7 @@ class _MockIngestNoPersist(_MockIngest):
         )
         payload = {
             "accepted": True,
-            "dry_run": False,
+            "dry_run": bool(body.get("dry_run")),
             "program": body.get("program"),
             "date": body.get("date"),
             "action": "created",
@@ -246,6 +247,8 @@ class _MockIngestNoPersist(_MockIngest):
             "before": None,
             "after": _mock_after_state(body),
         }
+        if not payload["dry_run"]:
+            payload["persisted"] = False
         raw = json.dumps(payload).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")

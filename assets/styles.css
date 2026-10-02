@@ -240,6 +240,14 @@ body, #page-container {
   width: 100% !important;
   height: auto !important;
 }
+
+/* TKP public NAV chart — match tearsheet title styling (no HTML underline) */
+#NAV-graph .gtitle,
+#NAV-graph .gtitle tspan {
+  fill: var(--primary-color) !important;
+  text-decoration: none !important;
+  font-weight: 500;
+}
 #bench-overlay {
   width: 100% !important;
   height: auto !important;

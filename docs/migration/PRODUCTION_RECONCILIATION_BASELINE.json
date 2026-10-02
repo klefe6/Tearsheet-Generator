@@ -1,0 +1,84 @@
+{
+  "baseline_timestamp": "2026-07-26T06:00:00-04:00",
+  "verification_method": "read-only inspection of live production state files (no modification)",
+  "active_source_worktree": "C:\\Coding Projects\\Tearsheet Generator\\.worktrees\\live-deploy-main",
+  "git_commit": "f540135",
+  "git_branch": "live-main",
+  "note": "Values verified, not blindly adopted. Stale/anomalous source data is flagged as a data-quality issue, NOT corrected here.",
+  "applications": [
+    {
+      "app": "TKP",
+      "data_source": "daily_returns_secret_state.json (StoneX column authoritative)",
+      "state_file": "C:\\Coding Projects\\Tearsheet Generator\\daily_returns_secret_state.json",
+      "sha256": "7D3073E8C02DD47DF547CA7620EBB8E7453FA18E4D05B0A1455EC7A1A4DFCCD8",
+      "row_count": 847,
+      "earliest_date": "2023-04-10",
+      "latest_date": "2026-07-23",
+      "latest_stonex": "$83,245.09",
+      "latest_nav_column": "$193,201.40",
+      "prior_anchor_stonex": "$82,955.48 (superseded)",
+      "data_current_label": "latest trading day 2026-07-23; verify vs Fri 2026-07-24 close (possible 1-day lag)",
+      "expected_public_url": "tkp.hughesandco.ltd",
+      "expected_admin_url": "admin-tkp.hughesandco.ltd",
+      "internal_ports": {"public": 8301, "staff": 8321},
+      "chart_endpoint_note": "public NAV/StoneX chart plots StoneX series"
+    },
+    {
+      "app": "TCP",
+      "data_source": "tcp_daily_returns_secret_state.json (source workbook tcp_alex.xlsx, excel_bootstrap)",
+      "state_file": "C:\\Coding Projects\\Tearsheet Generator\\tcp_daily_returns_secret_state.json",
+      "sha256": "489841BB403071B6746F88671D4BD19F180522F6942E87552170698A33137369",
+      "record_count": 112,
+      "earliest_date": "2026-01-20",
+      "latest_date": "2026-06-24",
+      "latest_nlv": "$43,007.30",
+      "latest_nav_x1": "$44,871.38",
+      "hwm": "$50,056.79",
+      "revision": 1,
+      "updated_at": "2026-07-02T17:58:23Z",
+      "prior_anchor_nlv": "$49,300.55 (prior figure; NOT current)",
+      "data_current_label": "STALE — latest completed date 2026-06-24 (~1 month behind TKP/AGM). FLAGGED as data-currency concern.",
+      "expected_public_url": "tcp.hughesandco.ltd",
+      "expected_admin_url": "admin-tcp.hughesandco.ltd",
+      "internal_ports": {"public": 8302, "staff": 8322}
+    },
+    {
+      "app": "AGM",
+      "aka": "Momentum Pacer",
+      "data_source": "momentum_pacer_manual_daily_rows.json + Momentum Fee Calculation.xlsx (merged with TradeStation NLV)",
+      "state_file": "C:\\Coding Projects\\Tearsheet Generator\\.worktrees\\live-deploy-main\\Momentum Pacer\\momentum_pacer_manual_daily_rows.json",
+      "sha256": "D11CB4688A3EF2C4826D4E74A060F3DC2A8F612573621ADE56CD57B947A4B8B1",
+      "row_count_manual": 10,
+      "earliest_date": "2026-07-11",
+      "latest_date": "2026-07-23",
+      "latest_actual_nlv": "$43,496.60",
+      "latest_incentive_fee_paid": "0.0",
+      "prior_anchor_nlv": "$44,709.50 (prior TradeStation figure; NLV moves daily)",
+      "data_current_label": "current to 2026-07-23 (manual rows); full series also draws TradeStation CSV",
+      "expected_public_url": "agm.hughesandco.ltd",
+      "expected_admin_url": "admin-agm.hughesandco.ltd",
+      "internal_ports": {"public": 8304, "staff": 8324}
+    },
+    {
+      "app": "YQ",
+      "data_source": "yq.csv / yq.xlsx",
+      "state_file": "C:\\Coding Projects\\Tearsheet Generator\\yq.csv",
+      "sha256": "3920D45C3F8214045D69A6FB3C65D513EDCB89120E797568AF7E03820488D6FB",
+      "populated_data_rows": 182,
+      "latest_populated_row_in_csv": {"No": 228, "year": 2011, "month": 4, "net_liquidating": "$65,419.60", "enav": "$65,419.60"},
+      "baseline_value": "UNRELIABLE",
+      "data_current_label": "FLAGGED — yq.csv tail is 2011-era historical data; not a trustworthy CURRENT baseline. Live Y&Q value must be captured from the running page (8303) or the true current source before cutover.",
+      "expected_public_url": "yq.hughesandco.ltd",
+      "expected_admin_url": null,
+      "internal_ports": {"public": 8303}
+    }
+  ],
+  "handoff_state_hash": {
+    "readme_txt_sha256": "11E9B3DC7A698086DA405856181E2D3D0FDB6199F1451F6B97CE9156140CDC27"
+  },
+  "flags": {
+    "tcp_data_currency": "TCP latest completed date 2026-06-24 is ~1 month behind TKP/AGM (2026-07-23). Data-quality issue, not a migration defect. Do NOT correct during migration.",
+    "yq_missing_baseline": "No reliable current Y&Q latest value; yq.csv tail is historical (2011). Capture live value pre-cutover.",
+    "state_vs_page_disagreement": "Not evaluated (would require querying live pages). To be confirmed during Gate 2.5 reconciliation, comparing state files to displayed pages on both local and Azure."
+  }
+}

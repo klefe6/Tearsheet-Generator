@@ -1,0 +1,435 @@
+{
+  "baseline_version": 1,
+  "baseline_name": "OVH_TKP_TCP_AGM_RECONCILIATION_BASELINE",
+  "captured_at": "2026-10-01T11:35:00-04:00",
+  "captured_from": "laptop (local production, authoritative)",
+  "purpose": "LOCAL CURRENT vs VPS COPY comparison. Every value here is read-only metadata captured without altering any data.",
+  "comparison_contract": {
+    "method": "After deploying to the VPS, re-capture the same fields on the VPS and compare field by field.",
+    "must_match_exactly": ["latest_date", "latest_authoritative_value", "row_count", "file_hash", "page_title", "source_commit"],
+    "expected_to_differ": ["process_pid", "process_uptime_minutes", "working_set_bytes", "current_path"],
+    "hash_caveat": "file_hash matches only if the laptop has ingested no new data since this capture. A mismatch means RE-SYNC NEEDED, not a VPS defect. Re-capture this baseline and re-copy the state file."
+  },
+  "privacy": {
+    "client_identifying_data_included": false,
+    "secret_values_included": false,
+    "note": "Values are program-level aggregates (NAV, NLV, HWM, row counts) required for reconciliation. No client names, account numbers, or per-client positions."
+  },
+  "source_of_truth": {
+    "production_worktree": "C:\\Coding Projects\\Tearsheet Generator\\.worktrees\\live-deploy-main",
+    "production_branch": "live-main",
+    "source_commit": "3cfda4fdde5eaa8fae42c87b56d30d34aa717f68",
+    "python_version": "3.10.0",
+    "python_executable": "C:\\Coding Projects\\Tearsheet Generator\\.venv310\\Scripts\\python.exe",
+    "commit_resolution_note": "git fails inside the live worktree with 'dubious ownership' and safe.directory was deliberately NOT added. Commit read from .git/worktrees/live-deploy-main/HEAD (ref: refs/heads/live-main) plus 'git rev-parse live-main' in the main checkout."
+  },
+
+  "programs": [
+    {
+      "program": "TKP",
+      "role": "public tearsheet",
+      "port": 8301,
+      "bind_address": "127.0.0.1",
+      "entry_point": "tkp_ts.py",
+      "source_commit": "3cfda4fdde5eaa8fae42c87b56d30d34aa717f68",
+
+      "health_status": "ready",
+      "health_endpoint": "/healthz",
+      "health_http_status": 200,
+      "health_payload": {
+        "app": "tkp",
+        "status": "ready",
+        "rows_loaded": 766,
+        "admin_auth": "configured"
+      },
+      "page_title": "H&C - TKP",
+      "public_hostname": "tkp-ts.hcresearch.ltd",
+      "public_https_status": 200,
+
+      "latest_date": "2026-09-30",
+      "first_date": "2023-04-10",
+      "latest_authoritative_value": {
+        "field": "NAV",
+        "value": "$194,537.69",
+        "hwm": "$194,562.81",
+        "note": "Stored as a formatted string in the state JSON, not a numeric type."
+      },
+      "row_count": {
+        "state_file_records": 896,
+        "health_rows_loaded": 766,
+        "discrepancy": true,
+        "discrepancy_explanation": "Different sources. The state JSON holds the full persisted editor table; rows_loaded reflects the Excel-derived NAV frame bounded by FORCE_LAST_EXCEL_ROW = 715 in tkp_ts.py:372.",
+        "action": "Explain before using row count as a VPS-vs-laptop check. Compare BOTH numbers independently and expect 766 and 896.",
+        "fixed_in_this_phase": false
+      },
+
+      "state_files": [
+        {
+          "filename": "daily_returns_secret_state.json",
+          "current_path": "C:\\Coding Projects\\Tearsheet Generator\\.worktrees\\live-deploy-main\\daily_returns_secret_state.json",
+          "proposed_vps_path": "C:\\H&C\\data\\tkp\\daily_returns_secret_state.json",
+          "size_bytes": 431598,
+          "last_modified": "2026-10-01T08:38:36",
+          "file_hash_algorithm": "SHA-256",
+          "file_hash": "93575C2F3F6B924D716A648B0AE0E957E6FD7FBF31A4B582EF3BA56BEB8A7D3D",
+          "record_count": 896,
+          "record_fields": ["Date", "StoneX", "Plus500", "Deposit", "$PL", "Fee (20%)", "Cumm Fee", "Net P&L", "NAV", "Loss Carry", "HWM", "Perc. Net", "Cumm Perc. Net", "Net P&L / Unit", "# Trades", "#Day", "_row_id"],
+          "write_is_atomic": false,
+          "authoritative": true
+        },
+        {
+          "filename": "glenn_uploader_ingest_tkp_audit.jsonl",
+          "current_path": "C:\\Coding Projects\\Tearsheet Generator\\.worktrees\\live-deploy-main\\glenn_uploader_ingest_tkp_audit.jsonl",
+          "size_bytes": 22248,
+          "last_modified": "2026-10-01T08:38:38",
+          "file_hash_algorithm": "SHA-256",
+          "file_hash": "3BF22518B514E44F90917058A475F032221FA95531E66031E18B54D2EE7C0205",
+          "authoritative": false,
+          "note": "Append-only audit history. Not expected to match on the VPS, which starts a fresh file."
+        }
+      ],
+
+      "chart_latest_date": "2026-09-30",
+      "chart_note": "Derived from the canonical NAV series built off the same state records; no separate chart data file exists.",
+
+      "runtime_observed": {
+        "pid": 40464,
+        "parent_pid": 26944,
+        "uptime_minutes": 52.7,
+        "working_set_bytes": 246865920,
+        "working_set_mb": 235.5
+      },
+
+      "benchmark_source": "live download via quantstats.utils.download_returns plus yfinance for ^SP500TR",
+      "benchmark_cache_file": null,
+      "benchmark_cache_note": "TKP has no benchmark cache and no cache-only flag. Benchmarks are re-downloaded on every boot, so benchmark figures are not a stable reconciliation field.",
+
+      "known_data_quality_issues": [
+        "Row-count discrepancy of 766 vs 896 described above. Documented, not fixed.",
+        "Source workbook lives in the protected folder and could not be stat-ed or hashed in this phase, so its contribution to the baseline is unverified."
+      ],
+
+      "vps_readiness": "NOT_READY",
+      "blocking_reason": "tkp_ts.py:244 hardcodes a workbook path inside the protected H&C Documents folder and calls sys.exit(1) at import if it is missing or unreadable (lines 379-387 and 444-452). No environment override exists on live-main."
+    },
+
+    {
+      "program": "TCP",
+      "role": "public tearsheet",
+      "port": 8302,
+      "bind_address": "127.0.0.1",
+      "entry_point": "tcp_ts_v2.py",
+      "source_commit": "3cfda4fdde5eaa8fae42c87b56d30d34aa717f68",
+      "recommended_pilot": true,
+
+      "health_status": "ready",
+      "health_endpoint": "/healthz",
+      "health_http_status": 200,
+      "health_payload": {
+        "app": "tcp-v2",
+        "active_state": "ready",
+        "adapter_status": "ok",
+        "admin_auth": "configured",
+        "admin_editor": "active",
+        "candidate_rows": 182,
+        "completed_rows": 182,
+        "current_date_labels": "dynamic",
+        "daily_metrics": "dynamic",
+        "dashboard_propagation": "ready",
+        "data_source": "json",
+        "debug": false,
+        "first_completed_date": "2026-01-20",
+        "latest_completed_date": "2026-09-30",
+        "mode": "json-active",
+        "monthly_performance": "dynamic",
+        "nav_chart": "dynamic",
+        "port": 8302,
+        "recovery_status": "normal",
+        "row_delete": "enabled",
+        "row_save": "enabled",
+        "sheet": "NAV",
+        "state_mode": "json_active",
+        "state_revision": 83,
+        "state_writable": true,
+        "state_write": "enabled",
+        "workbook": "tcp_alex.xlsx"
+      },
+      "page_title": "H&C - TCP",
+      "public_hostname": "tcp-ts.hcresearch.ltd",
+      "public_https_status": 200,
+
+      "latest_date": "2026-09-30",
+      "first_date": "2026-01-20",
+      "latest_authoritative_value": {
+        "field": "NLV",
+        "value": 60667.74,
+        "nav_x1": 52743.467,
+        "hwm": 52836.417,
+        "note": "Stored as numeric values in the state envelope."
+      },
+      "row_count": {
+        "state_file_records": 182,
+        "state_envelope_record_count": 182,
+        "health_completed_rows": 182,
+        "health_candidate_rows": 182,
+        "discrepancy": false,
+        "note": "All four independent counts agree. This is the cleanest reconciliation surface in the fleet."
+      },
+      "state_revision": 83,
+      "schema_version": 1,
+      "state_updated_at": "2026-10-01T12:38:38.229559+00:00",
+      "state_source": "website_edit",
+      "state_source_workbook_filename": "tcp_alex.xlsx",
+      "state_source_sheet": "NAV",
+
+      "state_files": [
+        {
+          "filename": "tcp_daily_returns_secret_state.json",
+          "current_path": "C:\\Users\\H&CDanHughes\\AppData\\Local\\HughesCompany\\TCP\\state\\tcp_daily_returns_secret_state.json",
+          "proposed_vps_path": "C:\\H&C\\data\\tcp\\tcp_daily_returns_secret_state.json",
+          "size_bytes": 81311,
+          "last_modified": "2026-10-01T08:38:38",
+          "file_hash_algorithm": "SHA-256",
+          "file_hash": "7094B6B513999B39F32304350016C6A9EAC4C07321D515821357159FD7934386",
+          "record_count": 182,
+          "record_fields": ["Date", "#", "Trading Days", "NLV", "Cash Balance", "Cash Transfers", "Day PnL", "$PL", "Inc. Fee", "cumm fee", "Loss Carry", "HWM", "%Net", "S net cummulative %", "nav-x1"],
+          "env_key": "TCP_V2_STATE_PATH",
+          "write_is_atomic": true,
+          "write_mechanism": "StateFileLock + tempfile.mkstemp + os.replace + backup rotation",
+          "authoritative": true,
+          "note": "Already outside the repository. This existing code/data separation is the main reason TCP is the recommended pilot."
+        },
+        {
+          "filename": "tcp_daily_returns_secret_state.backup.json",
+          "current_path": "C:\\Users\\H&CDanHughes\\AppData\\Local\\HughesCompany\\TCP\\state\\tcp_daily_returns_secret_state.backup.json",
+          "size_bytes": 80894,
+          "last_modified": "2026-10-01T08:38:38",
+          "file_hash_algorithm": "SHA-256",
+          "file_hash": "91D0A1EFC8A8EE9252BF31AB5349CBF0B0819C07DB87EC04C768CA97394F9FAB",
+          "env_key": "TCP_V2_STATE_BACKUP_PATH",
+          "authoritative": false,
+          "note": "Prior active state, rotated on each write. Derived; the app recreates it."
+        },
+        {
+          "filename": "tcp_daily_returns_secret_state.lock",
+          "current_path": "C:\\Users\\H&CDanHughes\\AppData\\Local\\HughesCompany\\TCP\\state\\tcp_daily_returns_secret_state.lock",
+          "size_bytes": 83,
+          "env_key": "TCP_V2_STATE_LOCK_PATH",
+          "authoritative": false,
+          "note": "Runtime lock artifact. Must be created locally on the VPS, never copied."
+        },
+        {
+          "filename": "glenn_uploader_ingest_tcp_audit.jsonl",
+          "current_path": "C:\\Coding Projects\\Tearsheet Generator\\.worktrees\\live-deploy-main\\glenn_uploader_ingest_tcp_audit.jsonl",
+          "size_bytes": 21279,
+          "last_modified": "2026-10-01T08:38:38",
+          "file_hash_algorithm": "SHA-256",
+          "file_hash": "9902F43FA3CD4050A818666CF7ABAED1E7A73D12BE5F4BBEFA9B0BBDDD1A4C19",
+          "authoritative": false
+        }
+      ],
+
+      "chart_latest_date": "2026-09-30",
+      "chart_note": "NAV chart is built from the canonical NAV records derived from the same state file.",
+
+      "runtime_observed": {
+        "pid": 41172,
+        "parent_pid": 41152,
+        "uptime_minutes": 52.7,
+        "working_set_bytes": 183902208,
+        "working_set_mb": 224.5
+      },
+
+      "benchmark_caches": [
+        { "symbol": "^SP500TR", "filename": "tcp_benchmark_cache.json", "current_path": "C:\\Users\\H&CDanHughes\\AppData\\Local\\HughesCompany\\TCP\\benchmark\\tcp_benchmark_cache.json", "size_bytes": 797185, "last_modified": "2026-10-01T11:23:58", "env_key": "TCP_V2_BENCHMARK_CACHE_PATH", "authoritative": false },
+        { "symbol": "BTC-USD", "filename": "tcp_benchmark_btc_cache.json", "current_path": "C:\\Users\\H&CDanHughes\\AppData\\Local\\HughesCompany\\TCP\\benchmark\\tcp_benchmark_btc_cache.json", "size_bytes": 357558, "last_modified": "2026-10-01T11:23:58", "env_key": "TCP_V2_BENCHMARK_BTC_CACHE_PATH", "authoritative": false },
+        { "symbol": "ETH-USD", "filename": "tcp_benchmark_eth_cache.json", "current_path": "C:\\Users\\H&CDanHughes\\AppData\\Local\\HughesCompany\\TCP\\benchmark\\tcp_benchmark_eth_cache.json", "size_bytes": 263740, "last_modified": "2026-10-01T11:23:59", "env_key": "TCP_V2_BENCHMARK_ETH_CACHE_PATH", "authoritative": false }
+      ],
+      "benchmark_note": "Caches were refreshed at 11:23 on the capture date and are regenerable. Not hashed, since they change on every refresh and are not a reconciliation field.",
+
+      "known_data_quality_issues": [
+        "Stale July duplicates of all three benchmark caches remain in the repo-local _runtime\\ directory, superseded by the HughesCompany\\TCP\\benchmark copies. Documented, not removed.",
+        "An orphan env file exists at C:\\Users\\H&CDanHughes\\AppData\\Local\\HughesCompany\\TCP\\production.env (553 bytes, 2026-07-04) that no current launcher loads. Documented, not removed."
+      ],
+
+      "vps_readiness": "READY_WITH_MINOR_BLOCKERS",
+      "minor_blockers": [
+        "openpyxl and dash-bootstrap-components are missing from requirements.txt",
+        "TCP_V2_ALLOW_WORKBOOK_FALLBACK defaults to true and should be set false on the VPS",
+        "TCP_V2_BENCHMARK_BTC_CACHE_PATH and TCP_V2_BENCHMARK_ETH_CACHE_PATH are unset and should be set explicitly",
+        "glenn_uploader_ingest_tcp_audit.jsonl is REPO_ROOT-relative and will land in the code directory"
+      ]
+    },
+
+    {
+      "program": "AGM",
+      "program_long_name": "AGM / Momentum Pacer",
+      "role": "public tearsheet",
+      "port": 8304,
+      "bind_address": "127.0.0.1",
+      "entry_point": "Momentum Pacer\\mp_ts.py",
+      "source_commit": "3cfda4fdde5eaa8fae42c87b56d30d34aa717f68",
+
+      "health_status": "ready",
+      "health_endpoint": "/healthz",
+      "health_http_status": 200,
+      "health_payload": {
+        "app": "algominds-momentum-pacer",
+        "status": "ready",
+        "benchmark_load_error": null,
+        "benchmark_ticker": "^GSPC",
+        "daily_fee_days": 166,
+        "daily_fees_load_error": null,
+        "daily_rows": 184,
+        "load_error": null,
+        "months_loaded": 10,
+        "spx_daily_rows": 208
+      },
+      "page_title": "Algominds - Momentum Pacer",
+      "public_hostname": "agm-ts.hcresearch.ltd",
+      "public_https_status": 200,
+
+      "latest_date": "2026-09-30",
+      "first_manual_date": "2026-07-11",
+      "latest_authoritative_value": {
+        "field": "actual_nlv",
+        "value": 43737.57,
+        "note": "Latest manual daily row. AGM's displayed series merges the pinned TradeStation CSV with these manual rows."
+      },
+      "row_count": {
+        "manual_state_records": 59,
+        "health_daily_rows": 184,
+        "health_months_loaded": 10,
+        "health_daily_fee_days": 166,
+        "health_spx_daily_rows": 208,
+        "discrepancy": false,
+        "discrepancy_explanation": "Not a discrepancy. daily_rows (184) is the merged CSV-plus-manual series; manual_state_records (59) is only the manually entered portion. Both must be checked on the VPS.",
+        "note": "The pinned CSV covers 20 Oct 2025 to 07 Jul 2026 and the manual rows start 2026-07-11, so the two are adjacent rather than overlapping."
+      },
+
+      "state_files": [
+        {
+          "filename": "momentum_pacer_manual_daily_rows.json",
+          "current_path": "C:\\Coding Projects\\Tearsheet Generator\\.worktrees\\live-deploy-main\\Momentum Pacer\\momentum_pacer_manual_daily_rows.json",
+          "proposed_vps_path": "C:\\H&C\\data\\agm\\momentum_pacer_manual_daily_rows.json",
+          "size_bytes": 7658,
+          "last_modified": "2026-10-01T08:38:38",
+          "file_hash_algorithm": "SHA-256",
+          "file_hash": "62612BD23E730B94AC70A5DBDB4B98E1A8079D9721E2515D411C252157CBD5B6",
+          "record_count": 59,
+          "record_fields": ["date", "actual_nlv", "deposit_withdrawal", "incentive_fee_paid"],
+          "write_is_atomic": false,
+          "authoritative": true
+        },
+        {
+          "filename": "Momentum Fee Calculation.xlsx",
+          "current_path_link": "C:\\Coding Projects\\Tearsheet Generator\\.worktrees\\live-deploy-main\\Momentum Pacer\\Momentum Fee Calculation.xlsx",
+          "current_path_real": "C:\\Coding Projects\\Tearsheet Generator\\Momentum Pacer\\Momentum Fee Calculation.xlsx",
+          "proposed_vps_path": "C:\\H&C\\data\\agm\\Momentum Fee Calculation.xlsx",
+          "is_symlink_in_live_worktree": true,
+          "size_bytes": 365554,
+          "size_bytes_as_seen_through_link": 0,
+          "last_modified": "2026-05-05T15:27:28",
+          "file_hash_algorithm": "SHA-256",
+          "file_hash": null,
+          "file_hash_of_empty_reparse_point": "B63A1CBEA8A7F81803D695784FF2DD38383DA6BCE84F50CFEB98C9CCFE851A1E",
+          "authoritative": true,
+          "note": "CRITICAL. The live-worktree entry is a 0-byte SymbolicLink. B63A1CBE... is the hash of an empty file, NOT of the workbook. After copying to the VPS, hash the destination and confirm it is NOT that value."
+        },
+        {
+          "filename": "balances_210TGG51_20OCT2025_07JUL2026.csv",
+          "current_path": "C:\\Coding Projects\\Tearsheet Generator\\.worktrees\\live-deploy-main\\Momentum Pacer\\data\\daily_balances\\balances_210TGG51_20OCT2025_07JUL2026.csv",
+          "proposed_vps_path": "C:\\H&C\\data\\agm\\daily_balances\\balances_210TGG51_20OCT2025_07JUL2026.csv",
+          "size_bytes": 17852,
+          "last_modified": "2026-07-11T19:30:08",
+          "file_hash_algorithm": "SHA-256",
+          "file_hash": "D4B5B781BDD3FA80707A1A00D7FF663ECFA7E75D7621B09FA14A345683B017A9",
+          "authoritative": true,
+          "note": "Pinned TradeStation daily balances. The filename is the code constant DAILY_BALANCES_FILENAME in algominds_daily_balances.py, not configuration."
+        },
+        {
+          "filename": "GSPC_daily.csv",
+          "current_path": "C:\\Coding Projects\\Tearsheet Generator\\.worktrees\\live-deploy-main\\Momentum Pacer\\data\\benchmarks\\GSPC_daily.csv",
+          "proposed_vps_path": "C:\\H&C\\data\\agm\\benchmarks\\GSPC_daily.csv",
+          "size_bytes": 6371,
+          "last_modified": "2026-07-30T11:12:13",
+          "file_hash_algorithm": "SHA-256",
+          "file_hash": "928E8B6ADC92B05645DB610C18B910A71A8ED5ECCD43D2EB3F2F3A0684E34D7D",
+          "authoritative": false,
+          "note": "Fee benchmark cache (^GSPC). Regenerable, but copying it enables a first boot with AGM_BENCHMARK_CACHE_ONLY=1."
+        },
+        {
+          "filename": "NDX_daily.csv",
+          "current_path": "C:\\Coding Projects\\Tearsheet Generator\\.worktrees\\live-deploy-main\\Momentum Pacer\\data\\benchmarks\\NDX_daily.csv",
+          "proposed_vps_path": "C:\\H&C\\data\\agm\\benchmarks\\NDX_daily.csv",
+          "size_bytes": 5730,
+          "last_modified": "2026-07-11T19:30:08",
+          "file_hash_algorithm": "SHA-256",
+          "file_hash": "49D0701068F40F18080C6B1227C541AC2963150E3DD501FF2B4BD4D6E4D31B74",
+          "authoritative": false,
+          "note": "Chart benchmark cache (^NDX)."
+        },
+        {
+          "filename": "glenn_uploader_ingest_agm_audit.jsonl",
+          "current_path": "C:\\Coding Projects\\Tearsheet Generator\\.worktrees\\live-deploy-main\\Momentum Pacer\\glenn_uploader_ingest_agm_audit.jsonl",
+          "size_bytes": 23124,
+          "last_modified": "2026-10-01T08:38:39",
+          "file_hash_algorithm": "SHA-256",
+          "file_hash": "A986DB156444C4203E4F520B72AD6515A2321812017C6A83E7CC3B11E2E6EA4A",
+          "authoritative": false
+        }
+      ],
+
+      "chart_latest_date": "2026-09-30",
+      "chart_note": "NAV chart reflects the merged CSV-plus-manual series; the fee charts are admin-only.",
+
+      "runtime_observed": {
+        "pid": 41212,
+        "parent_pid": 41192,
+        "uptime_minutes": 52.7,
+        "working_set_bytes": 76709888,
+        "working_set_mb": 158.6
+      },
+
+      "benchmark_source": "cache-first CSV read, yfinance fetch when the cached range does not cover the requested window",
+      "benchmark_tickers": ["^GSPC", "^NDX"],
+      "benchmark_cache_only_flag": "AGM_BENCHMARK_CACHE_ONLY",
+
+      "known_data_quality_issues": [
+        "The fee workbook target was last modified 2026-05-05 while manual rows run through 2026-09-30. Probably intentional, since the workbook is a reconciliation reference rather than a live feed, but confirm before migrating. Documented, not changed.",
+        "The pinned CSV covers 20 Oct 2025 to 07 Jul 2026 per its filename while manual rows start 2026-07-11. The two datasets are adjacent, not overlapping. Both are required.",
+        "AGM_ADMIN_TOKEN and AGM_SESSION_SECRET are not set in production and fall back to non-secret development defaults in tcp_config.py. Documented, not changed."
+      ],
+
+      "vps_readiness": "READY_WITH_MINOR_BLOCKERS",
+      "minor_blockers": [
+        "No AGM_ADMIN_TOKEN or AGM_SESSION_SECRET in production",
+        "Fee workbook is a symlink into the dev checkout and must be resolved before packaging",
+        "algominds_daily_balances.py and algominds_benchmark_daily.py sit at the worktree root and reach into Momentum Pacer\\data\\..., so the directory relationship must be preserved",
+        "The pinned CSV filename is a code constant, not configuration",
+        "Non-atomic manual-rows write means a restart mid-write can truncate state",
+        "openpyxl and dash-bootstrap-components are missing from requirements.txt"
+      ]
+    }
+  ],
+
+  "out_of_scope_observed": [
+    { "program": "Y&Q", "port": 8303, "pid": 41432, "entry_point": "yq_ts.py", "status": "running", "note": "EXPLICITLY OUT OF SCOPE. Recorded only to document port ownership." },
+    { "program": "HomePage dashboard", "port": 8006, "pid": 7216, "entry_point": "C:\\Coding Projects\\HomePage\\debug.py", "python_version": "3.13", "status": "running", "note": "OUT OF SCOPE. The only listener bound to 0.0.0.0." }
+  ],
+
+  "staff_ports_observed": [
+    { "port": 8321, "program": "TKP", "listening": false, "classification": "manual only per Manager\\startup_contract.json", "required_for_migration": false },
+    { "port": 8322, "program": "TCP", "listening": false, "classification": "manual only per Manager\\startup_contract.json", "required_for_migration": false },
+    { "port": 8324, "program": "AGM", "listening": false, "classification": "manual only per Manager\\startup_contract.json", "required_for_migration": false }
+  ],
+
+  "verification_commands": {
+    "note": "All read-only. Re-run these on the VPS and compare to the values above.",
+    "health": "Invoke-WebRequest http://127.0.0.1:<port>/healthz -UseBasicParsing",
+    "page_title": "(Invoke-WebRequest http://127.0.0.1:<port>/ -UseBasicParsing).Content -match '<title>(.*?)</title>'",
+    "file_hash": "Get-FileHash -LiteralPath <path> -Algorithm SHA256",
+    "listener": "Get-NetTCPConnection -State Listen | Where-Object LocalPort -eq <port>",
+    "process": "Get-CimInstance Win32_Process -Filter \"ProcessId=<pid>\""
+  }
+}

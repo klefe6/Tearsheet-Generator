@@ -150,8 +150,8 @@ def test_investor_terms_labels(layout_text, label, _value):
 
 
 def test_minimum_investment_values_from_committed_v1(layout_text):
-    assert "$150,000 per tranche" in layout_text
-    assert "$300,000 Nominal" in layout_text
+    assert "$50,000 per tranche" in layout_text
+    assert "$100,000 Nominal" in layout_text
 
 
 def test_proprietary_client_distinctions(layout_text):

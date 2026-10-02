@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ApiExportResult } from '../api/client'
-import { deriveExportState, exportToastMessage, exportStatusIcon } from './exportStatus'
+import { deriveExportState, exportCanUndo, exportToastMessage, exportStatusIcon, offlineMockExportState, undoActionMessage } from './exportStatus'
 
 const NOW = new Date('2026-07-10T12:00:00Z')
 
@@ -210,5 +210,20 @@ describe('exportToastMessage — downstream push wording', () => {
     })
     expect(exportToastMessage(data, 'sandbox')).toBe(data.message)
     expect(exportToastMessage(data, 'sandbox')).not.toMatch(/DRY RUN/i)
+  })
+
+  it('production live export cannot be undone from the uploader', () => {
+    const data = result({
+      dry_run: false,
+      real_writes_enabled: true,
+      downstream: downstream('production', false, {
+        TKP: 'success',
+        TCP: 'success',
+        AGM: 'success',
+        YQ: 'skipped',
+      }),
+    })
+    expect(exportCanUndo(data)).toBe(false)
+    expect(deriveExportState(data, NOW).canUndo).toBe(false)
   })
 })

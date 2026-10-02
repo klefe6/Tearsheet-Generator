@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   deleteLastRow,
   fetchDisplayRows,
+  fetchExportLatest,
   fetchHealth,
   fetchProgramMetadata,
   fetchProgramRows,
@@ -19,7 +20,7 @@ import { ProductCard, type DateStepSignal } from './components/ProductCard'
 import { Toast } from './components/Toast'
 import { applyProgramMetadata, fromApiRow, PRODUCTS, toApiRowPayload } from './config/products'
 import { classifyPendingForm, type FormState } from './lib/pendingRow'
-import { deriveExportState, exportToastMessage, offlineMockExportState } from './lib/exportStatus'
+import { deriveExportState, deriveExportStateFromLatestBatch, exportToastMessage, offlineMockExportState, undoActionMessage } from './lib/exportStatus'
 import type { ExportUiState, ProductConfig, ProductId, ProductRow } from './types'
 import styles from './App.module.css'
 
@@ -124,6 +125,14 @@ export default function App() {
       if (!cancelled && body) {
         setConfiguredExport(body.export)
         setExportModeBanner(body.export_mode_banner)
+        fetchExportLatest().then((latest) => {
+          if (cancelled || !latest?.batch) return
+          setExportState((prev) =>
+            prev.overallStatus === 'idle' || prev.overallStatus === 'pending'
+              ? deriveExportStateFromLatestBatch(latest.batch, body.export)
+              : prev,
+          )
+        })
       }
     })
     return () => {
@@ -399,8 +408,10 @@ export default function App() {
 
   const handleUndo = useCallback(() => {
     window.clearTimeout(exportTimer.current)
-    setExportState(INITIAL_EXPORT_STATE)
-    showToast('Last merge undone — mock action. No backend call was made.')
+    setExportState((prev) => {
+      showToast(undoActionMessage(prev))
+      return INITIAL_EXPORT_STATE
+    })
   }, [showToast])
 
   // Shift all 4 current (in-progress) date form inputs by one day. Purely

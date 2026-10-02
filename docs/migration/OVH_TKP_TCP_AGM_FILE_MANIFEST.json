@@ -1,0 +1,307 @@
+{
+  "manifest_version": 1,
+  "manifest_name": "OVH_TKP_TCP_AGM_FILE_MANIFEST",
+  "generated": "2026-10-01T11:40:00-04:00",
+  "phase": "Phase 1 - read-only migration inventory and packaging definition",
+  "scope": {
+    "in_scope_programs": ["tkp", "tcp", "agm"],
+    "out_of_scope_programs": ["yq", "gold_maker", "algominds_v2", "tsgen", "blue_whale", "homepage_dashboard", "glenn_uploader_application"]
+  },
+  "source": {
+    "production_worktree": "C:\\Coding Projects\\Tearsheet Generator\\.worktrees\\live-deploy-main",
+    "production_branch": "live-main",
+    "production_commit": "3cfda4fdde5eaa8fae42c87b56d30d34aa717f68",
+    "dev_checkout": "C:\\Coding Projects\\Tearsheet Generator",
+    "dev_checkout_branch_at_capture": "fix/post-ingest-full-recalculation",
+    "dev_checkout_commit_at_capture": "2af844c61da5ed35a1360acbb0eb6dfa70a197cb",
+    "git_note": "git commands fail inside the live worktree with 'dubious ownership'; safe.directory was deliberately NOT added. Commit resolved by reading .git/worktrees/live-deploy-main/HEAD plus 'git rev-parse live-main' in the main checkout."
+  },
+  "vps_target": {
+    "provider": "OVHcloud US",
+    "plan": "VPS-3",
+    "os": "Windows Server 2025 Standard Desktop",
+    "vcore": 6,
+    "ram_gb": 12,
+    "storage_gb": 100,
+    "region": "US East / Virginia",
+    "backup": "premium automated backup + snapshot",
+    "root": "C:\\H&C",
+    "touched_in_this_phase": false
+  },
+  "secrets_policy": {
+    "secret_values_included": false,
+    "note": "Only variable NAMES and non-secret values appear in this manifest."
+  },
+
+  "tkp": {
+    "readiness": "NOT_READY",
+    "code": [
+      { "classification": "COPY", "kind": "entry_point", "source": "tkp_ts.py", "vps_path": "C:\\H&C\\apps\\tkp\\tkp_ts.py", "size_bytes": 225397, "required": true, "note": "Dash/Flask entry point; all TKP business math is inline here." },
+      { "classification": "COPY", "kind": "static", "source": "assets/styles.css", "vps_path": "C:\\H&C\\apps\\shared\\assets\\styles.css", "size_bytes": 18455, "sha256": "4C4FF4EF1367495E622C364241B54E83B60FAC4F24E3204E0DD1CB80A4123899", "required": true, "note": "Copy the LIVE WORKTREE version. The dev checkout copy is modified and differs." }
+    ],
+    "data": [
+      { "classification": "COPY", "kind": "state", "filename": "daily_returns_secret_state.json", "source": "C:\\Coding Projects\\Tearsheet Generator\\.worktrees\\live-deploy-main\\daily_returns_secret_state.json", "vps_path": "C:\\H&C\\data\\tkp\\daily_returns_secret_state.json", "size_bytes": 431598, "last_modified": "2026-10-01T08:38:36", "sha256": "93575C2F3F6B924D716A648B0AE0E957E6FD7FBF31A4B582EF3BA56BEB8A7D3D", "record_count": 896, "access": "read_write", "git_tracked": false, "backup_required": true, "sensitive": true, "env_key_today": null, "proposed_env_key": "HC_TKP_STATE_PATH", "required_for_initial_deploy": true },
+      { "classification": "COPY", "kind": "source_workbook", "filename": "Copy of tkp_alex_old1.xlsx", "source": "C:\\Users\\H&CDanHughes\\Hughes & Company\\Hughes & Company - Documents\\3_Advisors Marketing (Tearsheets, PitchBooks, etc)\\1. Tearsheet Project\\TKP\\VADI\\Copy of tkp_alex_old1.xlsx", "vps_path": "C:\\H&C\\data\\tkp\\tkp_source_workbook.xlsx", "size_bytes": null, "sha256": null, "access": "read_only", "git_tracked": false, "backup_required": true, "sensitive": true, "env_key_today": null, "proposed_env_key": "HC_TKP_SOURCE_WORKBOOK", "required_for_initial_deploy": true, "hardcoded_at": "tkp_ts.py:244", "boot_blocking": true, "protected_folder": true, "note": "PATH RECORDED FROM SOURCE CODE ONLY. The folder was never read, listed, or traversed. tkp_ts.py calls sys.exit(1) at import if this file is missing or unreadable (lines 379-387 and 444-452). Must be supplied by Kevin via C:\\AI_HANDOFF or the path-portability branch must be merged." },
+      { "classification": "COPY_OPTIONAL", "kind": "asset", "filename": "Trianle-Only-Logo.png", "source": "C:\\Users\\H&CDanHughes\\Hughes & Company\\Hughes & Company - Documents\\2_Hughes & Company Marketing\\Branded Logo\\Trianle-Only-Logo.png", "vps_path": "C:\\H&C\\apps\\shared\\assets\\logo.png", "access": "read_only", "sensitive": false, "required_for_initial_deploy": false, "hardcoded_at": "tkp_ts.py:81", "protected_folder": true, "note": "PATH RECORDED FROM SOURCE ONLY. Missing file is caught and degrades to an empty logo." },
+      { "classification": "DO_NOT_COPY", "kind": "audit_log", "filename": "glenn_uploader_ingest_tkp_audit.jsonl", "source": "C:\\Coding Projects\\Tearsheet Generator\\.worktrees\\live-deploy-main\\glenn_uploader_ingest_tkp_audit.jsonl", "vps_path": "C:\\H&C\\logs\\tkp\\glenn_uploader_ingest_tkp_audit.jsonl", "size_bytes": 22248, "sha256": "3BF22518B514E44F90917058A475F032221FA95531E66031E18B54D2EE7C0205", "git_tracked": false, "sensitive": true, "required_for_initial_deploy": false, "note": "Append-only history. Archive to backups for retention; the VPS should start a fresh file." }
+    ],
+    "config": [
+      { "classification": "SECRETS", "variable": "TKP_ADMIN_TOKEN", "secret": true, "required": true, "current_source": ".tkp_production.env", "vps_destination": "C:\\H&C\\secrets\\tkp.env", "class": "secret" },
+      { "classification": "SECRETS", "variable": "TKP_SESSION_SECRET", "secret": true, "required": true, "current_source": ".tkp_production.env", "vps_destination": "C:\\H&C\\secrets\\tkp.env", "class": "secret" },
+      { "classification": "CONFIG", "variable": "TEARSHEET_MODE", "secret": false, "required": true, "current_source": "reboot_tkp_ts.ps1", "current_value": "public", "vps_destination": "NSSM service environment", "class": "path_config" },
+      { "classification": "CONFIG", "variable": "TKP_BIND_PORT", "secret": false, "required": false, "current_source": "unset (code default 8301)", "vps_destination": "C:\\H&C\\config\\tkp.env", "class": "network" },
+      { "classification": "CONFIG", "variable": "PYTHONIOENCODING", "secret": false, "required": true, "current_source": "reboot_tkp_ts.ps1", "current_value": "utf-8", "vps_destination": "NSSM service environment", "class": "path_config" },
+      { "classification": "CONFIG", "variable": "GLENN_UPLOADER_INGEST_ENABLED", "secret": false, "required": true, "current_source": ".local_dev.env", "current_value": "true", "vps_destination": "C:\\H&C\\config\\tkp.env", "class": "path_config" },
+      { "classification": "SECRETS", "variable": "GLENN_UPLOADER_INGEST_TOKEN", "secret": true, "required": true, "current_source": ".local_dev.env", "vps_destination": "C:\\H&C\\secrets\\ingest.env", "class": "secret" },
+      { "classification": "CONFIG", "variable": "GLENN_UPLOADER_INGEST_DRY_RUN_ALLOWED", "secret": false, "required": false, "current_source": ".local_dev.env", "current_value": "true", "vps_destination": "C:\\H&C\\config\\tkp.env", "class": "optional" },
+      { "classification": "DO_NOT_COPY", "variable": "TEARSHEET_LOCAL_DIRECT_ADMIN", "secret": false, "required": false, "current_source": ".local_dev.env", "current_value": "1", "vps_destination": null, "class": "optional", "note": "Local development bypass. Do not set on a server." }
+    ],
+    "services": [
+      { "service_name": "HC-TKP-Tearsheet", "role": "public tearsheet", "manager": "NSSM", "python_executable": "C:\\H&C\\apps\\shared\\.venv310\\Scripts\\python.exe", "entry_point": "C:\\H&C\\apps\\tkp\\tkp_ts.py", "working_directory": "C:\\H&C\\apps\\tkp", "environment_profile": ["C:\\H&C\\config\\tkp.env", "C:\\H&C\\secrets\\tkp.env", "C:\\H&C\\secrets\\ingest.env"], "stdout_log": "C:\\H&C\\logs\\tkp\\tkp_stdout.log", "stderr_log": "C:\\H&C\\logs\\tkp\\tkp_stderr.log", "startup_type": "Automatic", "restart_on_exit": true, "throttle_seconds": 10, "kill_process_tree": true, "created_in_this_phase": false },
+      { "service_name": "HC-TKP-Staff", "role": "staff/admin tearsheet", "required_for_migration": false, "note": "Deferred. Not listening today; Manager/startup_contract.json classifies 8321 as manual only. Same entry point with TEARSHEET_MODE=staff and TKP_BIND_PORT=8321." }
+    ],
+    "ports": [
+      { "port": 8301, "role": "public", "bind": "127.0.0.1", "currently_listening": true, "pid_at_capture": 40464, "health_endpoint": "/healthz", "vps_port": 8301 },
+      { "port": 8321, "role": "staff/admin", "bind": "127.0.0.1", "currently_listening": false, "required_for_migration": false, "vps_port": 8321 }
+    ],
+    "ingest": {
+      "endpoint": "/api/uploader/ingest-daily-row",
+      "method": "POST",
+      "program_code": "TKP",
+      "auth": "bearer token via Authorization header or X-Glenn-Uploader-Token",
+      "required_fields": ["stonex_nlv"],
+      "optional_fields": ["plus500_nlv", "cash_transfer"],
+      "state_file_written": "daily_returns_secret_state.json",
+      "write_is_atomic": false,
+      "recalculation": "apply_tkp_recalculation()",
+      "audit_log": "glenn_uploader_ingest_tkp_audit.jsonl",
+      "uploader_side_config_key": "TKP_INGEST_URL",
+      "uploader_side_config_file": "uploader/backend/app/config.py",
+      "changes_at_cutover": true
+    }
+  },
+
+  "tcp": {
+    "readiness": "READY_WITH_MINOR_BLOCKERS",
+    "recommended_pilot": true,
+    "code": [
+      { "classification": "COPY", "kind": "entry_point", "source": "tcp_ts_v2.py", "vps_path": "C:\\H&C\\apps\\tcp\\tcp_ts_v2.py", "size_bytes": 57830, "required": true },
+      { "classification": "COPY", "kind": "module", "source": "tcp_config.py", "vps_path": "C:\\H&C\\apps\\tcp\\tcp_config.py", "size_bytes": 13575, "required": true, "role": "env-backed TCPConfig; ports, state paths, benchmark cache, workbook, auth resolution" },
+      { "classification": "COPY", "kind": "module", "source": "tcp_runtime_state.py", "vps_path": "C:\\H&C\\apps\\tcp\\tcp_runtime_state.py", "size_bytes": 16130, "required": true, "role": "workbook vs JSON snapshot selection; persist add/delete" },
+      { "classification": "COPY", "kind": "module", "source": "tcp_state.py", "vps_path": "C:\\H&C\\apps\\tcp\\tcp_state.py", "size_bytes": 18892, "required": true, "role": "versioned JSON envelope, StateFileLock via msvcrt, atomic save, backup rotation" },
+      { "classification": "COPY", "kind": "module", "source": "tcp_ledger.py", "vps_path": "C:\\H&C\\apps\\tcp\\tcp_ledger.py", "size_bytes": 15205, "required": true, "role": "read-only Excel NAV sheet loader" },
+      { "classification": "COPY", "kind": "module", "source": "tcp_calculations.py", "vps_path": "C:\\H&C\\apps\\tcp\\tcp_calculations.py", "size_bytes": 16580, "required": true, "role": "compute_tcp_row: NLV, PnL, fees, nav-x1, HWM, cumulative %" },
+      { "classification": "COPY", "kind": "module", "source": "tcp_dashboard.py", "vps_path": "C:\\H&C\\apps\\tcp\\tcp_dashboard.py", "size_bytes": 14895, "required": true, "role": "propagate_tcp_dashboard: monthly calendar, daily metrics, NAV Plotly figure" },
+      { "classification": "COPY", "kind": "module", "source": "tcp_drawdown.py", "vps_path": "C:\\H&C\\apps\\tcp\\tcp_drawdown.py", "size_bytes": 13020, "required": true, "role": "drawdown table vs SPXTR/BTC/ETH" },
+      { "classification": "COPY", "kind": "module", "source": "tcp_benchmarks.py", "vps_path": "C:\\H&C\\apps\\tcp\\tcp_benchmarks.py", "size_bytes": 19496, "required": true, "role": "benchmark fetch, normalize, disk cache with ready/stale/unavailable status" },
+      { "classification": "COPY", "kind": "module", "source": "tcp_daily_values.py", "vps_path": "C:\\H&C\\apps\\tcp\\tcp_daily_values.py", "size_bytes": 15364, "required": true, "role": "daily values table, paging, Excel export payload" },
+      { "classification": "COPY", "kind": "module", "source": "tcp_admin.py", "vps_path": "C:\\H&C\\apps\\tcp\\tcp_admin.py", "size_bytes": 25792, "required": true, "role": "AdminAuthManager, Flask session config, ledger editor UI. Also imported by TKP and AGM." },
+      { "classification": "COPY", "kind": "module", "source": "tcp_public_sections.py", "vps_path": "C:\\H&C\\apps\\tcp\\tcp_public_sections.py", "size_bytes": 34230, "required": true, "role": "public layout blocks and CSS class constants" },
+      { "classification": "COPY", "kind": "module", "source": "tcp_uploader_ingest.py", "vps_path": "C:\\H&C\\apps\\tcp\\tcp_uploader_ingest.py", "size_bytes": 8300, "required": true, "role": "TCP-specific ingest apply() glue with revision guard" },
+      { "classification": "COPY", "kind": "static", "source": "assets/styles.css", "vps_path": "C:\\H&C\\apps\\shared\\assets\\styles.css", "size_bytes": 18455, "required": true },
+      { "classification": "DO_NOT_COPY", "kind": "legacy", "source": "tcp_ts.py", "size_bytes": 115482, "reason": "Legacy monolith. Not imported by tcp_ts_v2.py, marked obsolete in docs/reorganization/file-classification.md, and tests/test_tcp_foundation.py forbids importing it. Its __main__ block would bind port 8302 and conflict." }
+    ],
+    "data": [
+      { "classification": "COPY", "kind": "state", "filename": "tcp_daily_returns_secret_state.json", "source": "C:\\Users\\H&CDanHughes\\AppData\\Local\\HughesCompany\\TCP\\state\\tcp_daily_returns_secret_state.json", "vps_path": "C:\\H&C\\data\\tcp\\tcp_daily_returns_secret_state.json", "size_bytes": 81311, "last_modified": "2026-10-01T08:38:38", "sha256": "7094B6B513999B39F32304350016C6A9EAC4C07321D515821357159FD7934386", "record_count": 182, "state_revision": 83, "schema_version": 1, "access": "read_write", "git_tracked": false, "backup_required": true, "sensitive": true, "env_key_today": "TCP_V2_STATE_PATH", "required_for_initial_deploy": true, "note": "Already outside the repo. This is why TCP is the recommended pilot." },
+      { "classification": "COPY_OPTIONAL", "kind": "state_backup", "filename": "tcp_daily_returns_secret_state.backup.json", "source": "C:\\Users\\H&CDanHughes\\AppData\\Local\\HughesCompany\\TCP\\state\\tcp_daily_returns_secret_state.backup.json", "vps_path": "C:\\H&C\\data\\tcp\\tcp_daily_returns_secret_state.backup.json", "size_bytes": 80894, "sha256": "91D0A1EFC8A8EE9252BF31AB5349CBF0B0819C07DB87EC04C768CA97394F9FAB", "access": "write", "git_tracked": false, "backup_required": false, "sensitive": true, "env_key_today": "TCP_V2_STATE_BACKUP_PATH", "required_for_initial_deploy": false, "note": "Derived. The app recreates it on first write." },
+      { "classification": "DO_NOT_COPY", "kind": "lock", "filename": "tcp_daily_returns_secret_state.lock", "source": "C:\\Users\\H&CDanHughes\\AppData\\Local\\HughesCompany\\TCP\\state\\tcp_daily_returns_secret_state.lock", "size_bytes": 83, "env_key_today": "TCP_V2_STATE_LOCK_PATH", "reason": "Runtime lock artifact. Must be recreated locally, never copied." },
+      { "classification": "COPY_OPTIONAL", "kind": "benchmark_cache", "filename": "tcp_benchmark_cache.json", "source": "C:\\Users\\H&CDanHughes\\AppData\\Local\\HughesCompany\\TCP\\benchmark\\tcp_benchmark_cache.json", "vps_path": "C:\\H&C\\data\\tcp\\benchmark\\tcp_benchmark_cache.json", "size_bytes": 797185, "last_modified": "2026-10-01T11:23:58", "symbol": "^SP500TR", "env_key_today": "TCP_V2_BENCHMARK_CACHE_PATH", "required_for_initial_deploy": false, "note": "Regenerable, but copying it lets you first-boot with TCP_V2_SKIP_BENCHMARK_FETCH=1 and no outbound market data." },
+      { "classification": "COPY_OPTIONAL", "kind": "benchmark_cache", "filename": "tcp_benchmark_btc_cache.json", "source": "C:\\Users\\H&CDanHughes\\AppData\\Local\\HughesCompany\\TCP\\benchmark\\tcp_benchmark_btc_cache.json", "vps_path": "C:\\H&C\\data\\tcp\\benchmark\\tcp_benchmark_btc_cache.json", "size_bytes": 357558, "symbol": "BTC-USD", "env_key_today": "TCP_V2_BENCHMARK_BTC_CACHE_PATH", "required_for_initial_deploy": false },
+      { "classification": "COPY_OPTIONAL", "kind": "benchmark_cache", "filename": "tcp_benchmark_eth_cache.json", "source": "C:\\Users\\H&CDanHughes\\AppData\\Local\\HughesCompany\\TCP\\benchmark\\tcp_benchmark_eth_cache.json", "vps_path": "C:\\H&C\\data\\tcp\\benchmark\\tcp_benchmark_eth_cache.json", "size_bytes": 263740, "symbol": "ETH-USD", "env_key_today": "TCP_V2_BENCHMARK_ETH_CACHE_PATH", "required_for_initial_deploy": false },
+      { "classification": "DO_NOT_COPY", "kind": "stale_cache", "source": "_runtime/tcp_benchmark_cache.json, _runtime/tcp_benchmark_btc_cache.json, _runtime/tcp_benchmark_eth_cache.json", "last_modified": "2026-07-15 to 2026-07-30", "reason": "Stale repo-local duplicates superseded by the HughesCompany\\TCP\\benchmark copies. _runtime/ is gitignored." },
+      { "classification": "DO_NOT_COPY", "kind": "source_workbook", "filename": "tcp_alex.xlsx", "source": "literal under C:\\Users\\H&CDanHughes\\Hughes & Company\\Hughes & Company - Documents\\...\\TCP\\tcp_alex.xlsx", "hardcoded_at": "tcp_config.py:12-15", "env_key_today": "TCP_V2_WORKBOOK_PATH", "protected_folder": true, "required_for_initial_deploy": false, "reason": "PATH FROM SOURCE ONLY, never read. In json_active mode the workbook is consulted only on StateNotFound or StateLoadError. Set TCP_V2_ALLOW_WORKBOOK_FALLBACK=false on the VPS so a missing JSON fails loudly instead of silently serving stale read-only workbook data." },
+      { "classification": "DO_NOT_COPY", "kind": "audit_log", "filename": "glenn_uploader_ingest_tcp_audit.jsonl", "source": "C:\\Coding Projects\\Tearsheet Generator\\.worktrees\\live-deploy-main\\glenn_uploader_ingest_tcp_audit.jsonl", "vps_path": "C:\\H&C\\logs\\tcp\\glenn_uploader_ingest_tcp_audit.jsonl", "size_bytes": 21279, "sha256": "9902F43FA3CD4050A818666CF7ABAED1E7A73D12BE5F4BBEFA9B0BBDDD1A4C19", "sensitive": true, "required_for_initial_deploy": false, "note": "Path is REPO_ROOT-relative in live code and will land in the code directory unless the audit-path work is merged." }
+    ],
+    "config": [
+      { "classification": "CONFIG", "variable": "TCP_V2_STATE_MODE", "secret": false, "required": true, "current_source": ".tcp_production.env", "current_value": "json_active", "vps_destination": "C:\\H&C\\config\\tcp.env", "class": "path_config" },
+      { "classification": "CONFIG", "variable": "TCP_V2_BIND_PORT", "secret": false, "required": true, "current_source": ".tcp_production.env", "current_value": "8302", "vps_destination": "C:\\H&C\\config\\tcp.env", "class": "network" },
+      { "classification": "CONFIG", "variable": "TCP_V2_STATE_PATH", "secret": false, "required": true, "current_source": ".tcp_production.env", "current_value": "C:\\Users\\H&CDanHughes\\AppData\\Local\\HughesCompany\\TCP\\state\\tcp_daily_returns_secret_state.json", "vps_value": "C:\\H&C\\data\\tcp\\tcp_daily_returns_secret_state.json", "vps_destination": "C:\\H&C\\config\\tcp.env", "class": "path_config" },
+      { "classification": "CONFIG", "variable": "TCP_V2_STATE_BACKUP_PATH", "secret": false, "required": true, "current_source": ".tcp_production.env", "vps_value": "C:\\H&C\\data\\tcp\\tcp_daily_returns_secret_state.backup.json", "vps_destination": "C:\\H&C\\config\\tcp.env", "class": "path_config" },
+      { "classification": "CONFIG", "variable": "TCP_V2_STATE_LOCK_PATH", "secret": false, "required": true, "current_source": ".tcp_production.env", "vps_value": "C:\\H&C\\data\\tcp\\tcp_daily_returns_secret_state.lock", "vps_destination": "C:\\H&C\\config\\tcp.env", "class": "path_config" },
+      { "classification": "CONFIG", "variable": "TCP_V2_BENCHMARK_CACHE_PATH", "secret": false, "required": false, "current_source": ".tcp_production.env", "vps_value": "C:\\H&C\\data\\tcp\\benchmark\\tcp_benchmark_cache.json", "vps_destination": "C:\\H&C\\config\\tcp.env", "class": "path_config" },
+      { "classification": "CONFIG", "variable": "TCP_V2_BENCHMARK_BTC_CACHE_PATH", "secret": false, "required": false, "current_source": "unset", "vps_value": "C:\\H&C\\data\\tcp\\benchmark\\tcp_benchmark_btc_cache.json", "vps_destination": "C:\\H&C\\config\\tcp.env", "class": "path_config", "note": "Set explicitly on the VPS instead of relying on the sibling-of-SPXTR default." },
+      { "classification": "CONFIG", "variable": "TCP_V2_BENCHMARK_ETH_CACHE_PATH", "secret": false, "required": false, "current_source": "unset", "vps_value": "C:\\H&C\\data\\tcp\\benchmark\\tcp_benchmark_eth_cache.json", "vps_destination": "C:\\H&C\\config\\tcp.env", "class": "path_config" },
+      { "classification": "CONFIG", "variable": "TCP_V2_ALLOW_WORKBOOK_FALLBACK", "secret": false, "required": false, "current_source": "unset (code default true)", "vps_value": "false", "vps_destination": "C:\\H&C\\config\\tcp.env", "class": "path_config", "note": "MINOR BLOCKER. Set false so a missing or corrupt JSON state fails loudly." },
+      { "classification": "CONFIG", "variable": "TCP_V2_SKIP_BENCHMARK_FETCH", "secret": false, "required": false, "current_source": "unset", "vps_value": "1 for first private boot, then unset", "vps_destination": "C:\\H&C\\config\\tcp.env", "class": "optional" },
+      { "classification": "CONFIG", "variable": "TCP_V2_WORKBOOK_PATH", "secret": false, "required": false, "current_source": "unset (hardcoded default in tcp_config.py)", "vps_destination": "C:\\H&C\\config\\tcp.env", "class": "path_config" },
+      { "classification": "SECRETS", "variable": "TCP_V2_ADMIN_TOKEN", "secret": true, "required": true, "current_source": ".tcp_production.env", "vps_destination": "C:\\H&C\\secrets\\tcp.env", "class": "secret" },
+      { "classification": "SECRETS", "variable": "TCP_V2_SESSION_SECRET", "secret": true, "required": true, "current_source": ".tcp_production.env", "vps_destination": "C:\\H&C\\secrets\\tcp.env", "class": "secret" },
+      { "classification": "CONFIG", "variable": "TEARSHEET_MODE", "secret": false, "required": true, "current_source": "reboot_tcp_ts.ps1", "current_value": "public", "vps_destination": "NSSM service environment", "class": "path_config" },
+      { "classification": "CONFIG", "variable": "PYTHONIOENCODING", "secret": false, "required": true, "current_value": "utf-8", "vps_destination": "NSSM service environment", "class": "path_config" },
+      { "classification": "CONFIG", "variable": "GLENN_UPLOADER_INGEST_ENABLED", "secret": false, "required": true, "current_source": ".local_dev.env", "current_value": "true", "vps_destination": "C:\\H&C\\config\\tcp.env", "class": "path_config" },
+      { "classification": "SECRETS", "variable": "GLENN_UPLOADER_INGEST_TOKEN", "secret": true, "required": true, "current_source": ".local_dev.env", "vps_destination": "C:\\H&C\\secrets\\ingest.env", "class": "secret" },
+      { "classification": "CONFIG", "variable": "GLENN_UPLOADER_INGEST_DRY_RUN_ALLOWED", "secret": false, "required": false, "current_source": ".local_dev.env", "current_value": "true", "vps_destination": "C:\\H&C\\config\\tcp.env", "class": "optional" }
+    ],
+    "services": [
+      { "service_name": "HC-TCP-Tearsheet", "role": "public tearsheet", "manager": "NSSM", "python_executable": "C:\\H&C\\apps\\shared\\.venv310\\Scripts\\python.exe", "entry_point": "C:\\H&C\\apps\\tcp\\tcp_ts_v2.py", "working_directory": "C:\\H&C\\apps\\tcp", "environment_profile": ["C:\\H&C\\config\\tcp.env", "C:\\H&C\\secrets\\tcp.env", "C:\\H&C\\secrets\\ingest.env"], "stdout_log": "C:\\H&C\\logs\\tcp\\tcp_stdout.log", "stderr_log": "C:\\H&C\\logs\\tcp\\tcp_stderr.log", "startup_type": "Automatic", "restart_on_exit": true, "throttle_seconds": 10, "kill_process_tree": true, "created_in_this_phase": false, "pilot": true },
+      { "service_name": "HC-TCP-Staff", "role": "staff/admin tearsheet", "required_for_migration": false, "note": "Deferred. Port 8322 is manual only and has no listener today." }
+    ],
+    "ports": [
+      { "port": 8302, "role": "public", "bind": "127.0.0.1", "currently_listening": true, "pid_at_capture": 41172, "health_endpoint": "/healthz", "vps_port": 8302 },
+      { "port": 8312, "role": "preview default when TCP_V2_BIND_PORT is unset", "currently_listening": false, "note": "Set TCP_V2_BIND_PORT explicitly on the VPS or TCP will bind 8312." },
+      { "port": 8322, "role": "staff/admin", "currently_listening": false, "required_for_migration": false, "vps_port": 8322 }
+    ],
+    "ingest": {
+      "endpoint": "/api/uploader/ingest-daily-row",
+      "method": "POST",
+      "program_code": "TCP",
+      "auth": "bearer token via Authorization header or X-Glenn-Uploader-Token",
+      "required_fields": ["stonex_nlv"],
+      "optional_fields": ["cash_transfer"],
+      "state_file_written": "tcp_daily_returns_secret_state.json",
+      "write_is_atomic": true,
+      "write_mechanism": "StateFileLock + tempfile.mkstemp + os.replace + backup rotation",
+      "revision_guarded": true,
+      "recalculation": "apply_tcp_recalculation()",
+      "audit_log": "glenn_uploader_ingest_tcp_audit.jsonl",
+      "uploader_side_config_key": "TCP_INGEST_URL",
+      "uploader_side_config_file": "uploader/backend/app/config.py",
+      "changes_at_cutover": true
+    }
+  },
+
+  "agm": {
+    "readiness": "READY_WITH_MINOR_BLOCKERS",
+    "code": [
+      { "classification": "COPY", "kind": "entry_point", "source": "Momentum Pacer/mp_ts.py", "vps_path": "C:\\H&C\\apps\\agm\\Momentum Pacer\\mp_ts.py", "size_bytes": 165673, "required": true, "note": "Inserts its parent's parent onto sys.path to reach the shared and algominds_* modules." },
+      { "classification": "COPY", "kind": "module", "source": "algominds_daily_balances.py", "vps_path": "C:\\H&C\\apps\\agm\\algominds_daily_balances.py", "size_bytes": 11427, "required": true, "role": "pinned TradeStation CSV loader", "note": "Lives at the worktree ROOT and reaches into Momentum Pacer/data/daily_balances. The directory relationship must be preserved exactly." },
+      { "classification": "COPY", "kind": "module", "source": "algominds_benchmark_daily.py", "vps_path": "C:\\H&C\\apps\\agm\\algominds_benchmark_daily.py", "size_bytes": 8400, "required": true, "role": "^GSPC / ^NDX cache plus yfinance fetch", "note": "Also root-level, also reaches into Momentum Pacer/data/benchmarks." },
+      { "classification": "COPY", "kind": "module", "source": "algominds_daily_fees.py", "vps_path": "C:\\H&C\\apps\\agm\\algominds_daily_fees.py", "size_bytes": 15289, "required": true, "role": "slab/HWM daily fee accrual, month-end crystallization" },
+      { "classification": "COPY", "kind": "module", "source": "algominds_daily_accounting.py", "vps_path": "C:\\H&C\\apps\\agm\\algominds_daily_accounting.py", "size_bytes": 9177, "required": true, "role": "actual_nlv, accrued_unpaid_fees, client_net_value" },
+      { "classification": "COPY", "kind": "module", "source": "algominds_monthly_summary.py", "vps_path": "C:\\H&C\\apps\\agm\\algominds_monthly_summary.py", "size_bytes": 9716, "required": true, "role": "complete months to display table" },
+      { "classification": "COPY", "kind": "module", "source": "algominds_account_stats.py", "vps_path": "C:\\H&C\\apps\\agm\\algominds_account_stats.py", "size_bytes": 7301, "required": true, "role": "account statistics cards" },
+      { "classification": "COPY", "kind": "module", "source": "algominds_monthly_stats.py", "vps_path": "C:\\H&C\\apps\\agm\\algominds_monthly_stats.py", "size_bytes": 5644, "required": true, "role": "monthly stats" },
+      { "classification": "COPY", "kind": "module", "source": "algominds_fee_payment_evidence.py", "vps_path": "C:\\H&C\\apps\\agm\\algominds_fee_payment_evidence.py", "size_bytes": 2830, "required": true, "role": "hand-confirmed fee payments" },
+      { "classification": "COPY", "kind": "module", "source": "algominds_drawdown_semantics.py", "vps_path": "C:\\H&C\\apps\\agm\\algominds_drawdown_semantics.py", "size_bytes": 9881, "required": true, "role": "drawdown profile semantics" },
+      { "classification": "COPY", "kind": "module", "source": "algominds_portal_registry.py", "vps_path": "C:\\H&C\\apps\\agm\\algominds_portal_registry.py", "size_bytes": 5263, "required": true, "role": "portal columns, participating accounts" },
+      { "classification": "COPY", "kind": "module", "source": "program_account_stats.py", "vps_path": "C:\\H&C\\apps\\agm\\program_account_stats.py", "size_bytes": 7330, "required": true, "role": "shared stats helpers used by algominds_account_stats" },
+      { "classification": "COPY", "kind": "static", "source": "assets/styles.css", "vps_path": "C:\\H&C\\apps\\shared\\assets\\styles.css", "size_bytes": 18455, "required": true },
+      { "classification": "DO_NOT_COPY", "kind": "legacy", "source": "Momentum Pacer/calc_engine.py", "size_bytes": 21036, "reason": "Legacy generic CSV tearsheet engine. Nothing imports it; the Momentum Pacer README confirms it is unused." },
+      { "classification": "DO_NOT_COPY", "kind": "docs", "source": "Momentum Pacer/README.md", "size_bytes": 3054, "reason": "Developer documentation. Keep in git, not needed at runtime." },
+      { "classification": "DO_NOT_COPY", "kind": "unrelated", "source": "algominds_v2_*.py, algominds_v2/, algominds_portal_registry dependencies on v2", "reason": "algominds_v2_* is not in the AGM import graph. Out of scope." }
+    ],
+    "data": [
+      { "classification": "COPY", "kind": "state", "filename": "momentum_pacer_manual_daily_rows.json", "source": "C:\\Coding Projects\\Tearsheet Generator\\.worktrees\\live-deploy-main\\Momentum Pacer\\momentum_pacer_manual_daily_rows.json", "vps_path": "C:\\H&C\\data\\agm\\momentum_pacer_manual_daily_rows.json", "size_bytes": 7658, "last_modified": "2026-10-01T08:38:38", "sha256": "62612BD23E730B94AC70A5DBDB4B98E1A8079D9721E2515D411C252157CBD5B6", "record_count": 59, "access": "read_write", "git_tracked": false, "backup_required": true, "sensitive": true, "env_key_today": null, "proposed_env_key": "HC_AGM_MANUAL_STATE_PATH", "required_for_initial_deploy": true, "write_is_atomic": false },
+      { "classification": "COPY", "kind": "fee_workbook", "filename": "Momentum Fee Calculation.xlsx", "source_link": "C:\\Coding Projects\\Tearsheet Generator\\.worktrees\\live-deploy-main\\Momentum Pacer\\Momentum Fee Calculation.xlsx", "source_real": "C:\\Coding Projects\\Tearsheet Generator\\Momentum Pacer\\Momentum Fee Calculation.xlsx", "vps_path": "C:\\H&C\\data\\agm\\Momentum Fee Calculation.xlsx", "size_bytes": 365554, "last_modified": "2026-05-05T15:27:28", "sha256": null, "access": "read_only", "git_tracked": false, "backup_required": true, "sensitive": true, "env_key_today": null, "proposed_env_key": "HC_AGM_FEE_WORKBOOK", "required_for_initial_deploy": true, "is_symlink_in_live_worktree": true, "note": "CRITICAL: the live-worktree entry is a 0-byte SymbolicLink. Copy from source_real or use a link-following copy, otherwise the VPS gets an empty file. The hash B63A1CBEA8A7F81803D695784FF2DD38383DA6BCE84F50CFEB98C9CCFE851A1E observed in the live worktree is the hash of the empty reparse point, NOT the workbook." },
+      { "classification": "COPY", "kind": "pinned_csv", "filename": "balances_210TGG51_20OCT2025_07JUL2026.csv", "source": "C:\\Coding Projects\\Tearsheet Generator\\.worktrees\\live-deploy-main\\Momentum Pacer\\data\\daily_balances\\balances_210TGG51_20OCT2025_07JUL2026.csv", "vps_path": "C:\\H&C\\data\\agm\\daily_balances\\balances_210TGG51_20OCT2025_07JUL2026.csv", "size_bytes": 17852, "last_modified": "2026-07-11T19:30:08", "sha256": "D4B5B781BDD3FA80707A1A00D7FF663ECFA7E75D7621B09FA14A345683B017A9", "access": "read_only", "git_tracked": false, "backup_required": true, "sensitive": true, "env_key_today": null, "proposed_env_key": "HC_AGM_PINNED_CSV", "required_for_initial_deploy": true, "note": "Filename is pinned in the code constant DAILY_BALANCES_FILENAME in algominds_daily_balances.py, not configuration. Refreshing the CSV requires a code edit today." },
+      { "classification": "COPY_OPTIONAL", "kind": "benchmark_cache", "filename": "GSPC_daily.csv", "source": "...\\Momentum Pacer\\data\\benchmarks\\GSPC_daily.csv", "vps_path": "C:\\H&C\\data\\agm\\benchmarks\\GSPC_daily.csv", "size_bytes": 6371, "last_modified": "2026-07-30T11:12:13", "sha256": "928E8B6ADC92B05645DB610C18B910A71A8ED5ECCD43D2EB3F2F3A0684E34D7D", "access": "read_write", "git_tracked": false, "backup_required": false, "sensitive": false, "proposed_env_key": "HC_AGM_BENCHMARK_CACHE_DIR", "required_for_initial_deploy": false, "note": "Fee benchmark. Copying it enables a first boot with AGM_BENCHMARK_CACHE_ONLY=1." },
+      { "classification": "COPY_OPTIONAL", "kind": "benchmark_cache", "filename": "NDX_daily.csv", "source": "...\\Momentum Pacer\\data\\benchmarks\\NDX_daily.csv", "vps_path": "C:\\H&C\\data\\agm\\benchmarks\\NDX_daily.csv", "size_bytes": 5730, "last_modified": "2026-07-11T19:30:08", "sha256": "49D0701068F40F18080C6B1227C541AC2963150E3DD501FF2B4BD4D6E4D31B74", "access": "read_write", "required_for_initial_deploy": false, "note": "Chart benchmark." },
+      { "classification": "DO_NOT_COPY", "kind": "audit_log", "filename": "glenn_uploader_ingest_agm_audit.jsonl", "source": "...\\Momentum Pacer\\glenn_uploader_ingest_agm_audit.jsonl", "vps_path": "C:\\H&C\\logs\\agm\\glenn_uploader_ingest_agm_audit.jsonl", "size_bytes": 23124, "sha256": "A986DB156444C4203E4F520B72AD6515A2321812017C6A83E7CC3B11E2E6EA4A", "sensitive": true, "required_for_initial_deploy": false }
+    ],
+    "config": [
+      { "classification": "SECRETS", "variable": "AGM_ADMIN_TOKEN", "secret": true, "required": true, "current_source": "NOT SET - falls back to tcp_config.DEFAULT_SIBLING_ADMIN_TOKEN", "vps_destination": "C:\\H&C\\secrets\\agm.env", "class": "secret", "blocker": true, "note": "MINOR BLOCKER. reboot_mp_ts.ps1 loads only .local_dev.env, so no production value is ever set. Generate a real secret for the VPS." },
+      { "classification": "SECRETS", "variable": "AGM_SESSION_SECRET", "secret": true, "required": true, "current_source": "NOT SET - falls back to tcp_config.DEFAULT_SIBLING_SESSION_SECRET", "vps_destination": "C:\\H&C\\secrets\\agm.env", "class": "secret", "blocker": true },
+      { "classification": "CONFIG", "variable": "MP_TS_PRODUCTION", "secret": false, "required": true, "current_source": "reboot_mp_ts.ps1", "current_value": "1", "vps_destination": "NSSM service environment", "class": "path_config", "note": "Disables the Werkzeug debugger and reloader." },
+      { "classification": "CONFIG", "variable": "AGM_BIND_PORT", "secret": false, "required": false, "current_source": "unset (code default 8304)", "vps_destination": "C:\\H&C\\config\\agm.env", "class": "network" },
+      { "classification": "CONFIG", "variable": "AGM_BENCHMARK_CACHE_ONLY", "secret": false, "required": false, "current_source": "unset", "vps_value": "1 for first private boot, then unset", "vps_destination": "C:\\H&C\\config\\agm.env", "class": "optional" },
+      { "classification": "CONFIG", "variable": "TEARSHEET_MODE", "secret": false, "required": false, "current_source": "unset for AGM public (resolves to legacy)", "vps_destination": "NSSM service environment", "class": "path_config", "note": "AGM public does not set TEARSHEET_MODE; MP_TS_PRODUCTION is what disables debug. Review before setting." },
+      { "classification": "CONFIG", "variable": "PYTHONIOENCODING", "secret": false, "required": true, "current_value": "utf-8", "vps_destination": "NSSM service environment", "class": "path_config" },
+      { "classification": "CONFIG", "variable": "GLENN_UPLOADER_INGEST_ENABLED", "secret": false, "required": true, "current_source": ".local_dev.env", "current_value": "true", "vps_destination": "C:\\H&C\\config\\agm.env", "class": "path_config" },
+      { "classification": "SECRETS", "variable": "GLENN_UPLOADER_INGEST_TOKEN", "secret": true, "required": true, "current_source": ".local_dev.env", "vps_destination": "C:\\H&C\\secrets\\ingest.env", "class": "secret" },
+      { "classification": "CONFIG", "variable": "GLENN_UPLOADER_INGEST_DRY_RUN_ALLOWED", "secret": false, "required": false, "current_source": ".local_dev.env", "current_value": "true", "vps_destination": "C:\\H&C\\config\\agm.env", "class": "optional" }
+    ],
+    "services": [
+      { "service_name": "HC-AGM-Tearsheet", "role": "public tearsheet", "manager": "NSSM", "python_executable": "C:\\H&C\\apps\\shared\\.venv310\\Scripts\\python.exe", "entry_point": "C:\\H&C\\apps\\agm\\Momentum Pacer\\mp_ts.py", "working_directory": "C:\\H&C\\apps\\agm\\Momentum Pacer", "environment_profile": ["C:\\H&C\\config\\agm.env", "C:\\H&C\\secrets\\agm.env", "C:\\H&C\\secrets\\ingest.env"], "stdout_log": "C:\\H&C\\logs\\agm\\agm_stdout.log", "stderr_log": "C:\\H&C\\logs\\agm\\agm_stderr.log", "startup_type": "Automatic", "restart_on_exit": true, "throttle_seconds": 10, "kill_process_tree": true, "created_in_this_phase": false, "note": "Working directory MUST be the Momentum Pacer subfolder; reboot_mp_ts.ps1 cd's there before launching." },
+      { "service_name": "HC-AGM-Staff", "role": "staff/admin tearsheet", "required_for_migration": false, "note": "Deferred. Port 8324 is manual only and has no listener today." }
+    ],
+    "ports": [
+      { "port": 8304, "role": "public", "bind": "127.0.0.1", "currently_listening": true, "pid_at_capture": 41212, "health_endpoint": "/healthz", "vps_port": 8304, "note": "AGM is the only app that passes host='127.0.0.1' explicitly to app.run." },
+      { "port": 8324, "role": "staff/admin", "currently_listening": false, "required_for_migration": false, "vps_port": 8324 }
+    ],
+    "ingest": {
+      "endpoint": "/api/uploader/ingest-daily-row",
+      "method": "POST",
+      "program_code": "AGM",
+      "auth": "bearer token via Authorization header or X-Glenn-Uploader-Token",
+      "required_fields": ["tradestation_nlv"],
+      "optional_fields": ["cash_transfer", "fee"],
+      "field_mapping_note": "fee is stored as incentive_fee_paid",
+      "state_file_written": "momentum_pacer_manual_daily_rows.json",
+      "write_is_atomic": false,
+      "recalculation": "recalculate_agm_display_state_from_disk()",
+      "audit_log": "Momentum Pacer/glenn_uploader_ingest_agm_audit.jsonl",
+      "uploader_side_config_key": "AGM_INGEST_URL",
+      "uploader_side_config_file": "uploader/backend/app/config.py",
+      "changes_at_cutover": true,
+      "note": "AGM is NOT purely manual. Ingest writes the same manual-rows JSON that the admin Add Row control writes. The TradeStation CSV is never overwritten."
+    }
+  },
+
+  "shared": {
+    "note": "Required by all three apps. Deploy once to C:\\H&C\\apps\\shared and make it importable, or place a copy alongside each app. The simplest correct option given the current flat import style is one shared directory on PYTHONPATH.",
+    "code": [
+      { "classification": "COPY", "source": "tearsheet_runtime_mode.py", "vps_path": "C:\\H&C\\apps\\shared\\tearsheet_runtime_mode.py", "size_bytes": 5818, "role": "TEARSHEET_MODE handling, bind-port resolution, session cookie naming, /monthly 404 registration" },
+      { "classification": "COPY", "source": "tearsheet_local_admin.py", "vps_path": "C:\\H&C\\apps\\shared\\tearsheet_local_admin.py", "size_bytes": 4523, "role": "staff and local direct-admin request guards" },
+      { "classification": "COPY", "source": "tearsheet_gate_auth.py", "vps_path": "C:\\H&C\\apps\\shared\\tearsheet_gate_auth.py", "size_bytes": 4523, "role": "gate password UI ids and per-app admin auth settings loaders" },
+      { "classification": "COPY", "source": "tearsheet_gate_ui.py", "vps_path": "C:\\H&C\\apps\\shared\\tearsheet_gate_ui.py", "size_bytes": 7759, "role": "Important Notice accept gate layout and embedded CSS" },
+      { "classification": "COPY", "source": "tearsheet_disclosure.py", "vps_path": "C:\\H&C\\apps\\shared\\tearsheet_disclosure.py", "size_bytes": 7635, "role": "legal disclosure copy" },
+      { "classification": "COPY", "source": "tearsheet_header.py", "vps_path": "C:\\H&C\\apps\\shared\\tearsheet_header.py", "size_bytes": 6494, "role": "header row and 'data current to' labels" },
+      { "classification": "COPY", "source": "tearsheet_portal.py", "vps_path": "C:\\H&C\\apps\\shared\\tearsheet_portal.py", "size_bytes": 6502, "role": "/admin portal HTML template string" },
+      { "classification": "COPY", "source": "tearsheet_date_defaults.py", "vps_path": "C:\\H&C\\apps\\shared\\tearsheet_date_defaults.py", "size_bytes": 1075, "role": "default add-row date helper" },
+      { "classification": "COPY", "source": "tearsheet_uploader_ingest.py", "vps_path": "C:\\H&C\\apps\\shared\\tearsheet_uploader_ingest.py", "size_bytes": 13580, "role": "shared ingest route framework: env gate, token compare, validation, apply lock, audit append" },
+      { "classification": "COPY", "source": "assets/styles.css", "vps_path": "C:\\H&C\\apps\\shared\\assets\\styles.css", "size_bytes": 18455, "sha256": "4C4FF4EF1367495E622C364241B54E83B60FAC4F24E3204E0DD1CB80A4123899", "role": "the only static asset any app needs", "note": "Take the LIVE WORKTREE copy; the dev checkout version is modified." },
+      { "classification": "COPY", "source": "requirements.txt", "vps_path": "C:\\H&C\\deployment\\requirements.txt", "size_bytes": 916, "sha256": "97B0FC4B3F97C6F20E0EFCFC0A1DF24CE16F32B5722BA849718A7200FA8E519B", "role": "pinned dependency list", "note": "INCOMPLETE. openpyxl and dash-bootstrap-components are missing and must be installed explicitly." },
+      { "classification": "COPY_CROSS_APP_DEPENDENCY", "source": "tcp_admin.py, tcp_config.py, tcp_public_sections.py, tcp_calculations.py, tcp_ledger.py, tcp_dashboard.py, tcp_drawdown.py", "vps_path": "C:\\H&C\\apps\\shared\\ (or importable from each app)", "role": "TKP and AGM import tcp_admin for AdminAuthManager, which transitively imports the rest", "note": "These TCP modules are NOT used for TKP or AGM business logic, but they must be importable or TKP and AGM fail at import. Untangling is out of scope for this migration." }
+    ],
+    "runtime": [
+      { "classification": "REBUILD_DO_NOT_COPY", "item": "Python virtual environment", "current": "C:\\Coding Projects\\Tearsheet Generator\\.venv310 (reached via a junction in the live worktree)", "vps_path": "C:\\H&C\\apps\\shared\\.venv310", "python_version": "3.10.0", "base_interpreter": "C:\\Python310", "recommendation": "ONE shared venv for all three apps", "rationale": "Identical pinned dependency set across all three; no version conflicts; TKP and AGM already import TCP modules, so isolation buys nothing and triples the patching surface.", "note": "Never copy a venv between machines. Create it fresh on the VPS with the same Python 3.10.x and install from requirements.txt plus the two missing packages." },
+      { "classification": "INSTALL", "item": "missing_requirements", "packages": ["openpyxl==3.1.5", "dash-bootstrap-components==2.0.3"], "note": "BLOCKER for all three apps. Absent from requirements.txt but imported directly." },
+      { "classification": "INSTALL_OPTIONAL", "item": "test_dependencies", "packages": ["pytest==8.4.2"], "note": "Only if you want to run the TCP resilience and foundation suites on the VPS as deployment validation." },
+      { "classification": "NOT_REQUIRED", "item": "fonts", "note": "All typography is CSS. matplotlib is never used to render a figure in the request path." },
+      { "classification": "NOT_REQUIRED", "item": "headless_browser", "note": "Plotly is rendered client-side as JSON. No Kaleido, Orca, or browser needed server-side." },
+      { "classification": "NOT_REQUIRED", "item": "excel_or_com", "note": "openpyxl only. No Excel installation, no COM automation." },
+      { "classification": "REQUIRED", "item": "outbound_https", "note": "Needed for quantstats and yfinance benchmark downloads. TCP and AGM have cache-only flags; TKP does not and has no cache file, so TKP will attempt a download on every boot." }
+    ]
+  },
+
+  "excluded": [
+    { "pattern": ".git", "reason": "Version control metadata. The VPS receives a deployed artifact, not a working checkout." },
+    { "pattern": ".worktrees/", "reason": "Nested feature worktrees. Already gitignored. Includes central-path-config, tkp-central-path-config, path-portability-integration, vps-portability-completion, windows-vps-deployment-layout." },
+    { "pattern": "__pycache__/, *.pyc, *.pyo, *.pyd", "reason": "Compiled bytecode. Regenerated on first import." },
+    { "pattern": ".pytest_cache/, .pytest_tmp/", "reason": "Test runner caches." },
+    { "pattern": "tests/", "reason": "Not required at runtime. EXCEPTION: consider copying tests/test_tcp_foundation.py, tests/test_tcp_runtime_state.py, and tests/test_tcp_resilience_acceptance.py to C:\\H&C\\deployment\\validation for one-time VPS validation of the pilot, then remove." },
+    { "pattern": "backups/", "reason": "Local backup artifacts from 2026-09-16. Superseded by OVH snapshot and premium backup." },
+    { "pattern": "_restart_logs/", "reason": "Local restart logs. NSSM replaces this mechanism entirely." },
+    { "pattern": "_runtime/", "reason": "Stale benchmark caches from July, superseded by the HughesCompany\\TCP\\benchmark copies. Gitignored." },
+    { "pattern": "*.log", "reason": "Local logs. The VPS writes fresh logs to C:\\H&C\\logs." },
+    { "pattern": "reboot_*.bat, reboot_*.ps1", "reason": "Local launchers. They hardcode C:\\Coding Projects\\Tearsheet Generator as a dirty-root guard and reference C:\\Coding Projects\\Manager\\tearsheet_fleet_runtime.json. NSSM services replace them." },
+    { "pattern": "run_all_services.bat, run_tsgen.bat, run_tsgen_user.bat", "reason": "Local development launchers." },
+    { "pattern": ".venv310", "reason": "A junction to the dev checkout venv. Never copy a venv; rebuild on the VPS." },
+    { "pattern": ".local_dev.env", "reason": "DO NOT COPY AS-IS. It is a symlink to the dev checkout and contains the live GLENN_UPLOADER_INGEST_TOKEN plus TEARSHEET_LOCAL_DIRECT_ADMIN=1. Split its contents into C:\\H&C\\config\\*.env and C:\\H&C\\secrets\\ingest.env by hand." },
+    { "pattern": ".tkp_production.env, .tcp_production.env, .staff.env", "reason": "DO NOT COPY AS FILES. Symlinks to the dev checkout containing secrets. Re-author on the VPS under C:\\H&C\\secrets with correct values and ACLs." },
+    { "pattern": ".local_dev.env.example, .staff.env.example", "reason": "Safe templates. Optional to copy to C:\\H&C\\deployment as reference." },
+    { "pattern": "tcp_ts.py", "reason": "Legacy TCP monolith (115 KB). Obsolete, forbidden by tests, and its __main__ block would bind port 8302." },
+    { "pattern": "Momentum Pacer/calc_engine.py", "reason": "Legacy unused AGM engine." },
+    { "pattern": "yq_ts.py, yq_data_current.py", "reason": "Y&Q tearsheet, port 8303. EXPLICITLY OUT OF SCOPE." },
+    { "pattern": "Gold_Maker_ts.py, reboot_gold_maker.bat", "reason": "Unrelated application." },
+    { "pattern": "tsgen.py, make_csv.py, create_csv_part1.py, tv_vadi_convert.py", "reason": "Development and conversion tooling." },
+    { "pattern": "setup_blue_whale_data.py, update_blue_whale_data.py, spx_data_test.py, test_read_excel.py", "reason": "Development scripts." },
+    { "pattern": "algominds_v2_*.py, algominds_v2/", "reason": "Not in the AGM import graph. Out of scope." },
+    { "pattern": "algominds_daily_accounting_ui.py", "reason": "Not imported by mp_ts.py. Verify before excluding if AGM behavior changes." },
+    { "pattern": "uploader/", "reason": "The Glenn uploader application. Deployed to Fly.io. Inspection only; explicitly out of scope for VPS migration." },
+    { "pattern": "docs/, *.md, CURSOR_PATCH.md, TCP v2 Implementation Plan.md", "reason": "Documentation. Stays in git." },
+    { "pattern": ".productcard-*.tsx, .productcard-css-full-backup.css", "reason": "Stale frontend backup artifacts." },
+    { "pattern": "Y&QInvestments_DDoc_CTA_2025_03.pdf", "reason": "Y&Q document. Out of scope." },
+    { "pattern": "glenn_uploader_ingest_*_audit.jsonl", "reason": "Append-only audit history. Archive to backups for retention; start fresh files on the VPS." },
+    { "pattern": "tcp_daily_returns_secret_state.lock", "reason": "Runtime lock artifact. Must be created locally, never transported." },
+    { "pattern": "C:\\Users\\H&CDanHughes\\AppData\\Local\\HughesCompany\\TCP\\production.env", "reason": "Orphan env file (553 B, 2026-07-04). Not loaded by any current launcher. Stale; do not migrate without review." },
+    { "pattern": "C:\\Coding Projects\\Manager\\**", "reason": "Fleet launcher for the whole laptop. NSSM replaces its role for these three services. Out of scope." },
+    { "pattern": "C:\\Coding Projects\\HomePage\\**", "reason": "Dashboard on port 8006. Out of scope." },
+    { "pattern": "C:\\Users\\H&CDanHughes\\Hughes & Company\\Hughes & Company - Documents\\**", "reason": "PROTECTED FOLDER. Never read, listed, or traversed in this phase. Literal paths appearing in source code are recorded verbatim only. Required TKP files must be supplied by Kevin via C:\\AI_HANDOFF." }
+  ],
+
+  "cross_cutting_findings": [
+    { "id": "F1", "severity": "blocking", "programs": ["tkp"], "title": "Boot-critical hardcoded protected-folder workbook", "detail": "tkp_ts.py:244 hardcodes the workbook path; lines 379-387 and 444-452 call sys.exit(1) if it is missing or unreadable. No env override exists on live-main. TKP cannot start on the VPS without either merging the path-portability branch or supplying the file." },
+    { "id": "F2", "severity": "blocking_for_tkp", "programs": ["tkp", "tcp", "agm"], "title": "tearsheet_paths.py is not in production", "detail": "A repo-wide grep of the live worktree for tearsheet_paths, HC_DATA_ROOT, and HC_APP_ENV returns zero matches. The work exists on five unmerged branches; feature/vps-portability-completion is the most complete and already targets C:\\H&C. Earlier branches and some docs/migration files still say E:\\H&C and are superseded." },
+    { "id": "F3", "severity": "minor_silent_corruption_risk", "programs": ["tkp", "tcp", "agm"], "title": "Five reparse points make the live worktree non-self-contained", "detail": "A copy tool that does not follow links will silently produce zero-byte files, most importantly the AGM fee workbook.", "links": [ { "link": ".venv310", "kind": "Junction", "target": "C:\\Coding Projects\\Tearsheet Generator\\.venv310" }, { "link": ".local_dev.env", "kind": "SymbolicLink", "target": "C:\\Coding Projects\\Tearsheet Generator\\.local_dev.env" }, { "link": ".tcp_production.env", "kind": "SymbolicLink", "target": "C:\\Coding Projects\\Tearsheet Generator\\.tcp_production.env" }, { "link": ".tkp_production.env", "kind": "SymbolicLink", "target": "C:\\Coding Projects\\Tearsheet Generator\\.tkp_production.env" }, { "link": "Momentum Pacer\\Momentum Fee Calculation.xlsx", "kind": "SymbolicLink", "target": "C:\\Coding Projects\\Tearsheet Generator\\Momentum Pacer\\Momentum Fee Calculation.xlsx" } ] },
+    { "id": "F4", "severity": "minor", "programs": ["tkp", "tcp", "agm"], "title": "openpyxl and dash-bootstrap-components missing from requirements.txt", "detail": "A clean pip install -r requirements.txt produces an environment where all three apps fail at import." },
+    { "id": "F5", "severity": "minor", "programs": ["agm"], "title": "AGM runs on default credentials", "detail": "reboot_mp_ts.ps1 loads only .local_dev.env, so AGM_ADMIN_TOKEN and AGM_SESSION_SECRET fall back to the non-secret development defaults in tcp_config.py. .gitignore already anticipates a .agm_production.env that was never created." },
+    { "id": "F6", "severity": "minor", "programs": ["tkp", "tcp", "agm"], "title": "Production ingest configuration lives in a file named .local_dev.env", "detail": "All three production launchers load it. It sets GLENN_UPLOADER_INGEST_ENABLED=true, the shared ingest token, and TEARSHEET_LOCAL_DIRECT_ADMIN=1. Split it on the VPS; do not set the direct-admin flag on a server." },
+    { "id": "F7", "severity": "minor", "programs": ["tkp", "agm"], "title": "Non-atomic state writes", "detail": "TKP and AGM write their authoritative JSON with a plain open(path, 'w') - no lock, no temp-and-rename, no backup. A restart mid-write can truncate state. This also makes running a staff process concurrently with the public process a last-writer-wins hazard. TCP is safe: lock plus temp plus os.replace plus backup rotation." },
+    { "id": "F8", "severity": "minor", "programs": ["tkp"], "title": "No benchmark cache and no skip flag", "detail": "TKP downloads benchmarks via quantstats and yfinance on every boot with no cache file and no cache-only flag. TCP has TCP_V2_SKIP_BENCHMARK_FETCH and AGM has AGM_BENCHMARK_CACHE_ONLY; TKP has neither." },
+    { "id": "F9", "severity": "informational", "programs": ["tkp", "tcp", "agm"], "title": "No crash auto-restart today and interactive logon required", "detail": "Startup runs from the user Startup folder via Manager\\launch_all_services.py, which does not supervise or restart these services. NSSM fixes both weaknesses." },
+    { "id": "F10", "severity": "informational", "programs": ["agm"], "title": "Root-level algominds modules reach into the Momentum Pacer data tree", "detail": "algominds_daily_balances.py and algominds_benchmark_daily.py sit at the worktree root and build paths as Path(__file__).parent / 'Momentum Pacer' / 'data' / ... The directory relationship must be preserved exactly or those paths break." },
+    { "id": "F11", "severity": "informational", "programs": ["tkp"], "title": "Row-count discrepancy to resolve before reconciliation", "detail": "daily_returns_secret_state.json holds 896 records while /healthz reports rows_loaded: 766. The two come from different sources (full persisted editor table vs the Excel-derived NAV frame bounded by FORCE_LAST_EXCEL_ROW = 715). Explain this before using row count as a VPS-vs-laptop check for TKP." },
+    { "id": "F12", "severity": "informational", "programs": ["tkp", "tcp", "agm"], "title": "Staff ports are not required for migration", "detail": "Ports 8321, 8322, and 8324 have no listener, and Manager\\startup_contract.json classifies all three as manual only. Every write path is registered on the same Flask app that serves the public port, so the daily update flow does not need them." }
+  ]
+}

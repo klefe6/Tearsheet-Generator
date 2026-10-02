@@ -359,6 +359,7 @@ class Database:
                 ("actor", "TEXT"),
                 ("target_env", "TEXT"),
                 ("downstream_enabled", "INTEGER NOT NULL DEFAULT 0"),
+                ("downstream_result", "TEXT"),
             ],
             "daily_rows": [
                 ("exported_batch_id", "INTEGER"),
@@ -962,6 +963,22 @@ class Database:
             conn.execute(
                 "UPDATE export_batches SET status = ? WHERE id = ?", (status, batch_id)
             )
+
+    def set_batch_downstream_result(self, batch_id: int, result: Any) -> None:
+        with self.connect() as conn:
+            conn.execute(
+                "UPDATE export_batches SET downstream_result = ? WHERE id = ?",
+                (json.dumps(result), batch_id),
+            )
+
+    def get_latest_downstream_export_batch(self) -> Optional[dict]:
+        """Newest batch where downstream export was attempted (any outcome)."""
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM export_batches WHERE downstream_enabled = 1 "
+                "ORDER BY id DESC LIMIT 1"
+            ).fetchone()
+        return dict(row) if row else None
 
     def get_export_batch(self, batch_id: int) -> Optional[dict]:
         with self.connect() as conn:

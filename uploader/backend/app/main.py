@@ -40,6 +40,8 @@ from .db import (
 )
 from .downstream_export import run_downstream_export
 from .export_status import build_export_status, export_batch_message, export_mode_banner_message
+from .export_summary import build_preflight_blocked_downstream, latest_export_summary
+from .ingest_preflight import preflight_passed, run_preflight
 from .frontend_static import mount_frontend
 from .performance import build_combined, build_program
 from .programs import (
@@ -434,47 +436,113 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
                 detail="An export or rollback is already in progress; try again shortly.",
             )
         try:
-            downstream_results, external_calls = run_downstream_export(
-                db=db,
-                settings=settings,
-                actor=actor,
-                batch_id=batch_id,
-                rows=rows,
-            )
+            preflight_blocked = False
+            if (
+                will_mutate_downstream
+                and settings.export_target_env == "production"
+                and not settings.export_dry_run
+                and len(rows) > 0
+            ):
+                probes = run_preflight(settings)
+                if not preflight_passed(probes):
+                    preflight_blocked = True
+                    downstream_payload = build_preflight_blocked_downstream(
+                        rows,
+                        probes,
+                        target_env=settings.export_target_env,
+                        dry_run=settings.export_dry_run,
+                    )
+                    downstream_results = downstream_payload["results"]
+                    external_calls = 0
+                    db.add_audit(
+                        action="export_preflight_blocked",
+                        actor=actor,
+                        detail={
+                            "batch_id": batch_id,
+                            "programs": [
+                                {
+                                    "program": p.program,
+                                    "status": p.status,
+                                    "message": p.message,
+                                    "http_status": p.http_status,
+                                }
+                                for p in probes
+                            ],
+                        },
+                    )
+                else:
+                    downstream_results, external_calls = run_downstream_export(
+                        db=db,
+                        settings=settings,
+                        actor=actor,
+                        batch_id=batch_id,
+                        rows=rows,
+                    )
+            else:
+                downstream_results, external_calls = run_downstream_export(
+                    db=db,
+                    settings=settings,
+                    actor=actor,
+                    batch_id=batch_id,
+                    rows=rows,
+                )
         finally:
             if will_mutate_downstream:
                 db.release_lock()
 
         if will_mutate_downstream:
-            statuses = {
-                r["status"]
-                for prog in downstream_results.values()
-                for r in prog["date_results"]
-            }
-            if "success" in statuses:
-                db.set_batch_status(
-                    batch_id,
-                    BATCH_PARTIALLY_FAILED if "failure" in statuses else BATCH_COMMITTED,
-                )
-            else:
-                db.set_batch_status(batch_id, BATCH_NO_MUTATION)
+            if not preflight_blocked:
+                statuses = {
+                    r["status"]
+                    for prog in downstream_results.values()
+                    for r in prog["date_results"]
+                }
+                if "success" in statuses or "pending_refresh" in statuses:
+                    db.set_batch_status(
+                        batch_id,
+                        BATCH_PARTIALLY_FAILED if "failure" in statuses else BATCH_COMMITTED,
+                    )
+                else:
+                    db.set_batch_status(batch_id, BATCH_NO_MUTATION)
 
         response["downstream"] = {
             "target_env": settings.export_target_env,
             "dry_run": settings.export_dry_run,
             "results": downstream_results,
         }
-        response["message"] = export_batch_message(
-            export_status,
-            total_rows=len(rows),
-            downstream_attempted=True,
-        )
+        db.set_batch_downstream_result(batch_id, response["downstream"])
+        if preflight_blocked:
+            failed_programs = [
+                p
+                for p, r in downstream_results.items()
+                if p != "YQ" and r.get("status") == "failure"
+            ]
+            response["message"] = (
+                "Export blocked — tearsheet ingest preflight failed for "
+                f"{', '.join(failed_programs) or 'TKP/TCP/AGM'}. "
+                "Your saved uploader rows were not marked exported. "
+                "Fix the tearsheet apps or tunnels, then click Export All again."
+            )
+        else:
+            response["message"] = export_batch_message(
+                export_status,
+                total_rows=len(rows),
+                downstream_attempted=True,
+            )
         # The real tearsheet-ingest transport exists for target "production";
         # these fields now report what actually happened this batch.
         if settings.export_target_env == "production":
             response["transport_implemented"] = True
         response["external_calls_made"] = external_calls
         return response
+
+    @app.get("/api/export/latest", tags=["export"])
+    def export_latest() -> dict:
+        """Read-only summary of the most recent downstream export attempt."""
+        summary = latest_export_summary(db, settings)
+        if summary is None:
+            return {"batch": None}
+        return {"batch": summary}
 
     @app.get("/api/export/eligibility", tags=["export"])
     def export_eligibility() -> dict:

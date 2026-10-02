@@ -186,6 +186,24 @@ export interface ApiExportResult {
   downstream?: ApiDownstreamResult
 }
 
+/** GET /api/export/latest — persisted summary of the last downstream attempt. */
+export interface ApiExportLatestBatch {
+  batch_id: number
+  ts: string
+  batch_status: string
+  row_count: number
+  target_env: string
+  dry_run: boolean
+  downstream: ApiDownstreamResult
+  eligible_count: number
+  exported_count: number
+  manual_total: number
+}
+
+export interface ApiExportLatestResponse {
+  batch: ApiExportLatestBatch | null
+}
+
 /** Authoritative NYSE session dates from GET /api/trading-date-status. */
 export interface ApiTradingDateStatus {
   today: string
@@ -518,4 +536,25 @@ export function deleteLastRow(
  *  backend itself: `transport_implemented` is always false in this build). */
 export function postExportAll(): Promise<MutationOutcome<ApiExportResult>> {
   return callMutation('/export/all', 'POST')
+}
+
+/** GET /api/export/latest — last persisted downstream export attempt (read-only). */
+export async function fetchExportLatest(): Promise<ApiExportLatestResponse | null> {
+  if (!API_BASE_URL) return null
+  const controller = new AbortController()
+  const timer = window.setTimeout(() => controller.abort(), READ_TIMEOUT_MS)
+  try {
+    const response = await fetch(`${API_BASE_URL}/export/latest`, {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+      signal: controller.signal,
+    })
+    if (!response.ok) return null
+    const body = (await response.json()) as ApiExportLatestResponse
+    return body
+  } catch {
+    return null
+  } finally {
+    window.clearTimeout(timer)
+  }
 }

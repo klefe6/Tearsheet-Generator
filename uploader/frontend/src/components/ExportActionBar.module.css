@@ -250,6 +250,52 @@
   font-style: italic;
 }
 
+.overallHeadline {
+  margin: 0;
+  font-size: 13px;
+  color: #9a3412;
+  max-width: 42rem;
+}
+
+.retryBtn {
+  flex: 0 0 auto;
+  height: 36px;
+  padding: 0 14px;
+  border: 1px solid #f0b4b4;
+  border-radius: var(--radius-sm);
+  background: #fff5f5;
+  color: #b42318;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.programRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: baseline;
+}
+
+.dateResultLine {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 4px;
+  padding-left: 12px;
+  font-size: 12px;
+}
+
+.dateLabel {
+  font-weight: 600;
+  color: var(--ink-secondary);
+}
+
+.dateReason {
+  color: #b42318;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
 @keyframes statusFadeIn {
   from {
     opacity: 0;

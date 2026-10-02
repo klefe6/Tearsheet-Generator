@@ -113,6 +113,13 @@ export interface ExportProgramStatus {
   reason?: string
   /** Per-date verification rollup when downstream export ran. */
   verification?: ExportDateVerification
+  /** Per-statement-date outcomes when the backend returns them. */
+  dateResults?: Array<{
+    date: string
+    status: string
+    reason?: string
+    verification?: ExportDateVerification
+  }>
 }
 
 export interface ExportUiState {

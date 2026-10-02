@@ -108,11 +108,11 @@ function programStatusText(
 ): string {
   switch (status) {
     case 'success':
-      return verification === 'verified' ? 'exported and verified' : 'exported'
+      return verification === 'verified' ? 'exported ✓' : 'exported'
     case 'pending_refresh':
       return 'accepted — awaiting refresh'
     case 'failure':
-      return 'failed'
+      return 'failed ✕'
     case 'partial_failure':
       return 'partial failure'
     case 'skipped':
@@ -124,6 +124,21 @@ function programStatusText(
     default:
       return status
   }
+}
+
+function programStatusIcon(status: string): string {
+  if (status === 'success' || status === 'pending_refresh') return '✓'
+  if (status === 'failure' || status === 'partial_failure') return '✕'
+  return '·'
+}
+
+function showRetryExport(overallStatus: ExportOverallStatus, eligibleCount?: number): boolean {
+  return (
+    (overallStatus === 'failed' ||
+      overallStatus === 'partial_failure' ||
+      overallStatus === 'pushed_pending_refresh') &&
+    (eligibleCount === undefined || eligibleCount > 0)
+  )
 }
 
 function programItemClass(status: string, verification?: string): string {
@@ -162,6 +177,15 @@ export function ExportActionBar({ exportState, configuredExport, onExport, onUnd
 
   const skipped = programStatuses.filter((p) => p.status === 'skipped' || p.status === 'no_rows')
 
+  const overallHeadline =
+    overallStatus === 'failed' || overallStatus === 'partial_failure'
+      ? 'Overall: Export incomplete — saved rows stay in the uploader until export succeeds.'
+      : overallStatus === 'pushed'
+        ? 'Overall: Export complete'
+        : null
+
+  const retryVisible = showRetryExport(overallStatus, eligibleCount)
+
   const configuredMode = configuredExport?.export_mode
   const configuredDryRun =
     typeof exportState.dryRun === 'boolean'
@@ -182,10 +206,14 @@ export function ExportActionBar({ exportState, configuredExport, onExport, onUnd
           type="button"
           className={styles.undoBtn}
           onClick={onUndo}
-          disabled={!canUndo}
-          title={canUndo ? 'Undo the most recent mock export' : 'Available after an export'}
+          disabled={!lastExportAt && overallStatus === 'idle'}
+          title={
+            exportState.dryRun === false && targetEnv === 'production'
+              ? 'Clears this page’s export banner only — does not revert production tearsheets'
+              : 'Clears the export status banner on this page'
+          }
         >
-          Undo Last Merge
+          Clear Export Status
         </button>
       </div>
 
@@ -211,6 +239,18 @@ export function ExportActionBar({ exportState, configuredExport, onExport, onUnd
             {icon === 'fail' && <FailIcon />}
             {badge.label}
           </span>
+        )}
+
+        {overallHeadline && (
+          <p className={styles.overallHeadline} role="status">
+            {overallHeadline}
+          </p>
+        )}
+
+        {retryVisible && (
+          <button type="button" className={styles.retryBtn} onClick={onExport}>
+            Retry Export
+          </button>
         )}
 
         {overallStatus === 'saved' && (
@@ -284,9 +324,27 @@ export function ExportActionBar({ exportState, configuredExport, onExport, onUnd
       {programStatuses.length > 0 && (
         <ul className={styles.programList} aria-label="Per-program export result">
           {programStatuses.map((p) => (
-            <li key={p.program} className={`${styles.programItem} ${programItemClass(p.status, p.verification)}`}>
-              <strong>{PROGRAM_LABEL[p.program] ?? p.program}</strong>:{' '}
-              {programStatusText(p.status, p.reason, p.verification)}
+            <li
+              key={p.program}
+              className={`${styles.programItem} ${programItemClass(p.status, p.verification)}`}
+            >
+              <div className={styles.programRow}>
+                <strong>{PROGRAM_LABEL[p.program] ?? p.program}</strong>{' '}
+                <span aria-hidden="true">{programStatusIcon(p.status)}</span>{' '}
+                {programStatusText(p.status, p.reason, p.verification)}
+              </div>
+              {(p.dateResults ?? []).map((d) => (
+                <div key={`${p.program}-${d.date}`} className={styles.dateResultLine}>
+                  <span className={styles.dateLabel}>{d.date}</span>
+                  <span>{programStatusText(d.status, d.reason, d.verification)}</span>
+                  {d.reason && (d.status === 'failure' || d.status === 'not_confirmed') && (
+                    <span className={styles.dateReason}>{d.reason}</span>
+                  )}
+                </div>
+              ))}
+              {!p.dateResults?.length && p.reason && p.status === 'failure' && (
+                <div className={styles.dateReason}>{p.reason}</div>
+              )}
             </li>
           ))}
         </ul>

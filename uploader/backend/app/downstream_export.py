@@ -30,6 +30,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Optional
 
+from .ingest_preflight import humanize_ingest_http_error
 from .programs import PROGRAM_FIELDS, PROGRAMS
 
 # Y&Q has no configured destination of any kind yet.
@@ -285,11 +286,16 @@ def export_row_to_production(
             body = json.loads(exc.read().decode("utf-8"))
         except (ValueError, OSError):
             body = {}
+        raw_message = body.get("message") if isinstance(body, dict) else None
         return {
             "external_call": True,
             "accepted": False,
             "error_code": f"http_{exc.code}",
-            "error_message": body.get("message") or f"{program} ingest returned HTTP {exc.code}",
+            "error_message": humanize_ingest_http_error(
+                program,
+                exc.code,
+                str(raw_message) if raw_message else "",
+            ),
             "response": body,
         }
     except (urllib.error.URLError, TimeoutError, OSError) as exc:

@@ -92,6 +92,22 @@ GREY_BG      = "#EBEBEB"   # matches ggplot2's plot_bgcolor
 PRIMARY_COLOR = "#0D3562"  # your "blue," user‐changeable
 SECONDARY_COLOR = "#CCCCCC"
 
+# Public NAV chart title (presentation only; series remains cash-flow-adjusted StoneX).
+TKP_NAV_CHART_TITLE = "Nominal Non-Compounded Performance Since Inception"
+
+
+def _tkp_nav_chart_title_layout():
+    return {
+        "text": TKP_NAV_CHART_TITLE,
+        "font": {
+            "color": PRIMARY_COLOR,
+            "size": 16,
+            "family": "Arial, Helvetica, sans-serif",
+        },
+        "x": 0.5,
+        "xanchor": "center",
+    }
+
 LEFT_TABLE_GAPS = "20px"
 RIGHT_TABLE_GAPS = "30px"
 
@@ -1901,11 +1917,7 @@ def build_NAV_figure():
 
     # Base layout configuration
     layout_config = {
-        "title": {
-            "text": "<u>StoneX Cash-Flow-Adjusted Performance Since Inception</u>",
-            "x": 0.5,
-            "xanchor": "center"
-        },
+        "title": _tkp_nav_chart_title_layout(),
         "template": "ggplot2",
         "plot_bgcolor": GREY_BG,
         "paper_bgcolor": WHITE_BG,
@@ -4165,11 +4177,7 @@ def _rebuild_nav_figure(perf_series):
                    mode="lines", line={"color": PRIMARY_COLOR}, name="StoneX performance")
     )
     cfg = {
-        "title": {
-            "text": "<u>StoneX Cash-Flow-Adjusted Performance Since Inception</u>",
-            "x": 0.5,
-            "xanchor": "center",
-        },
+        "title": _tkp_nav_chart_title_layout(),
         "template": "ggplot2",
         "plot_bgcolor": GREY_BG,
         "paper_bgcolor": WHITE_BG,
