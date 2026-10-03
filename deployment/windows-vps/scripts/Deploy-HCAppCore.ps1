@@ -68,10 +68,14 @@ function Invoke-HCAppDeploy {
             $missing += $rel
             continue
         }
-        if (Test-HCPathExcluded -RelativePath $rel -ExcludePatterns $Manifest.exclude_from_git_deploy) {
+        $exclude = @($Manifest.exclude_from_git_deploy)
+        if (Test-HCPathExcluded -RelativePath $rel -ExcludePatterns $exclude) {
             throw "Source file $rel matches exclude_from_git_deploy; refuse to deploy sensitive artifact."
         }
-        $sub = ($Manifest.source_repository_subpath -replace '\\', '/').TrimEnd('/')
+        $sub = ''
+        if ($Manifest.PSObject.Properties['source_repository_subpath'] -and $Manifest.source_repository_subpath) {
+            $sub = ($Manifest.source_repository_subpath -replace '\\', '/').TrimEnd('/')
+        }
         $normRel = $rel -replace '\\', '/'
         if ($sub -and $normRel.StartsWith("$sub/")) {
             $destRel = $normRel.Substring($sub.Length + 1)
