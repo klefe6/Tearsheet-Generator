@@ -1,0 +1,79 @@
+{
+  "schema_version": "1.0.0",
+  "app": "tkp",
+  "display_name": "TKP Tearsheet",
+  "source_repository_subpath": ".",
+  "entrypoint": "tkp_ts.py",
+  "staff_entrypoint": "tkp_ts.py",
+  "staff_runtime_mode": "TEARSHEET_MODE=staff",
+  "working_directory_relative": ".",
+  "port": 8301,
+  "staff_port": 8321,
+  "health_endpoint": "/healthz",
+  "service_name": "HC-TKP-Tearsheet",
+  "target_app_directory": "C:\\H&C\\apps\\tkp",
+  "persistent_data_paths": [
+    {
+      "logical": "state_json",
+      "env": "HC_TKP_STATE_PATH",
+      "vps_default": "C:\\H&C\\data\\tkp\\daily_returns_secret_state.json"
+    },
+    {
+      "logical": "source_workbook",
+      "env": "HC_TKP_SOURCE_WORKBOOK",
+      "vps_default": "C:\\H&C\\data\\tkp\\tkp_source_workbook.xlsx"
+    }
+  ],
+  "config_env_files": [
+    "C:\\H&C\\config\\tkp.env"
+  ],
+  "secret_variable_names": [
+    "TKP_ADMIN_TOKEN",
+    "TKP_SESSION_SECRET",
+    "GLENN_UPLOADER_INGEST_TOKEN"
+  ],
+  "log_paths": [
+    "C:\\H&C\\logs\\tkp\\tkp_stdout.log",
+    "C:\\H&C\\logs\\tkp\\tkp_stderr.log"
+  ],
+  "source_files": [
+    "tkp_ts.py",
+    "tearsheet_paths.py",
+    "tearsheet_disclosure.py",
+    "tearsheet_gate_ui.py",
+    "tearsheet_gate_auth.py",
+    "tearsheet_runtime_mode.py",
+    "tearsheet_portal.py",
+    "tearsheet_header.py",
+    "tearsheet_date_defaults.py",
+    "tearsheet_local_admin.py",
+    "tearsheet_uploader_ingest.py",
+    "tcp_admin.py",
+    "assets/styles.css",
+    "requirements.txt"
+  ],
+  "shared_dependencies": [
+    "tearsheet_paths.py",
+    "tearsheet_disclosure.py",
+    "tearsheet_gate_ui.py",
+    "tearsheet_gate_auth.py",
+    "tearsheet_runtime_mode.py",
+    "tearsheet_portal.py",
+    "tearsheet_header.py",
+    "tearsheet_date_defaults.py",
+    "tearsheet_local_admin.py",
+    "tearsheet_uploader_ingest.py",
+    "tcp_admin.py"
+  ],
+  "optional_assets": [],
+  "exclude_from_git_deploy": [
+    "daily_returns_secret_state.json",
+    "daily_returns_secret_state.json.bak*",
+    ".tkp_production.env",
+    ".env",
+    "*.xlsx",
+    "glenn_uploader_ingest_*_audit.jsonl"
+  ],
+  "dependencies": ["shared"],
+  "notes": "Laptop production runs from live-deploy-main worktree; root entrypoint name is frozen."
+}

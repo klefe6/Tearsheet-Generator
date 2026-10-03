@@ -1,0 +1,26 @@
+{
+  "schema_version": "1.0.0",
+  "app": "shared",
+  "display_name": "Shared tearsheet modules",
+  "target_app_directory": "C:\\H&C\\apps\\shared",
+  "source_files": [
+    "tearsheet_paths.py",
+    "tearsheet_disclosure.py",
+    "tearsheet_gate_ui.py",
+    "tearsheet_gate_auth.py",
+    "tearsheet_runtime_mode.py",
+    "tearsheet_portal.py",
+    "tearsheet_header.py",
+    "tearsheet_date_defaults.py",
+    "tearsheet_local_admin.py",
+    "tearsheet_uploader_ingest.py",
+    "tcp_admin.py",
+    "tcp_public_sections.py",
+    "requirements.txt"
+  ],
+  "exclude_from_git_deploy": [
+    ".env",
+    "*_production.env"
+  ],
+  "notes": "Copied once; tearsheet apps on VPS import from PYTHONPATH or sibling checkout layout."
+}

@@ -1,0 +1,47 @@
+{
+  "schema_version": "1.0.0",
+  "app": "yq",
+  "display_name": "Y&Q Tearsheet",
+  "source_repository_subpath": ".",
+  "entrypoint": "yq_ts.py",
+  "staff_entrypoint": null,
+  "working_directory_relative": ".",
+  "port": 8303,
+  "health_endpoint": null,
+  "service_name": "HC-YQ-Tearsheet",
+  "target_app_directory": "C:\\H&C\\apps\\yq",
+  "persistent_data_paths": [
+    {
+      "logical": "yq_csv",
+      "env": "YQ_CSV_PATH",
+      "vps_default": "C:\\H&C\\data\\yq\\yq.csv"
+    }
+  ],
+  "config_env_files": [
+    "C:\\H&C\\config\\yq.env"
+  ],
+  "secret_variable_names": [],
+  "log_paths": [
+    "C:\\H&C\\logs\\yq\\yq_stdout.log",
+    "C:\\H&C\\logs\\yq\\yq_stderr.log"
+  ],
+  "source_files": [
+    "yq_ts.py",
+    "yq_data_current.py",
+    "tearsheet_paths.py",
+    "tearsheet_disclosure.py",
+    "assets/styles.css",
+    "requirements.txt"
+  ],
+  "shared_dependencies": [
+    "tearsheet_paths.py",
+    "tearsheet_disclosure.py"
+  ],
+  "optional_assets": [],
+  "exclude_from_git_deploy": [
+    "yq.csv",
+    "yq.xlsx"
+  ],
+  "dependencies": ["shared"],
+  "notes": "Authoritative yq.csv lives outside repo on laptop (dirty root); no staff port."
+}

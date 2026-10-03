@@ -1,0 +1,101 @@
+{
+  "schema_version": "1.0.0",
+  "app": "agm",
+  "display_name": "AGM / Momentum Pacer",
+  "source_repository_subpath": "Momentum Pacer",
+  "entrypoint": "mp_ts.py",
+  "staff_entrypoint": "mp_ts.py",
+  "staff_runtime_mode": "TEARSHEET_MODE=staff",
+  "working_directory_relative": "Momentum Pacer",
+  "port": 8304,
+  "staff_port": 8324,
+  "health_endpoint": "/healthz",
+  "service_name": "HC-AGM-Tearsheet",
+  "target_app_directory": "C:\\H&C\\apps\\agm",
+  "persistent_data_paths": [
+    {
+      "logical": "manual_daily_rows",
+      "env": "HC_AGM_MANUAL_ROWS_PATH",
+      "vps_default": "C:\\H&C\\data\\agm\\momentum_pacer_manual_daily_rows.json"
+    },
+    {
+      "logical": "fee_workbook",
+      "env": "HC_AGM_FEE_WORKBOOK",
+      "vps_default": "C:\\H&C\\data\\agm\\Momentum Fee Calculation.xlsx"
+    },
+    {
+      "logical": "pinned_balances_csv",
+      "env": "HC_AGM_PINNED_CSV",
+      "vps_default": "C:\\H&C\\data\\agm\\balances_210TGG51_20OCT2025_07JUL2026.csv"
+    }
+  ],
+  "config_env_files": [
+    "C:\\H&C\\config\\agm.env"
+  ],
+  "config_variable_names": [
+    "MP_TS_PRODUCTION",
+    "AGM_BIND_PORT",
+    "AGM_BENCHMARK_CACHE_ONLY"
+  ],
+  "secret_variable_names": [
+    "AGM_ADMIN_TOKEN",
+    "AGM_SESSION_SECRET",
+    "GLENN_UPLOADER_INGEST_TOKEN"
+  ],
+  "log_paths": [
+    "C:\\H&C\\logs\\agm\\agm_stdout.log",
+    "C:\\H&C\\logs\\agm\\agm_stderr.log"
+  ],
+  "source_files": [
+    "Momentum Pacer/mp_ts.py",
+    "algominds_daily_balances.py",
+    "algominds_benchmark_daily.py",
+    "algominds_daily_fees.py",
+    "algominds_daily_accounting.py",
+    "algominds_monthly_summary.py",
+    "algominds_account_stats.py",
+    "algominds_monthly_stats.py",
+    "algominds_fee_payment_evidence.py",
+    "algominds_drawdown_semantics.py",
+    "algominds_portal_registry.py",
+    "tearsheet_paths.py",
+    "tearsheet_disclosure.py",
+    "tearsheet_gate_ui.py",
+    "tearsheet_gate_auth.py",
+    "tearsheet_runtime_mode.py",
+    "tearsheet_portal.py",
+    "tearsheet_header.py",
+    "tearsheet_date_defaults.py",
+    "tearsheet_local_admin.py",
+    "tcp_admin.py",
+    "tcp_public_sections.py",
+    "assets/styles.css",
+    "requirements.txt"
+  ],
+  "shared_dependencies": [
+    "tearsheet_paths.py",
+    "tearsheet_disclosure.py",
+    "tearsheet_gate_ui.py",
+    "tearsheet_gate_auth.py",
+    "tearsheet_runtime_mode.py",
+    "tearsheet_portal.py",
+    "tearsheet_header.py",
+    "tearsheet_date_defaults.py",
+    "tearsheet_local_admin.py",
+    "tcp_admin.py",
+    "tcp_public_sections.py"
+  ],
+  "optional_assets": [
+    "Momentum Pacer/algominds_logo.png",
+    "Momentum Pacer/logo.png"
+  ],
+  "exclude_from_git_deploy": [
+    "momentum_pacer_manual_daily_rows.json",
+    "Momentum Pacer/Momentum Fee Calculation.xlsx",
+    "Momentum Pacer/data/daily_balances/*.csv",
+    ".agm_production.env",
+    "glenn_uploader_ingest_*_audit.jsonl"
+  ],
+  "dependencies": ["shared"],
+  "notes": "NSSM working directory must be ...\\agm\\Momentum Pacer on VPS."
+}
