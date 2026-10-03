@@ -314,12 +314,21 @@ def run_downstream_export(
     actor: str,
     batch_id: int,
     rows: list[dict[str, Any]],
+    programs: Optional[list[str]] = None,
+    dry_run: Optional[bool] = None,
 ) -> tuple[dict[str, dict[str, Any]], int]:
     """Attempt downstream export for every row in `rows`, grouped per program.
 
+    ``programs`` defaults to all of TKP/TCP/AGM/YQ. Pass a one-element list to
+    export exactly one program; other programs are not iterated and are omitted
+    from the result. ``dry_run`` overrides ``settings.export_dry_run`` for this
+    call only. ``True`` forces a non-writing probe. ``None`` keeps the server
+    setting. Callers must not pass ``False`` to override a server dry-run.
+
     Returns ({program: {"status": ..., "date_results": [...]}}, external_calls)
-    for every program in PROGRAMS (TKP/TCP/AGM/YQ) — always all four, so
-    callers never have to guess whether a program was silently omitted.
+    for every selected program. The default (all four) is unchanged, so
+    ``POST /api/export/all`` callers never have to guess whether a program
+    was silently omitted.
     ``external_calls`` counts real HTTP requests made to tearsheet ingest
     routes (always 0 for the sandbox-file target and for dry-run against it).
 
@@ -335,15 +344,18 @@ def run_downstream_export(
     real (non-dry-run) downstream write is accepted, and writes one audit
     event per row attempt via `db.add_audit`.
     """
+    selected = list(PROGRAMS if programs is None else programs)
+    effective_dry_run = settings.export_dry_run if dry_run is None else dry_run
     sandbox_dir = Path(settings.downstream_sandbox_dir)
-    by_program: dict[str, list[dict[str, Any]]] = {code: [] for code in PROGRAMS}
+    by_program: dict[str, list[dict[str, Any]]] = {code: [] for code in selected}
     for row in rows:
-        by_program.setdefault(row["program"], []).append(row)
+        if row["program"] in by_program:
+            by_program[row["program"]].append(row)
 
     results: dict[str, dict[str, Any]] = {}
     external_calls = 0
 
-    for program in PROGRAMS:
+    for program in selected:
         program_rows = by_program.get(program, [])
 
         # Y&Q has no destination at all yet, regardless of EXPORT_INCLUDE_YQ —
@@ -382,7 +394,7 @@ def run_downstream_export(
 
             if settings.export_target_env == "production":
                 push = export_row_to_production(
-                    program, date, fields, settings, dry_run=settings.export_dry_run
+                    program, date, fields, settings, dry_run=effective_dry_run
                 )
                 if push.get("external_call"):
                     external_calls += 1
@@ -390,7 +402,7 @@ def run_downstream_export(
                     resp = push.get("response") or {}
                     verified = downstream_proves_persistence(program, fields, resp)
                     verification = export_verification_status(program, fields, resp)
-                    if settings.export_dry_run:
+                    if effective_dry_run:
                         date_results.append(
                             {
                                 "date": date,
@@ -518,7 +530,7 @@ def run_downstream_export(
                 continue
 
             # --- sandbox-file target (original contract, unchanged) --------
-            if settings.export_dry_run:
+            if effective_dry_run:
                 date_results.append({"date": date, "status": "dry_run", "payload_hash": hash_})
                 db.add_audit(
                     action="downstream_export_dry_run",
@@ -591,7 +603,7 @@ def run_downstream_export(
             program_status = "failure"
         elif any(r["status"] == "pending_refresh" for r in date_results):
             program_status = "pending_refresh"
-        elif settings.export_dry_run:
+        elif effective_dry_run:
             program_status = "dry_run"
         else:
             program_status = "success"

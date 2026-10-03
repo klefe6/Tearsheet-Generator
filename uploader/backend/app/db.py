@@ -28,7 +28,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterator, Optional
 
-from .programs import DATA_COLUMNS
+from .programs import DATA_COLUMNS, PROGRAMS
 
 # Tables and columns the running app requires. Used by verify_schema() so a
 # stale/partial SQLite file (e.g. from an older build) fails fast with a
@@ -633,6 +633,34 @@ class Database:
             "excluded": int(excluded),
             "eligible": int(eligible),
         }
+
+    def pending_export_counts(self) -> dict[str, int]:
+        """Unexported, non-excluded manual rows per program. Read-only.
+
+        Same eligibility rule as ``get_unexported_rows``. Does not flip
+        ``exported`` and does not return row contents.
+        """
+        counts = {code: 0 for code in PROGRAMS}
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT d.program AS program, COUNT(*) AS n
+                FROM daily_rows d
+                WHERE d.exported = 0
+                  AND NOT EXISTS (
+                    SELECT 1 FROM export_exclusions e
+                    WHERE e.program = d.program
+                      AND e.source_row_id = d.id
+                      AND e.active = 1
+                  )
+                GROUP BY d.program
+                """
+            ).fetchall()
+        for row in rows:
+            program = row["program"]
+            if program in counts:
+                counts[program] = int(row["n"])
+        return counts
 
     def mark_exported(
         self, program: str, date: str, batch_id: Optional[int] = None
