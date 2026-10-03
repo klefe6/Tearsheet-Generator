@@ -138,6 +138,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         return {
             **export_status,
             "banner_message": export_mode_banner_message(export_status),
+            "pending_by_program": db.pending_export_counts(),
         }
 
     if not settings.serve_frontend:
@@ -317,30 +318,30 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         return {"program": code, "deleted": public_row(code, deleted)}
 
     # -- export -----------------------------------------------------------
-    @app.post("/api/export/all", tags=["export"])
-    def export_all(actor: str = Depends(require_actor)) -> dict:
-        """Preview (and, when explicitly enabled, attempt) an export of all
-        changed/unexported rows.
+    def _export_unexported(
+        actor: str,
+        *,
+        only_program: Optional[str] = None,
+        force_dry_run: bool = False,
+    ) -> dict:
+        """Shared Export All / single-program export.
 
-        SAFETY: this build never calls the TKP/TCP/AGM websites directly (Y&Q
-        is never a target at all). In sandbox it is always a dry-run unless
-        EXPORT_ENABLED=true. In production it is a dry-run unless
-        EXPORT_ENABLED=true, but even then no external transport exists yet
-        for the ORIGINAL uploader-only preview, so no request is made and no
-        row is marked exported by that path alone.
-
-        Downstream export (TKP/TCP/AGM sandbox destinations) is a SEPARATE,
-        independently-flagged feature — see docs/downstream_export_contract.md.
-        It only runs when EXPORT_DOWNSTREAM_ENABLED=true; when that flag is
-        false (the default), this endpoint's behavior and response shape are
-        UNCHANGED from before this feature existed.
+        ``only_program`` restricts both the row set and the downstream loop
+        to that program. ``force_dry_run`` makes this request a non-writing
+        probe even when the server is configured for live writes. It cannot
+        force a live write.
         """
-        rows = db.get_unexported_rows()
+        selected = PROGRAMS if only_program is None else [only_program]
+        rows = [
+            row
+            for row in db.get_unexported_rows()
+            if only_program is None or row["program"] == only_program
+        ]
         counts = db.export_row_counts()
         exclusions = db.get_active_exclusions_map()
 
         programs_payload: dict[str, dict] = {}
-        for code in PROGRAMS:
+        for code in selected:
             code_rows = [
                 public_row(
                     code,
@@ -357,36 +358,41 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
             }
 
         would_export = settings.export_enabled and not settings.is_sandbox
-        dry_run = not would_export
+        legacy_dry_run = not would_export
+        effective_dry_run = True if force_dry_run else settings.export_dry_run
         export_status = build_export_status(settings)
 
         # A batch only becomes a rollback candidate if it actually commits a
         # downstream write; anything else is recorded with a status that keeps
         # it out of "roll back the last export" by construction.
         will_mutate_downstream = (
-            settings.export_downstream_enabled and not settings.export_dry_run
+            settings.export_downstream_enabled and not effective_dry_run
         )
         batch_id = db.add_export_batch(
             app_env=settings.app_env,
             export_enabled=settings.export_enabled,
-            dry_run=dry_run,
+            dry_run=legacy_dry_run if not force_dry_run else True,
             row_count=len(rows),
             payload=programs_payload,
             # Provisional and deliberately un-reversible. Promoted to
             # committed/partially_failed below ONLY if a real write lands.
-            status=BATCH_DRY_RUN if settings.export_dry_run else BATCH_NO_MUTATION,
+            status=BATCH_DRY_RUN if effective_dry_run else BATCH_NO_MUTATION,
             actor=actor,
             target_env=settings.export_target_env,
             downstream_enabled=settings.export_downstream_enabled,
         )
+        audit_detail: dict[str, Any] = {"total_rows": len(rows), "batch_id": batch_id}
+        if only_program is not None:
+            audit_detail["programs"] = selected
+            audit_detail["force_dry_run"] = force_dry_run
         db.add_audit(
-            action="export_dry_run" if dry_run else "export_enabled_noop",
+            action="export_dry_run" if (legacy_dry_run or force_dry_run) else "export_enabled_noop",
             actor=actor,
-            detail={"total_rows": len(rows), "batch_id": batch_id},
+            detail=audit_detail,
         )
 
         if not export_status["downstream_export_enabled"]:
-            if dry_run:
+            if legacy_dry_run or force_dry_run:
                 message = (
                     "DRY RUN — preview only. No external calls were made and no "
                     "rows were marked exported."
@@ -401,9 +407,9 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
             message = export_batch_message(export_status, total_rows=len(rows))
 
         response: dict = {
-            "dry_run": not export_status["real_writes_enabled"],
+            "dry_run": (not export_status["real_writes_enabled"]) or force_dry_run,
             "app_env": settings.app_env,
-            "export_enabled": export_status["real_writes_enabled"],
+            "export_enabled": export_status["real_writes_enabled"] and not force_dry_run,
             "transport_implemented": export_status["transport_implemented"],
             "external_calls_made": 0,
             "batch_id": batch_id,
@@ -415,13 +421,15 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
             "programs": programs_payload,
             "message": message,
             "downstream_export_enabled": export_status["downstream_export_enabled"],
-            "export_dry_run": export_status["dry_run"],
+            "export_dry_run": effective_dry_run,
             "target_environment": export_status["target_environment"],
-            "real_writes_enabled": export_status["real_writes_enabled"],
-            "export_mode": export_status["export_mode"],
+            "real_writes_enabled": export_status["real_writes_enabled"] and not force_dry_run,
+            "export_mode": "dry_run" if force_dry_run else export_status["export_mode"],
             "export_mode_banner": export_mode_banner_message(export_status),
             "legacy_export_enabled": export_status["legacy_export_enabled"],
         }
+        if only_program is not None:
+            response["programs_selected"] = selected
 
         if not settings.export_downstream_enabled:
             return response
@@ -440,6 +448,8 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
                 actor=actor,
                 batch_id=batch_id,
                 rows=rows,
+                programs=selected,
+                dry_run=True if force_dry_run else None,
             )
         finally:
             if will_mutate_downstream:
@@ -461,7 +471,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
 
         response["downstream"] = {
             "target_env": settings.export_target_env,
-            "dry_run": settings.export_dry_run,
+            "dry_run": effective_dry_run,
             "results": downstream_results,
         }
         response["message"] = export_batch_message(
@@ -475,6 +485,26 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
             response["transport_implemented"] = True
         response["external_calls_made"] = external_calls
         return response
+
+    @app.post("/api/export/all", tags=["export"])
+    def export_all(actor: str = Depends(require_actor)) -> dict:
+        """Preview (and, when explicitly enabled, attempt) an export of all
+        changed/unexported rows.
+
+        SAFETY: this build never calls the TKP/TCP/AGM websites directly (Y&Q
+        is never a target at all). In sandbox it is always a dry-run unless
+        EXPORT_ENABLED=true. In production it is a dry-run unless
+        EXPORT_ENABLED=true, but even then no external transport exists yet
+        for the ORIGINAL uploader-only preview, so no request is made and no
+        row is marked exported by that path alone.
+
+        Downstream export (TKP/TCP/AGM sandbox destinations) is a SEPARATE,
+        independently-flagged feature — see docs/downstream_export_contract.md.
+        It only runs when EXPORT_DOWNSTREAM_ENABLED=true; when that flag is
+        false (the default), this endpoint's behavior and response shape are
+        UNCHANGED from before this feature existed.
+        """
+        return _export_unexported(actor)
 
     @app.get("/api/export/eligibility", tags=["export"])
     def export_eligibility() -> dict:
@@ -636,6 +666,33 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
                     "blocking_reasons": exc.reasons,
                 },
             )
+
+    @app.post("/api/export/{program}", tags=["export"])
+    def export_one_program(
+        program: str,
+        dry_run: Optional[bool] = Query(default=None),
+        actor: str = Depends(require_actor),
+    ) -> dict:
+        """Export unexported rows for exactly one program.
+
+        Registered after the static ``/api/export/...`` routes so those paths
+        are not captured by this parameter. ``?dry_run=true`` forces a
+        non-writing downstream probe. ``dry_run=false`` is rejected so a
+        query flag cannot turn a server-side dry run into a live write.
+        """
+        code = normalize_program(program)
+        if code is None:
+            raise HTTPException(status_code=404, detail="Unknown program")
+        if dry_run is False:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="dry_run=false is not accepted on this endpoint.",
+            )
+        return _export_unexported(
+            actor,
+            only_program=code,
+            force_dry_run=dry_run is True,
+        )
 
     # -- historical backfill (sandbox-only, BACKFILL_ENABLED-gated) ---------
     def _require_backfill_enabled() -> None:

@@ -138,6 +138,23 @@ explicitly approved.
 
 ---
 
+## D2. TCP-only export (OVH cutover)
+
+`POST /api/export/all` walks TKP, TCP, AGM, and Y&Q. Do not use **Export All
+Changes** as the TCP routing proof.
+
+After this branch is deployed to the uploader (not deployed by this change):
+
+1. `GET /api/export/status` and read `pending_by_program`. This is read-only.
+2. `POST /api/export/tcp?dry_run=true` sends a dry-run body to `TCP_INGEST_URL` only.
+   It does not call TKP, AGM, or Y&Q, and it does not mark the TCP row exported.
+3. A real TCP-only write, only after the dry-run proof, is `POST /api/export/tcp`
+   with the server's normal `EXPORT_DRY_RUN` setting. Same auth as Export All.
+   `?dry_run=false` is rejected.
+
+`127.0.0.1:8302` on the TCP VPS stays listening locally. Public and inbound
+firewall exposure of port 8302 stays closed.
+
 ## E. First dry-run export (uploader UI)
 
 1. Keep `EXPORT_DRY_RUN=true` and `EXPORT_TARGET_ENV=production`.
