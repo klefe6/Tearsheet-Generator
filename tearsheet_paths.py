@@ -299,16 +299,16 @@ def resolve_yq_csv_path(
     if yq_root_override is not None:
         return (yq_root_override / "yq.csv").resolve()
 
-    if module_dir is not None:
-        sibling = Path(module_dir) / "yq.csv"
-        if sibling.is_file():
-            return sibling.resolve()
-
     app_env = resolve_hc_app_env(environ)
     if app_env.startswith("vps-"):
         return (_profile_roots(app_env, deploy_root=resolve_deploy_root(env=environ))[
             "yq_data_root"
         ] / "yq.csv").resolve()
+
+    if module_dir is not None:
+        sibling = Path(module_dir) / "yq.csv"
+        if sibling.is_file():
+            return sibling.resolve()
 
     return DEFAULT_YQ_REPO_ROOT_CSV.resolve()
 

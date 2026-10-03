@@ -86,3 +86,6 @@ glenn_uploader_ingest_*_audit.jsonl
 
 # Populated VPS env (example template is tracked; real values are not)
 deployment/windows-vps/config-templates/hc-vps.env
+
+# Production account extracts (should not be committed — see GIT_DATA_GOVERNANCE_REVIEW.md)
+Momentum Pacer/data/daily_balances/*.csv
