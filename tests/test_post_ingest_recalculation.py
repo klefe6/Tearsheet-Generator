@@ -299,7 +299,7 @@ def test_agm_client_admin_charts_agree_after_recalc(mp_ts):
 # ── TKP ─────────────────────────────────────────────────────────────────────
 
 
-def test_tkp_recalculation_uses_stonex_only(monkeypatch, tmp_path):
+def test_tkp_recalculation_uses_canonical_nav_chain(monkeypatch, tmp_path):
     import tkp_ts
 
     rows = [
@@ -329,9 +329,11 @@ def test_tkp_recalculation_uses_stonex_only(monkeypatch, tmp_path):
     status = tkp_ts.apply_tkp_recalculation(authoritative_date="2026-07-15")
     assert status["latest_display_date"] == "2026-07-15"
     canonical = tkp_ts._canonical_records_from_secret_rows(status["rows"])
-    assert canonical[-1]["NAV"] == pytest.approx(81000.0)
-    # Plus500 must not drive the performance series.
+    # Canonical performance is the persisted NAV chain, not raw balances.
+    assert canonical[-1]["NAV"] == pytest.approx(888888.0)
+    # Neither Plus500 nor raw StoneX drives the performance series.
     assert canonical[-1]["NAV"] != 99999.0
+    assert canonical[-1]["NAV"] != 81000.0
 
 
 def test_tkp_duplicate_ingest_idempotent(monkeypatch, tmp_path):

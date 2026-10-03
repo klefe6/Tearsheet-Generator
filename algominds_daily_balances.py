@@ -20,6 +20,8 @@ from typing import List, Optional
 
 import pandas as pd
 
+from tearsheet_paths import resolve_agm_pinned_csv
+
 # Filename of the current export. Kept as a constant so callers don't hardcode it.
 DAILY_BALANCES_FILENAME = "balances_210TGG51_20OCT2025_07JUL2026.csv"
 
@@ -41,12 +43,8 @@ MONEY_COLUMNS: List[str] = RAW_COLUMNS[1:]
 
 def default_csv_path() -> Path:
     """Canonical location the CSV was copied to inside the AGM data directory."""
-    return (
-        Path(__file__).resolve().parent
-        / "Momentum Pacer"
-        / "data"
-        / "daily_balances"
-        / DAILY_BALANCES_FILENAME
+    return resolve_agm_pinned_csv(
+        deploy_root=Path(__file__).resolve().parent,
     )
 
 

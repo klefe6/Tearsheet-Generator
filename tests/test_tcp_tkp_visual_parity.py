@@ -6,14 +6,24 @@ values, persistence, or auth behavior.
 """
 from __future__ import annotations
 
+from layout_helpers import layout_text
+
+import pytest
 from datetime import date
 from pathlib import Path
 
+from tcp_layout_support import tcp_layout_benchmark_patches
 from tearsheet_header import format_data_current_date_line
 
 from tcp_ledger import LedgerMetadata, LedgerRecord
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _patch_tcp_layout_benchmarks():
+    with tcp_layout_benchmark_patches():
+        yield
 
 
 def _sample_daily_values_section_str() -> str:
@@ -224,7 +234,7 @@ def test_tcp_column_selector_not_duplicated():
 
     import tcp_ts_v2
 
-    layout_str = str(tcp_ts_v2.app.layout)
+    layout_str = layout_text(tcp_ts_v2.app)
     assert layout_str.count("'admin-column-selector'") == 1
 
 

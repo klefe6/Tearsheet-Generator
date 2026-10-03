@@ -30,9 +30,7 @@ def tkp_app():
     return tkp_ts.app
 
 
-def _layout_text(app) -> str:
-    layout = app.layout() if callable(app.layout) else app.layout
-    return str(layout)
+from layout_helpers import layout_text as _layout_text
 
 
 def test_admin_route_constants():

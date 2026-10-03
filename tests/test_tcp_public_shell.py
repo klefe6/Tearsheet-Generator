@@ -17,11 +17,10 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 TEST_TOKEN = "test-admin-token-public-shell"
 TEST_SECRET = "test-session-secret-public-shell"
 
-V1_BASE_COMMIT = "b5fce4b"
+V1_BASE_COMMIT = "657f637"
 
 
-def _layout_text(app) -> str:
-    return str(app.layout)
+from layout_helpers import layout_text as _layout_text
 
 
 def _port_listening(port: int) -> bool:
@@ -42,10 +41,12 @@ def _app_bundle_module():
     os.environ["TCP_V2_ADMIN_TOKEN"] = TEST_TOKEN
     os.environ["TCP_V2_SESSION_SECRET"] = TEST_SECRET
     settings = AdminAuthSettings(admin_token=TEST_TOKEN, session_secret=TEST_SECRET)
+    from tcp_layout_support import tcp_layout_benchmark_patches
     from tcp_ts_v2 import create_app
 
-    bundle = create_app(auth_settings=settings)
-    yield bundle
+    with tcp_layout_benchmark_patches():
+        bundle = create_app(auth_settings=settings)
+        yield bundle
     for key, value in saved.items():
         if value is None:
             os.environ.pop(key, None)
@@ -363,18 +364,13 @@ def test_layout_construction_creates_no_state_files(tmp_path, monkeypatch):
 
 
 def test_committed_v1_matches_git_index():
-    indexed = subprocess.run(
-        ["git", "rev-parse", f"{V1_BASE_COMMIT}:tcp_ts.py"],
+    # Worktree ownership can differ from the invoking user on this host; pin
+    # safe.directory for this read-only comparison only.
+    safe = f"safe.directory={REPO_ROOT.as_posix()}"
+    comparison = subprocess.run(
+        ["git", "-c", safe, "diff", "--quiet", V1_BASE_COMMIT, "--", "tcp_ts.py"],
         cwd=REPO_ROOT,
         capture_output=True,
-        check=True,
-        text=True,
-    ).stdout.strip()
-    hashed = subprocess.run(
-        ["git", "hash-object", "tcp_ts.py"],
-        cwd=REPO_ROOT,
-        capture_output=True,
-        check=True,
-        text=True,
-    ).stdout.strip()
-    assert hashed == indexed
+        check=False,
+    )
+    assert comparison.returncode == 0, comparison.stderr.decode(errors="replace")

@@ -67,7 +67,7 @@
         {
           "filename": "daily_returns_secret_state.json",
           "current_path": "C:\\Coding Projects\\Tearsheet Generator\\.worktrees\\live-deploy-main\\daily_returns_secret_state.json",
-          "proposed_vps_path": "C:\\H&C\\data\\tkp\\daily_returns_secret_state.json",
+          "proposed_vps_path": "C:\\HC\\data\\tkp\\daily_returns_secret_state.json",
           "size_bytes": 431598,
           "last_modified": "2026-10-01T08:38:36",
           "file_hash_algorithm": "SHA-256",
@@ -186,7 +186,7 @@
         {
           "filename": "tcp_daily_returns_secret_state.json",
           "current_path": "C:\\Users\\H&CDanHughes\\AppData\\Local\\HughesCompany\\TCP\\state\\tcp_daily_returns_secret_state.json",
-          "proposed_vps_path": "C:\\H&C\\data\\tcp\\tcp_daily_returns_secret_state.json",
+          "proposed_vps_path": "C:\\HC\\data\\tcp\\tcp_daily_returns_secret_state.json",
           "size_bytes": 81311,
           "last_modified": "2026-10-01T08:38:38",
           "file_hash_algorithm": "SHA-256",
@@ -311,7 +311,7 @@
         {
           "filename": "momentum_pacer_manual_daily_rows.json",
           "current_path": "C:\\Coding Projects\\Tearsheet Generator\\.worktrees\\live-deploy-main\\Momentum Pacer\\momentum_pacer_manual_daily_rows.json",
-          "proposed_vps_path": "C:\\H&C\\data\\agm\\momentum_pacer_manual_daily_rows.json",
+          "proposed_vps_path": "C:\\HC\\data\\agm\\momentum_pacer_manual_daily_rows.json",
           "size_bytes": 7658,
           "last_modified": "2026-10-01T08:38:38",
           "file_hash_algorithm": "SHA-256",
@@ -325,7 +325,7 @@
           "filename": "Momentum Fee Calculation.xlsx",
           "current_path_link": "C:\\Coding Projects\\Tearsheet Generator\\.worktrees\\live-deploy-main\\Momentum Pacer\\Momentum Fee Calculation.xlsx",
           "current_path_real": "C:\\Coding Projects\\Tearsheet Generator\\Momentum Pacer\\Momentum Fee Calculation.xlsx",
-          "proposed_vps_path": "C:\\H&C\\data\\agm\\Momentum Fee Calculation.xlsx",
+          "proposed_vps_path": "C:\\HC\\data\\agm\\Momentum Fee Calculation.xlsx",
           "is_symlink_in_live_worktree": true,
           "size_bytes": 365554,
           "size_bytes_as_seen_through_link": 0,
@@ -339,7 +339,7 @@
         {
           "filename": "balances_210TGG51_20OCT2025_07JUL2026.csv",
           "current_path": "C:\\Coding Projects\\Tearsheet Generator\\.worktrees\\live-deploy-main\\Momentum Pacer\\data\\daily_balances\\balances_210TGG51_20OCT2025_07JUL2026.csv",
-          "proposed_vps_path": "C:\\H&C\\data\\agm\\daily_balances\\balances_210TGG51_20OCT2025_07JUL2026.csv",
+          "proposed_vps_path": "C:\\HC\\data\\agm\\daily_balances\\balances_210TGG51_20OCT2025_07JUL2026.csv",
           "size_bytes": 17852,
           "last_modified": "2026-07-11T19:30:08",
           "file_hash_algorithm": "SHA-256",
@@ -350,7 +350,7 @@
         {
           "filename": "GSPC_daily.csv",
           "current_path": "C:\\Coding Projects\\Tearsheet Generator\\.worktrees\\live-deploy-main\\Momentum Pacer\\data\\benchmarks\\GSPC_daily.csv",
-          "proposed_vps_path": "C:\\H&C\\data\\agm\\benchmarks\\GSPC_daily.csv",
+          "proposed_vps_path": "C:\\HC\\data\\agm\\benchmarks\\GSPC_daily.csv",
           "size_bytes": 6371,
           "last_modified": "2026-07-30T11:12:13",
           "file_hash_algorithm": "SHA-256",
@@ -361,7 +361,7 @@
         {
           "filename": "NDX_daily.csv",
           "current_path": "C:\\Coding Projects\\Tearsheet Generator\\.worktrees\\live-deploy-main\\Momentum Pacer\\data\\benchmarks\\NDX_daily.csv",
-          "proposed_vps_path": "C:\\H&C\\data\\agm\\benchmarks\\NDX_daily.csv",
+          "proposed_vps_path": "C:\\HC\\data\\agm\\benchmarks\\NDX_daily.csv",
           "size_bytes": 5730,
           "last_modified": "2026-07-11T19:30:08",
           "file_hash_algorithm": "SHA-256",

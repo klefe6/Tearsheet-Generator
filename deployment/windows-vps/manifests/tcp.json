@@ -1,0 +1,90 @@
+{
+  "schema_version": "1.0.0",
+  "app": "tcp",
+  "display_name": "TCP Tearsheet v2",
+  "source_repository_subpath": ".",
+  "entrypoint": "tcp_ts_v2.py",
+  "staff_entrypoint": "tcp_ts_v2.py",
+  "staff_runtime_mode": "TEARSHEET_MODE=staff",
+  "working_directory_relative": ".",
+  "port": 8302,
+  "staff_port": 8322,
+  "health_endpoint": "/healthz",
+  "service_name": "HC-TCP-Tearsheet",
+  "target_app_directory": "C:\\HC\\apps\\tcp",
+  "persistent_data_paths": [
+    {
+      "logical": "state_active",
+      "env": "TCP_V2_STATE_PATH",
+      "vps_default": "C:\\HC\\data\\tcp\\tcp_daily_returns_secret_state.json"
+    },
+    {
+      "logical": "state_backup",
+      "env": "TCP_V2_STATE_BACKUP_PATH",
+      "vps_default": "C:\\HC\\data\\tcp\\tcp_daily_returns_secret_state.backup.json"
+    },
+    {
+      "logical": "state_lock",
+      "env": "TCP_V2_STATE_LOCK_PATH",
+      "vps_default": "C:\\HC\\data\\tcp\\tcp_daily_returns_secret_state.lock"
+    },
+    {
+      "logical": "source_workbook",
+      "env": "TCP_V2_WORKBOOK_PATH",
+      "vps_default": "C:\\HC\\data\\tcp\\tcp_alex.xlsx"
+    }
+  ],
+  "config_env_files": [
+    "C:\\HC\\config\\tcp.env"
+  ],
+  "config_variable_names": [
+    "TCP_V2_BIND_PORT",
+    "TEARSHEET_MODE"
+  ],
+  "secret_variable_names": [
+    "TCP_V2_ADMIN_TOKEN",
+    "TCP_V2_SESSION_SECRET",
+    "GLENN_UPLOADER_INGEST_TOKEN"
+  ],
+  "log_paths": [
+    "C:\\HC\\logs\\tcp\\tcp_stdout.log",
+    "C:\\HC\\logs\\tcp\\tcp_stderr.log"
+  ],
+  "source_files": [
+    "tcp_ts_v2.py",
+    "tcp_config.py",
+    "tcp_runtime_state.py",
+    "tcp_benchmarks.py",
+    "tcp_dashboard.py",
+    "tcp_drawdown.py",
+    "tcp_public_sections.py",
+    "tcp_admin.py",
+    "tcp_uploader_ingest.py",
+    "tearsheet_paths.py",
+    "tearsheet_gate_auth.py",
+    "tearsheet_runtime_mode.py",
+    "tearsheet_portal.py",
+    "tearsheet_uploader_ingest.py",
+    "assets/styles.css",
+    "requirements.txt"
+  ],
+  "shared_dependencies": [
+    "tearsheet_paths.py",
+    "tearsheet_gate_auth.py",
+    "tearsheet_runtime_mode.py",
+    "tearsheet_portal.py",
+    "tearsheet_uploader_ingest.py"
+  ],
+  "optional_assets": [],
+  "exclude_from_git_deploy": [
+    "tcp_ts.py",
+    "tcp_daily_returns_secret_state.json",
+    "tcp_daily_returns_secret_state.backup.json",
+    "tcp_daily_returns_secret_state.lock",
+    ".tcp_production.env",
+    "_runtime/",
+    "glenn_uploader_ingest_*_audit.jsonl"
+  ],
+  "dependencies": ["shared"],
+  "notes": "Do not deploy legacy tcp_ts.py — its __main__ binds 8302."
+}

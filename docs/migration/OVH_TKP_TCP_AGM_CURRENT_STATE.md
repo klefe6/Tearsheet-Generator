@@ -283,7 +283,7 @@ Sizes, timestamps, and SHA-256 values captured 2026-10-01 at ~11:35 local. Git t
 | Sensitive | **Yes** | **Yes** | No | **Yes** |
 | Hardcoded | partly (`__file__`-relative) | **Yes** | **Yes** | partly (`__file__`-relative) |
 | Env key today | none | **none** | none | none |
-| Proposed VPS path | `C:\H&C\data\tkp\daily_returns_secret_state.json` | `C:\H&C\data\tkp\tkp_source_workbook.xlsx` | `C:\H&C\apps\shared\assets\logo.png` | `C:\H&C\logs\tkp\glenn_uploader_ingest_tkp_audit.jsonl` |
+| Proposed VPS path | `C:\HC\data\tkp\daily_returns_secret_state.json` | `C:\HC\data\tkp\tkp_source_workbook.xlsx` | `C:\HC\apps\shared\assets\logo.png` | `C:\HC\logs\tkp\glenn_uploader_ingest_tkp_audit.jsonl` |
 | Required for initial deploy | **Yes** | **Yes — boot-blocking** | No | No |
 
 ### TCP
@@ -301,7 +301,7 @@ Sizes, timestamps, and SHA-256 values captured 2026-10-01 at ~11:35 local. Git t
 | Sensitive | **Yes** | **Yes** | No | No | **Yes** | **Yes** |
 | Hardcoded | No | No | No | No | partly | **Yes** (default; overridable) |
 | Env key today | `TCP_V2_STATE_PATH` | `TCP_V2_STATE_BACKUP_PATH` | `TCP_V2_STATE_LOCK_PATH` | `TCP_V2_BENCHMARK_CACHE_PATH` (+ BTC/ETH keys) | none | `TCP_V2_WORKBOOK_PATH` |
-| Proposed VPS path | `C:\H&C\data\tcp\tcp_daily_returns_secret_state.json` | `...\.backup.json` | `...\.lock` | `C:\H&C\data\tcp\benchmark\` | `C:\H&C\logs\tcp\` | not deployed initially |
+| Proposed VPS path | `C:\HC\data\tcp\tcp_daily_returns_secret_state.json` | `...\.backup.json` | `...\.lock` | `C:\HC\data\tcp\benchmark\` | `C:\HC\logs\tcp\` | not deployed initially |
 | Required for initial deploy | **Yes** | No | No | Recommended (lets you boot cache-only) | No | **No** |
 
 Stale duplicates of the three benchmark caches also sit in `...\live-deploy-main\_runtime\` from July. They are superseded by the `HughesCompany\TCP\benchmark` copies and should not be migrated.
@@ -322,7 +322,7 @@ Stale duplicates of the three benchmark caches also sit in `...\live-deploy-main
 | Sensitive | **Yes** | **Yes** | **Yes** | No | **Yes** |
 | Hardcoded | `__file__`-relative | `__file__`-relative | `__file__`-relative + pinned filename constant | `__file__`-relative | `__file__`-relative |
 | Env key today | none | none | none | none | none |
-| Proposed VPS path | `C:\H&C\data\agm\momentum_pacer_manual_daily_rows.json` | `C:\H&C\data\agm\Momentum Fee Calculation.xlsx` | `C:\H&C\data\agm\daily_balances\balances_210TGG51_20OCT2025_07JUL2026.csv` | `C:\H&C\data\agm\benchmarks\` | `C:\H&C\logs\agm\` |
+| Proposed VPS path | `C:\HC\data\agm\momentum_pacer_manual_daily_rows.json` | `C:\HC\data\agm\Momentum Fee Calculation.xlsx` | `C:\HC\data\agm\daily_balances\balances_210TGG51_20OCT2025_07JUL2026.csv` | `C:\HC\data\agm\benchmarks\` | `C:\HC\logs\agm\` |
 | Required for initial deploy | **Yes** | **Yes** | **Yes** | Recommended | No |
 
 ### Reparse-point inventory — read this before packaging
@@ -378,7 +378,7 @@ The live worktree contains five reparse points pointing back into the dirty deve
 - **Browser:** not needed. The launchers do not open a browser.
 - **Outbound network:** required for benchmarks on first boot unless you use the cache-only flags (`TCP_V2_SKIP_BENCHMARK_FETCH=1`, `AGM_BENCHMARK_CACHE_ONLY=1`). TKP has no such flag and no cache, so it will attempt yfinance/quantstats downloads at every start.
 
-**Recommendation: one shared virtual environment at `C:\H&C\apps\shared\.venv310`.** It is safe and it is what production already does. All three apps are pinned to identical versions of an identical dependency set, there is no version conflict to isolate, and because TKP and AGM both import TCP modules through `tcp_admin`, per-app environments would mean three copies of the same packages plus triple the patching surface. Use Python 3.10.x to match production exactly — do not jump to 3.12 or 3.13 during a migration, since `numpy 2.2.6` / `pandas 2.2.3` / `quantstats 0.0.64` behavior is what the current reconciliation baseline was produced under.
+**Recommendation: one shared virtual environment at `C:\HC\apps\shared\.venv310`.** It is safe and it is what production already does. All three apps are pinned to identical versions of an identical dependency set, there is no version conflict to isolate, and because TKP and AGM both import TCP modules through `tcp_admin`, per-app environments would mean three copies of the same packages plus triple the patching surface. Use Python 3.10.x to match production exactly — do not jump to 3.12 or 3.13 during a migration, since `numpy 2.2.6` / `pandas 2.2.3` / `quantstats 0.0.64` behavior is what the current reconciliation baseline was produced under.
 
 Install order on the VPS: `python -m venv`, then `pip install -r requirements.txt`, then explicitly `pip install openpyxl==3.1.5 dash-bootstrap-components==2.0.3`, then `pip freeze` and diff against the laptop's freeze before starting any service.
 
@@ -405,37 +405,37 @@ No values are printed for anything marked secret.
 | Variable | Consumer | Secret | Required | Current source | Future VPS destination | Class |
 |---|---|---|---|---|---|---|
 | `TEARSHEET_MODE` | all three | No | Yes | launcher (`public` / `staff`) | NSSM per-service env | path/config |
-| `TKP_BIND_PORT` | TKP | No | No | unset (defaults 8301) | `C:\H&C\config\tkp.env` | network |
-| `TCP_V2_BIND_PORT` | TCP | No | Yes | `.tcp_production.env` = `8302` | `C:\H&C\config\tcp.env` | network |
-| `AGM_BIND_PORT` | AGM | No | No | unset (defaults 8304) | `C:\H&C\config\agm.env` | network |
+| `TKP_BIND_PORT` | TKP | No | No | unset (defaults 8301) | `C:\HC\config\tkp.env` | network |
+| `TCP_V2_BIND_PORT` | TCP | No | Yes | `.tcp_production.env` = `8302` | `C:\HC\config\tcp.env` | network |
+| `AGM_BIND_PORT` | AGM | No | No | unset (defaults 8304) | `C:\HC\config\agm.env` | network |
 | `MP_TS_PRODUCTION` | AGM | No | Yes | `reboot_mp_ts.ps1` = `1` | NSSM per-service env | path/config |
 | `PYTHONIOENCODING` | all three | No | Yes (practically) | launcher = `utf-8` | NSSM per-service env | path/config |
-| `TKP_ADMIN_TOKEN` | TKP | **Yes** | Yes | `.tkp_production.env` | `C:\H&C\secrets\tkp.env` | secret |
-| `TKP_SESSION_SECRET` | TKP | **Yes** | Yes | `.tkp_production.env` | `C:\H&C\secrets\tkp.env` | secret |
-| `TCP_V2_ADMIN_TOKEN` | TCP | **Yes** | Yes | `.tcp_production.env` | `C:\H&C\secrets\tcp.env` | secret |
-| `TCP_V2_SESSION_SECRET` | TCP | **Yes** | Yes | `.tcp_production.env` | `C:\H&C\secrets\tcp.env` | secret |
-| `AGM_ADMIN_TOKEN` | AGM | **Yes** | Yes | **not set — falls back to a code default** | `C:\H&C\secrets\agm.env` | secret |
-| `AGM_SESSION_SECRET` | AGM | **Yes** | Yes | **not set — falls back to a code default** | `C:\H&C\secrets\agm.env` | secret |
-| `TCP_V2_STATE_MODE` | TCP | No | Yes | `.tcp_production.env` = `json_active` | `C:\H&C\config\tcp.env` | path/config |
-| `TCP_V2_STATE_PATH` | TCP | No | Yes | `.tcp_production.env` | `C:\H&C\config\tcp.env` | path/config |
-| `TCP_V2_STATE_BACKUP_PATH` | TCP | No | Yes | `.tcp_production.env` | `C:\H&C\config\tcp.env` | path/config |
-| `TCP_V2_STATE_LOCK_PATH` | TCP | No | Yes | `.tcp_production.env` | `C:\H&C\config\tcp.env` | path/config |
-| `TCP_V2_BENCHMARK_CACHE_PATH` | TCP | No | No | `.tcp_production.env` | `C:\H&C\config\tcp.env` | path/config |
-| `TCP_V2_BENCHMARK_BTC_CACHE_PATH` | TCP | No | No | unset (sibling of SPXTR override) | `C:\H&C\config\tcp.env` | path/config |
-| `TCP_V2_BENCHMARK_ETH_CACHE_PATH` | TCP | No | No | unset | `C:\H&C\config\tcp.env` | path/config |
-| `TCP_V2_WORKBOOK_PATH` | TCP | No | No | unset (hardcoded default in `tcp_config.py`) | `C:\H&C\config\tcp.env` | path/config |
+| `TKP_ADMIN_TOKEN` | TKP | **Yes** | Yes | `.tkp_production.env` | `C:\HC\secrets\tkp.env` | secret |
+| `TKP_SESSION_SECRET` | TKP | **Yes** | Yes | `.tkp_production.env` | `C:\HC\secrets\tkp.env` | secret |
+| `TCP_V2_ADMIN_TOKEN` | TCP | **Yes** | Yes | `.tcp_production.env` | `C:\HC\secrets\tcp.env` | secret |
+| `TCP_V2_SESSION_SECRET` | TCP | **Yes** | Yes | `.tcp_production.env` | `C:\HC\secrets\tcp.env` | secret |
+| `AGM_ADMIN_TOKEN` | AGM | **Yes** | Yes | **not set — falls back to a code default** | `C:\HC\secrets\agm.env` | secret |
+| `AGM_SESSION_SECRET` | AGM | **Yes** | Yes | **not set — falls back to a code default** | `C:\HC\secrets\agm.env` | secret |
+| `TCP_V2_STATE_MODE` | TCP | No | Yes | `.tcp_production.env` = `json_active` | `C:\HC\config\tcp.env` | path/config |
+| `TCP_V2_STATE_PATH` | TCP | No | Yes | `.tcp_production.env` | `C:\HC\config\tcp.env` | path/config |
+| `TCP_V2_STATE_BACKUP_PATH` | TCP | No | Yes | `.tcp_production.env` | `C:\HC\config\tcp.env` | path/config |
+| `TCP_V2_STATE_LOCK_PATH` | TCP | No | Yes | `.tcp_production.env` | `C:\HC\config\tcp.env` | path/config |
+| `TCP_V2_BENCHMARK_CACHE_PATH` | TCP | No | No | `.tcp_production.env` | `C:\HC\config\tcp.env` | path/config |
+| `TCP_V2_BENCHMARK_BTC_CACHE_PATH` | TCP | No | No | unset (sibling of SPXTR override) | `C:\HC\config\tcp.env` | path/config |
+| `TCP_V2_BENCHMARK_ETH_CACHE_PATH` | TCP | No | No | unset | `C:\HC\config\tcp.env` | path/config |
+| `TCP_V2_WORKBOOK_PATH` | TCP | No | No | unset (hardcoded default in `tcp_config.py`) | `C:\HC\config\tcp.env` | path/config |
 | `TCP_V2_ALLOW_WORKBOOK_FALLBACK` | TCP | No | No | unset (default `True`) | **set to `false` on VPS** | path/config |
-| `TCP_V2_SKIP_BENCHMARK_FETCH` | TCP | No | No | unset | `C:\H&C\config\tcp.env` — `1` for first boot | optional |
-| `AGM_BENCHMARK_CACHE_ONLY` | AGM | No | No | unset | `C:\H&C\config\agm.env` — `1` for first boot | optional |
-| `GLENN_UPLOADER_INGEST_ENABLED` | all three | No | Yes | `.local_dev.env` = `true` | `C:\H&C\config\<app>.env` | path/config |
-| `GLENN_UPLOADER_INGEST_TOKEN` | all three | **Yes** | Yes | `.local_dev.env` | `C:\H&C\secrets\ingest.env` | secret |
-| `GLENN_UPLOADER_INGEST_DRY_RUN_ALLOWED` | all three | No | No | `.local_dev.env` = `true` | `C:\H&C\config\<app>.env` | optional |
+| `TCP_V2_SKIP_BENCHMARK_FETCH` | TCP | No | No | unset | `C:\HC\config\tcp.env` — `1` for first boot | optional |
+| `AGM_BENCHMARK_CACHE_ONLY` | AGM | No | No | unset | `C:\HC\config\agm.env` — `1` for first boot | optional |
+| `GLENN_UPLOADER_INGEST_ENABLED` | all three | No | Yes | `.local_dev.env` = `true` | `C:\HC\config\<app>.env` | path/config |
+| `GLENN_UPLOADER_INGEST_TOKEN` | all three | **Yes** | Yes | `.local_dev.env` | `C:\HC\secrets\ingest.env` | secret |
+| `GLENN_UPLOADER_INGEST_DRY_RUN_ALLOWED` | all three | No | No | `.local_dev.env` = `true` | `C:\HC\config\<app>.env` | optional |
 | `TEARSHEET_LOCAL_DIRECT_ADMIN` | all three | No | No | `.local_dev.env` = `1` | **do not migrate** | optional |
-| `TEARSHEET_STAFF_ALLOWED_HOSTS` | all three (staff) | No | staff only | `.staff.env` = `tkp-admin.hcresearch.ltd,tcp-admin.hcresearch.ltd,agm-admin.hcresearch.ltd` | `C:\H&C\config\staff.env` | network |
+| `TEARSHEET_STAFF_ALLOWED_HOSTS` | all three (staff) | No | staff only | `.staff.env` = `tkp-admin.hcresearch.ltd,tcp-admin.hcresearch.ltd,agm-admin.hcresearch.ltd` | `C:\HC\config\staff.env` | network |
 
 ### Configuration problems to fix during migration, not carry forward
 
-- **`.local_dev.env` is production configuration under a development name.** It holds the live ingest token and is loaded by every production launcher. On the VPS, split it: non-secret flags into `C:\H&C\config\*.env`, the token into `C:\H&C\secrets\ingest.env`.
+- **`.local_dev.env` is production configuration under a development name.** It holds the live ingest token and is loaded by every production launcher. On the VPS, split it: non-secret flags into `C:\HC\config\*.env`, the token into `C:\HC\secrets\ingest.env`.
 - **`TEARSHEET_LOCAL_DIRECT_ADMIN=1` is set in production.** It is partially mitigated — the bypass additionally requires the `/admin/tearsheet` path, a loopback peer, and a loopback `Host` header — but it should not be set on a server. Leave it out.
 - **AGM runs on default credentials.** `reboot_mp_ts.ps1` never loads a production env file, so `AGM_ADMIN_TOKEN` and `AGM_SESSION_SECRET` resolve to `tcp_config.DEFAULT_SIBLING_ADMIN_TOKEN` / `DEFAULT_SIBLING_SESSION_SECRET`. Generate real values for the VPS and create the missing `.agm_production.env` equivalent. (`.gitignore` already anticipates `.agm_production.env`, so this was a planned file that was never created.)
 - **Shared ingest token across all three programs.** One `GLENN_UPLOADER_INGEST_TOKEN` authenticates TKP, TCP, and AGM. Per-app tokens on the VPS would contain the blast radius, but that is a behavior change — do not introduce it during the migration itself.
@@ -538,12 +538,12 @@ Three services for the public tearsheets. Staff services are deliberately omitte
 | Program | TCP | TKP | AGM / Momentum Pacer |
 | Role | public tearsheet | public tearsheet | public tearsheet |
 | Port | 8302 | 8301 | 8304 |
-| Python executable | `C:\H&C\apps\shared\.venv310\Scripts\python.exe` | same | same |
-| Entry point | `C:\H&C\apps\tcp\tcp_ts_v2.py` | `C:\H&C\apps\tkp\tkp_ts.py` | `C:\H&C\apps\agm\Momentum Pacer\mp_ts.py` |
-| Working directory | `C:\H&C\apps\tcp` | `C:\H&C\apps\tkp` | `C:\H&C\apps\agm\Momentum Pacer` |
-| Environment profile | `C:\H&C\config\tcp.env` + `C:\H&C\secrets\tcp.env` + `secrets\ingest.env` | `config\tkp.env` + `secrets\tkp.env` + `secrets\ingest.env` | `config\agm.env` + `secrets\agm.env` + `secrets\ingest.env` |
-| stdout log | `C:\H&C\logs\tcp\tcp_stdout.log` | `C:\H&C\logs\tkp\tkp_stdout.log` | `C:\H&C\logs\agm\agm_stdout.log` |
-| stderr log | `C:\H&C\logs\tcp\tcp_stderr.log` | `C:\H&C\logs\tkp\tkp_stderr.log` | `C:\H&C\logs\agm\agm_stderr.log` |
+| Python executable | `C:\HC\apps\shared\.venv310\Scripts\python.exe` | same | same |
+| Entry point | `C:\HC\apps\tcp\tcp_ts_v2.py` | `C:\HC\apps\tkp\tkp_ts.py` | `C:\HC\apps\agm\Momentum Pacer\mp_ts.py` |
+| Working directory | `C:\HC\apps\tcp` | `C:\HC\apps\tkp` | `C:\HC\apps\agm\Momentum Pacer` |
+| Environment profile | `C:\HC\config\tcp.env` + `C:\HC\secrets\tcp.env` + `secrets\ingest.env` | `config\tkp.env` + `secrets\tkp.env` + `secrets\ingest.env` | `config\agm.env` + `secrets\agm.env` + `secrets\ingest.env` |
+| stdout log | `C:\HC\logs\tcp\tcp_stdout.log` | `C:\HC\logs\tkp\tkp_stdout.log` | `C:\HC\logs\agm\agm_stdout.log` |
+| stderr log | `C:\HC\logs\tcp\tcp_stderr.log` | `C:\HC\logs\tkp\tkp_stderr.log` | `C:\HC\logs\agm\agm_stderr.log` |
 | Startup type | Automatic | Automatic | Automatic |
 
 Three NSSM settings matter specifically for these apps:
@@ -562,19 +562,19 @@ Path portability status per file. "Centralized" means resolved through `tearshee
 
 | File | Centralized | Env-controlled | Laptop default preserved | VPS profile defined | VPS target path | Remaining blocker |
 |---|---|---|---|---|---|---|
-| TKP state JSON | No | No | n/a | on branch only | `C:\H&C\data\tkp\daily_returns_secret_state.json` | `__file__`-relative; no env key |
-| **TKP source workbook** | No | **No** | n/a | on branch only | `C:\H&C\data\tkp\tkp_source_workbook.xlsx` | **hardcoded protected-folder literal, `sys.exit(1)` if missing** |
-| TKP logo PNG | No | No | n/a | on branch only | `C:\H&C\apps\shared\assets\logo.png` | hardcoded literal; degrades gracefully |
-| TKP ingest audit | No | No | n/a | on branch only | `C:\H&C\logs\tkp\` | `__file__`-relative |
-| TCP state / backup / lock | No | **Yes** | Yes | effectively | `C:\H&C\data\tcp\` | none |
-| TCP benchmark cache | No | **Yes** | Yes | effectively | `C:\H&C\data\tcp\benchmark\` | BTC/ETH keys unset; they default beside the SPXTR override, so set all three explicitly |
+| TKP state JSON | No | No | n/a | on branch only | `C:\HC\data\tkp\daily_returns_secret_state.json` | `__file__`-relative; no env key |
+| **TKP source workbook** | No | **No** | n/a | on branch only | `C:\HC\data\tkp\tkp_source_workbook.xlsx` | **hardcoded protected-folder literal, `sys.exit(1)` if missing** |
+| TKP logo PNG | No | No | n/a | on branch only | `C:\HC\apps\shared\assets\logo.png` | hardcoded literal; degrades gracefully |
+| TKP ingest audit | No | No | n/a | on branch only | `C:\HC\logs\tkp\` | `__file__`-relative |
+| TCP state / backup / lock | No | **Yes** | Yes | effectively | `C:\HC\data\tcp\` | none |
+| TCP benchmark cache | No | **Yes** | Yes | effectively | `C:\HC\data\tcp\benchmark\` | BTC/ETH keys unset; they default beside the SPXTR override, so set all three explicitly |
 | TCP workbook | No | **Yes** | Yes | effectively | not deployed initially | hardcoded default, but overridable and unused in `json_active` |
-| TCP ingest audit | No | No | n/a | on branch only | `C:\H&C\logs\tcp\` | `REPO_ROOT`-relative |
-| AGM manual rows JSON | No | No | n/a | on branch only | `C:\H&C\data\agm\` | `__file__`-relative |
-| AGM fee workbook | No | No | n/a | on branch only | `C:\H&C\data\agm\` | `__file__`-relative **and a symlink into the dirty checkout** |
-| AGM pinned CSV | No | No | n/a | on branch only | `C:\H&C\data\agm\daily_balances\` | `__file__`-relative from a root-level module reaching into `Momentum Pacer\data\...`; filename pinned in a constant |
-| AGM benchmark CSVs | No | No | n/a | on branch only | `C:\H&C\data\agm\benchmarks\` | same shape; regenerable |
-| AGM ingest audit | No | No | n/a | on branch only | `C:\H&C\logs\agm\` | `__file__`-relative |
+| TCP ingest audit | No | No | n/a | on branch only | `C:\HC\logs\tcp\` | `REPO_ROOT`-relative |
+| AGM manual rows JSON | No | No | n/a | on branch only | `C:\HC\data\agm\` | `__file__`-relative |
+| AGM fee workbook | No | No | n/a | on branch only | `C:\HC\data\agm\` | `__file__`-relative **and a symlink into the dirty checkout** |
+| AGM pinned CSV | No | No | n/a | on branch only | `C:\HC\data\agm\daily_balances\` | `__file__`-relative from a root-level module reaching into `Momentum Pacer\data\...`; filename pinned in a constant |
+| AGM benchmark CSVs | No | No | n/a | on branch only | `C:\HC\data\agm\benchmarks\` | same shape; regenerable |
+| AGM ingest audit | No | No | n/a | on branch only | `C:\HC\logs\agm\` | `__file__`-relative |
 
 ### Concrete blockers
 
@@ -582,13 +582,13 @@ Path portability status per file. "Centralized" means resolved through `tearshee
 `tkp_ts.py:244` hardcodes the path; lines 379–387 call `sys.exit(1)` when the file is absent or unreadable, and the `except` handlers at 444–452 do the same for any read failure. There is no env override on `live-main`. TKP cannot start on the VPS until either the portability branch is merged or an identical directory tree is recreated on the server. Recreating the tree is not viable — it is a OneDrive-synced business folder.
 
 **Blocker 2 — the central path module is not in production. Severity: blocking for TKP, minor for TCP and AGM.**
-`tearsheet_paths.py` exists on `feature/central-path-config`, `feature/tkp-central-path-config`, `feature/path-portability-integration`, `feature/vps-portability-completion`, and `feature/windows-vps-deployment-layout`, with tests and documentation. `feature/vps-portability-completion` is the most complete and already uses `C:\H&C\` as the canonical root (earlier branches and some `docs/migration/` files still say `E:\H&C\` — superseded). None of it is merged into `live-main` (`3cfda4f`). It defines an `HC_APP_ENV` profile selector (`local-dev` / `local-production` / `vps-sandbox` / `vps-production`) plus `HC_DATA_ROOT`, `HC_LOG_ROOT`, `HC_BACKUP_ROOT`, `HC_CACHE_ROOT`, and per-file keys including `HC_TKP_STATE_PATH`, `HC_TKP_SOURCE_WORKBOOK`, `HC_AGM_MANUAL_STATE_PATH`, `HC_AGM_FEE_WORKBOOK`, `HC_AGM_PINNED_CSV`, and `HC_TCP_DATA_ROOT`. Merging it is the cleanest route to a portable TKP.
+`tearsheet_paths.py` exists on `feature/central-path-config`, `feature/tkp-central-path-config`, `feature/path-portability-integration`, `feature/vps-portability-completion`, and `feature/windows-vps-deployment-layout`, with tests and documentation. `feature/vps-portability-completion` is the most complete and already uses `C:\HC\` as the canonical root (earlier branches and some `docs/migration/` files still say `E:\H&C\` — superseded). None of it is merged into `live-main` (`3cfda4f`). It defines an `HC_APP_ENV` profile selector (`local-dev` / `local-production` / `vps-sandbox` / `vps-production`) plus `HC_DATA_ROOT`, `HC_LOG_ROOT`, `HC_BACKUP_ROOT`, `HC_CACHE_ROOT`, and per-file keys including `HC_TKP_STATE_PATH`, `HC_TKP_SOURCE_WORKBOOK`, `HC_AGM_MANUAL_STATE_PATH`, `HC_AGM_FEE_WORKBOOK`, `HC_AGM_PINNED_CSV`, and `HC_TCP_DATA_ROOT`. Merging it is the cleanest route to a portable TKP.
 
 **Blocker 3 — five reparse points make the live tree non-self-contained. Severity: minor, but a silent-corruption risk.**
 Listed in the persistent-data section. Packaging must resolve them to real files.
 
 **Blocker 4 — AGM has no production secrets. Severity: minor.**
-Admin token and session secret fall back to code defaults. Create `C:\H&C\secrets\agm.env`.
+Admin token and session secret fall back to code defaults. Create `C:\HC\secrets\agm.env`.
 
 **Blocker 5 — launcher dirty-root guards and the `Manager` dependency. Severity: minor.**
 Every `reboot_*.ps1` hardcodes `C:\Coding Projects\Tearsheet Generator` and references `C:\Coding Projects\Manager\tearsheet_fleet_runtime.json`. NSSM replaces this entirely, so the launchers simply should not be deployed.
@@ -621,7 +621,7 @@ TKP downloads benchmarks on every boot with no cache and no skip flag, so first 
 
 TCP wins on every axis that determines whether a pilot *teaches you something* versus *gets stuck*.
 
-The decisive factor is that **TCP is the only one of the three that can boot on a clean VPS with no code changes at all.** Its state path, backup path, lock path, and benchmark cache path are already environment variables, and its production state already lives outside the repository at `C:\Users\H&CDanHughes\AppData\Local\HughesCompany\TCP\`. That is exactly the code-and-data separation the `C:\H&C\` layout is designed around — TCP has effectively already been through the migration on the laptop. Point the same four variables at `C:\H&C\data\tcp\`, copy one JSON file, and it runs.
+The decisive factor is that **TCP is the only one of the three that can boot on a clean VPS with no code changes at all.** Its state path, backup path, lock path, and benchmark cache path are already environment variables, and its production state already lives outside the repository at `C:\Users\H&CDanHughes\AppData\Local\HughesCompany\TCP\`. That is exactly the code-and-data separation the `C:\HC\` layout is designed around — TCP has effectively already been through the migration on the laptop. Point the same four variables at `C:\HC\data\tcp\`, copy one JSON file, and it runs.
 
 Second, TCP is the only app whose writes are crash-safe (lock, temp file, atomic rename, backup rotation), which is what you want when you are learning how NSSM restarts behave and how reboot-recovery testing goes. A hard stop mid-write on TKP or AGM can truncate the authoritative state file.
 
@@ -637,7 +637,7 @@ Fourth, TCP has the deepest test suite, including a resilience-acceptance suite 
 
 ### Resulting order
 
-1. **TCP** — proves the `C:\H&C\` layout, the shared venv, NSSM, and reconciliation with almost no risk and no code change.
+1. **TCP** — proves the `C:\HC\` layout, the shared venv, NSSM, and reconciliation with almost no risk and no code change.
 2. **TKP** — forces the path-portability merge and the protected-folder workbook decision, the two hardest problems, with the platform already de-risked.
 3. **AGM** — inherits the merged path work and the proven layout; its remaining work is mostly data placement and generating real secrets.
 
