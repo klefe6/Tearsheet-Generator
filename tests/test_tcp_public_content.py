@@ -11,6 +11,7 @@ from tcp_config import AdminAuthSettings, load_config, resolve_state_paths
 from tcp_public_sections import (
     ACCOUNT_STATISTICS,
     INVESTOR_OTHER_NOTES,
+    NAV_FOOTNOTE_PRIMARY,
     TERMS_AND_FEES,
     TRANSACTION_FEE_FOOTNOTE,
     resolve_public_gate_styles,
@@ -21,8 +22,7 @@ TEST_TOKEN = "test-admin-token-public-content"
 TEST_SECRET = "test-session-secret-public-content"
 
 
-def _layout_text(app) -> str:
-    return str(app.layout)
+from layout_helpers import layout_text as _layout_text
 
 
 def _public_source_text() -> str:
@@ -57,10 +57,12 @@ def _app_bundle_module():
     os.environ["TCP_V2_ADMIN_TOKEN"] = TEST_TOKEN
     os.environ["TCP_V2_SESSION_SECRET"] = TEST_SECRET
     settings = AdminAuthSettings(admin_token=TEST_TOKEN, session_secret=TEST_SECRET)
+    from tcp_layout_support import tcp_layout_benchmark_patches
     from tcp_ts_v2 import create_app
 
-    bundle = create_app(auth_settings=settings)
-    yield bundle
+    with tcp_layout_benchmark_patches():
+        bundle = create_app(auth_settings=settings)
+        yield bundle
     for key, value in saved.items():
         if value is None:
             os.environ.pop(key, None)
@@ -152,6 +154,14 @@ def test_investor_terms_labels(layout_text, label, _value):
 def test_minimum_investment_values_from_committed_v1(layout_text):
     assert "$50,000 per tranche" in layout_text
     assert "$100,000 Nominal" in layout_text
+
+
+def test_obsolete_150k_runtime_copy_is_absent():
+    source = (REPO_ROOT / "tcp_public_sections.py").read_text(encoding="utf-8")
+    assert "growth of a $50,000 investment" in NAV_FOOTNOTE_PRIMARY
+    assert "$150,000" not in NAV_FOOTNOTE_PRIMARY
+    assert "Nominal Trade Size ($50,000)" in source
+    assert "Nominal Trade Size (150 k)" not in source
 
 
 def test_proprietary_client_distinctions(layout_text):

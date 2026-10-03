@@ -1,13 +1,23 @@
 """Tests for tcp_ts_v2 preview shell."""
 from __future__ import annotations
 
+from layout_helpers import layout_text
+
 import ast
 import socket
 from pathlib import Path
 
 import pytest
 
+from tcp_layout_support import tcp_layout_benchmark_patches
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _patch_layout_benchmarks():
+    with tcp_layout_benchmark_patches():
+        yield
 
 
 def _port_listening(port: int) -> bool:
@@ -47,7 +57,7 @@ def test_import_does_not_start_preview_server():
 def test_preview_banner_in_layout_or_error():
     import tcp_ts_v2
 
-    layout_str = str(tcp_ts_v2.app.layout)
+    layout_str = layout_text(tcp_ts_v2.app)
     assert "TCP v2 Preview" in layout_str
     assert "Read Only" in layout_str
 
@@ -57,7 +67,7 @@ def test_layout_shows_runtime_metadata_when_healthy():
 
     if tcp_ts_v2._PREVIEW_STATE.snapshot is None:
         pytest.skip("Runtime not healthy in this environment")
-    layout_str = str(tcp_ts_v2.app.layout)
+    layout_str = layout_text(tcp_ts_v2.app)
     assert "Runtime diagnostics" in layout_str
     assert "Completed ledger rows" in layout_str
     assert "State mode" in layout_str
@@ -68,7 +78,7 @@ def test_preview_layout_reports_workbook_mode_by_default():
 
     if tcp_ts_v2._PREVIEW_STATE.snapshot is None:
         pytest.skip("Runtime not healthy in this environment")
-    layout_str = str(tcp_ts_v2.app.layout)
+    layout_str = layout_text(tcp_ts_v2.app)
     assert "workbook" in layout_str
 
 
@@ -116,7 +126,7 @@ def test_canonical_store_is_memory_only():
 
     if tcp_ts_v2._PREVIEW_STATE.snapshot is None:
         pytest.skip("Runtime not healthy in this environment")
-    layout_str = str(tcp_ts_v2.app.layout)
+    layout_str = layout_text(tcp_ts_v2.app)
     assert "canonical-nav-store" in layout_str
     source = (REPO_ROOT / "tcp_ts_v2.py").read_text(encoding="utf-8").lower()
     assert "localstorage" not in source
@@ -128,7 +138,7 @@ def test_layout_renders_dynamic_sections():
 
     if tcp_ts_v2._PREVIEW_STATE.snapshot is None:
         pytest.skip("Runtime not healthy in this environment")
-    layout_str = str(tcp_ts_v2.app.layout)
+    layout_str = layout_text(tcp_ts_v2.app)
     assert "Performance Summary" in layout_str
     assert "Performance Metrics" in layout_str
     assert "monthly-calendar-container" in layout_str

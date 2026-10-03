@@ -5,9 +5,11 @@ import json
 import os
 import sys
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
+from tcp_layout_support import TCP_LAYOUT_TEST_MODULES, _blocked_network_fetch
 from tcp_test_constants import CONTRACT_PATH, GOLDEN_FIXTURE_PATH
 
 # TKP (tkp_ts.py) builds its AdminAuthManager once at module-import time (unlike TCP's
@@ -34,12 +36,31 @@ _MOMENTUM_PACER_DIR = str(Path(__file__).resolve().parent.parent / "Momentum Pac
 if _MOMENTUM_PACER_DIR not in sys.path:
     sys.path.insert(0, _MOMENTUM_PACER_DIR)
 
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+os.environ.setdefault("GIT_CONFIG_COUNT", "1")
+os.environ.setdefault("GIT_CONFIG_KEY_0", "safe.directory")
+os.environ.setdefault("GIT_CONFIG_VALUE_0", str(_REPO_ROOT))
+
 
 def pytest_configure(config):
     config.addinivalue_line(
         "markers",
         "local_workbook: requires local tcp_alex.xlsx at configured absolute path",
     )
+    config.addinivalue_line(
+        "markers",
+        "tcp_layout: TCP layout tests that must not perform live benchmark downloads",
+    )
+
+
+@pytest.fixture(autouse=True)
+def _guard_tcp_layout_benchmark_network(request):
+    module_name = Path(str(request.fspath)).name
+    if module_name not in TCP_LAYOUT_TEST_MODULES:
+        yield
+        return
+    with patch("tcp_benchmarks._fetch_returns_with_timeout", side_effect=_blocked_network_fetch):
+        yield
 
 
 @pytest.fixture(scope="session")

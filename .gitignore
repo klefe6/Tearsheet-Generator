@@ -57,6 +57,7 @@ tcp_daily_returns_secret_state.backup.json
 tcp_daily_returns_secret_state.lock
 _runtime/
 tests/_tmp_state/
+tests/_pytest_tmp/
 _runtime/
 tests/_acceptance_state/
 tests/_preflight_state/

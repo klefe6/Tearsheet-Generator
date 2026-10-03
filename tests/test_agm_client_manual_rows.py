@@ -27,7 +27,12 @@ def mp_ts(monkeypatch, tmp_path):
     mod = _load_mp_ts()
     manual_path = tmp_path / "manual_rows.json"
     manual_path.write_text("[]", encoding="utf-8")
-    monkeypatch.setattr(mod, "_agm_manual_daily_rows_path", lambda: manual_path)
+    monkeypatch.setattr(mod, "_agm_manual_daily_rows_path", lambda: str(manual_path))
+    # Clear import-time live display state so tests use the temp manual file only.
+    with mod._AGM_DISPLAY_LOCK:
+        mod._AGM_LIVE_ACCOUNTING = None
+        mod._AGM_LIVE_FEE_ACCRUAL = None
+        mod._AGM_DISPLAY_REVISION = 0
     return mod, manual_path
 
 
